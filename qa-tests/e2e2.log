@@ -1,0 +1,193 @@
+
+########## 启动 dev server ##########
+dev server http=200 pid=43963
+
+########## 重置 localStorage → 种子数据重新初始化 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/
+"cleared"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/
+"{\"products\":26,\"users\":5}"
+
+########## 种子结构快照（供报告） ##########
+"[{\"id\":\"u_demo\",\"account\":\"2021001\",\"nickname\":\"小鹿同学\",\"campus\":\"东校区\"},{\"id\":\"u_lin\",\"account\":\"2021002\",\"nickname\":\"林小满\",\"campus\":\"西校区\"},{\"id\":\"u_zhao\",\"account\":\"2021003\",\"nickname\":\"赵一鸣\",\"campus\":\"南校区\"},{\"id\":\"u_chen\",\"account\":\"2021004\",\"nickname\":\"陈思远\",\"campus\":\"北校区\"},{\"id\":\"u_wang\",\"account\":\"2021005\",\"nickname\":\"王小米\",\"campus\":\"东校区\"}]"
+"{\"favs\":[\"u_demo:p01\",\"u_demo:p19\",\"u_wang:p04\",\"u_zhao:p11\"],\"orders\":[\"u_demo>u_lin:待确认\",\"u_chen>u_demo:已完成\"],\"convs\":1,\"comments\":5,\"messages\":4}"
+"{\"statusCount\":{\"在售\":24,\"已售出\":2}}"
+"{\"u_demo_products\":[\"p04:小米手环 8 NFC 版:在售\",\"p11:小米台灯 Pro 护眼版:在售\",\"p13:美的电热水壶 1.5L:在售\",\"p21:李宁 篮球 7号 室内外通用:在售\",\"p24:民谣吉他 41寸 单板:已售出\"]}"
+
+########## 搜索：关键词命中（修正定位器） ##########
+"submitted"
+"{\"url\":\"?keyword=%E6%95%99%E6%9D%90\",\"cards\":1,\"count\":\"共 1 件闲置· 关键词「教材」\"}"
+"{\"titles\":[\"高等数学 第七版 上下册 同济大学\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-01-search.png
+
+########## 搜索：大小写不敏感 + 无结果空状态 ##########
+"ok"
+"{\"cards\":1,\"titles\":[\"iPhone 13 128G 蓝色 国行\"]}"
+"ok"
+"{\"cards\":0,\"emptyText\":\"校园集市搜索发布闲置0登录搜索校内闲置 · 当面交易 · 更安心让闲置流动起来，在校园里遇见新的主人教材、数码、生活好物……同校同学一键发布，毕业季清仓、开学季淘货都在这儿。发布我的闲置当前在售 24 件好物全部数码电子教材书籍生活用品服饰鞋包运动户外其他共 0 件闲置· 关键词「zzz不存在zzz」筛选 / 排序校区全部校区校区成色全部成色成色最低价最低价最高价最高价排序最新发布排序重置没有找到相关闲置试试更换关键词、切换分类，或放宽价格与成色条件～重置筛选我要发布0首页0消息发布0收藏0我的\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-02-search-empty.png
+
+########## 排序：最新 / 价格升 / 价格降 / 最多浏览 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/
+true
+"opened"
+"no-opt"
+"{\"sort\":\"全部校区\",\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-03-sort-asc.png
+"no-cb"
+"no-opt"
+"{\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-04-sort-desc.png
+"no-cb"
+"no-opt"
+"{\"views\":[\"331\",\"356\",\"268\",\"96\",\"302\",\"210\",\"88\",\"121\",\"118\",\"134\",\"58\",\"289\",\"103\",\"142\",\"72\",\"87\",\"76\",\"97\",\"245\",\"154\",\"178\",\"66\",\"91\",\"44\",\"63\",\"187\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-05-sort-views.png
+"no-cb"
+"no-opt"
+"{\"titles\":[\"索尼 WH-1000XM4 头戴降噪耳机\",\"iPhone 13 128G 蓝色 国行\",\"捷安特 ATX 660 山地车 26寸\"]}"
+
+########## 筛选：校区 + 成色 + 价格区间 ##########
+"opened"
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:106
+    at <anonymous>:1:131
+"{\"cards\":26,\"allEast\":false}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-06-filter-campus.png
+"range-set"
+"{\"prices\":[\"¥150\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥70\",\"¥80\",\"¥55\",\"¥150\",\"¥120\",\"¥90\",\"¥50\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-07-filter-price.png
+
+########## 登录：错误密码 → 报错提示 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"filled"
+"clicked"
+"{\"path\":\"/login\",\"toast\":[\"请输入账号和密码\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-08-login-wrong.png
+
+########## 注册新账号（自动登录） ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/register
+8
+"clicked"
+"{\"path\":\"/register\",\"users\":5,\"currentUserId\":null,\"newUser\":[\"2021001\",\"2021002\",\"2021003\",\"2021004\",\"2021005\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-09-register.png
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'password')
+    at <anonymous>:1:120
+
+########## 买家下单：B 购买 u_demo 在售商品 ##########
+target seller-product = p04
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/product/p04
+"clicked"
+"{\"orders\":[{\"b\":\"u_demo\",\"s\":\"u_lin\",\"st\":\"待确认\",\"p\":\"p02\"},{\"b\":\"u_chen\",\"s\":\"u_demo\",\"st\":\"已完成\",\"p\":\"p24\"}],\"productStatus\":\"在售\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-10-buyer-order.png
+
+########## 卖家（demo）确认交易 → 交易中 → 已完成 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"no-btn"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/profile/orders
+"tab"
+"{\"orderChips\":[\"已完成\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-11-sell-orders.png
+"no-btn"
+"{\"status\":\"待确认\"}"
+"no-btn"
+"{\"status\":\"待确认\",\"productStatus\":\"在售\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-12-order-done.png
+
+########## 卖家评价买家 ##########
+"no-btn"
+✗ Evaluation error: TypeError: Illegal invocation
+    at <anonymous>:1:143
+    at <anonymous>:1:335
+"{}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-13-seller-review.png
+
+########## 买家评价卖家 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/profile
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"clicked"
+"{\"currentUserId\":null}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"no-btn"
+✗ Evaluation error: TypeError: Illegal invocation
+    at <anonymous>:1:143
+    at <anonymous>:1:335
+"{}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-14-buyer-review.png
+
+########## 发布校验：价格 0 / 负数 / 超限 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+✗ Evaluation error: TypeError: Illegal invocation
+    at set (<anonymous>:1:115)
+    at <anonymous>:1:515
+    at <anonymous>:1:774
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:98
+    at <anonymous>:1:124
+"{\"err0\":[]}"
+✗ Evaluation error: TypeError: Illegal invocation
+    at set (<anonymous>:1:115)
+    at <anonymous>:1:420
+    at <anonymous>:1:456
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:98
+    at <anonymous>:1:124
+"{\"errNeg\":[]}"
+✗ Evaluation error: TypeError: Illegal invocation
+    at set (<anonymous>:1:115)
+    at <anonymous>:1:420
+    at <anonymous>:1:461
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:98
+    at <anonymous>:1:124
+"{\"errBig\":[]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-15-price-validation.png
+
+########## 发布校验：未选图片提示 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:98
+    at <anonymous>:1:124
+"{\"imgErr\":[]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-16-image-validation.png
+
+########## 下架商品 → 首页不再展示 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/login
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/
+"{\"homeBefore\":26}"
+"{\"demoProductsBefore\":[\"小米手环 8 NFC 版|在售\",\"小米台灯 Pro 护眼版|在售\",\"美的电热水壶 1.5L|在售\",\"李宁 篮球 7号 室内外通用|在售\",\"民谣吉他 41寸 单板|已售出\"]}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/profile/listings
+"clicked"
+"{\"demoProductsAfter\":[\"小米手环 8 NFC 版|已下架\",\"小米台灯 Pro 护眼版|在售\",\"美的电热水壶 1.5L|在售\",\"李宁 篮球 7号 室内外通用|在售\",\"民谣吉他 41寸 单板|已售出\"]}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5174/
+"{\"homeAfter\":25}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-17-takedown-hidden.png
+
+########## 未读角标 ##########
+"{\"badge\":[\"1\",\"1\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r2-18-badge.png
+
+########## 收尾 ##########
+✓ Closed session: default
+DONE

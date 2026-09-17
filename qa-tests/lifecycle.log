@@ -1,0 +1,54 @@
+http=200
+"cleared"
+
+##### 注册买家 B #####
+"filled"
+click '注册并登录' @e3
+✓ Done
+"{\"uid\":null}"
+
+##### B 下单 p13 #####
+click '我想要' @e1
+✓ Done
+"{\"p13\":\"在售\"}"
+
+##### 切换到 demo（卖家） #####
+click '退出登录' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+click '一键体验账号' @e1
+✓ Done
+"{\"uid\":null}"
+
+##### 我卖出的 → 确认交易（交易中） #####
+click '我卖出的' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"chips\":[]}"
+click '确认交易' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'status')
+    at <anonymous>:1:119
+
+##### 完成交易（已完成） #####
+click '完成交易' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'status')
+    at <anonymous>:1:119
+
+##### 卖家评价买家 #####
+click '评价买家' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"no-ta"
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'sellerReview')
+    at <anonymous>:1:125
+
+##### 切换回 B → 评价卖家 #####
+click '退出登录' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"login-clicked"
+"{\"uid\":null}"
+click '评价卖家' @
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"no-ta"
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'buyerReview')
+    at <anonymous>:1:124
+DONE

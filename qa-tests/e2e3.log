@@ -1,0 +1,158 @@
+
+########## 启动 dev server ##########
+dev server http=200 pid=45786
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/
+"cleared"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/
+"{\"products\":26}"
+
+########## 排序：价格升 / 价格降 / 最多浏览 / 最新 ##########
+"expanded"
+✓ Done
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-01-sort-asc.png
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-02-sort-desc.png
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"views\":[\"331\",\"356\",\"268\",\"96\",\"302\",\"210\",\"88\",\"121\",\"118\",\"134\",\"58\",\"289\",\"103\",\"142\",\"72\",\"87\",\"76\",\"97\",\"245\",\"154\",\"178\",\"66\",\"91\",\"44\",\"63\",\"187\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-03-sort-views.png
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✓ Done
+"{\"first3\":[\"索尼 WH-1000XM4 头戴降噪耳机\",\"iPhone 13 128G 蓝色 国行\",\"捷安特 ATX 660 山地车 26寸\"]}"
+
+########## 筛选：校区 = 东校区 ##########
+✓ Done
+✓ Done
+"{\"cards\":26,\"allEast\":false}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-04-filter-campus.png
+
+########## 筛选：成色 = 全新 ##########
+✓ Done
+✓ Done
+"{\"cards\":26,\"allNew\":false}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-05-filter-condition.png
+
+########## 登录：错误密码 → 提示「密码错误」 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/login
+2
+"clicked"
+"{\"path\":\"/login\",\"toast\":[\"密码错误，请重新输入\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-06-login-wrong.png
+
+########## 登录：账号不存在 ##########
+"ok"
+"clicked"
+"{\"toast\":[]}"
+
+########## 注册新账号 B（自动登录） ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/register
+6
+"clicked"
+"{\"path\":\"/\",\"users\":6,\"currentUserId\":\"u_mu3ikvvb_bpyw0npb\",\"accounts\":[\"2021001\",\"2021002\",\"2021003\",\"2021004\",\"2021005\",\"2021999\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-07-register.png
+
+########## 注册校验：密码不足 6 位 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/register
+"ok"
+"clicked"
+"{\"toast\":[\"密码至少 6 位\"],\"users\":6}"
+
+########## 买家 B 下单购买 demo 的商品 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/login
+"clicked"
+"{\"currentUserId\":\"u_mu3ikvvb_bpyw0npb\"}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/product/p13
+"clicked"
+"{\"orders\":[\"u_mu3ikvvb_bpyw0npb>u_demo:待确认\",\"u_demo>u_lin:待确认\",\"u_chen>u_demo:已完成\"],\"p13\":\"已售出\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-08-buyer-order.png
+
+########## 卖家 demo：确认交易 → 交易中 → 完成交易 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/profile
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/login
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/profile/orders
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"chips\":[\"待确认\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-09-sell-orders.png
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"status\":\"待确认\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-10-trading.png
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"{\"status\":\"待确认\",\"p13\":\"已售出\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-11-done.png
+
+########## 卖家评价买家 ##########
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Evaluation error: TypeError: Illegal invocation
+    at setT (<anonymous>:1:291)
+    at <anonymous>:1:427
+    at <anonymous>:1:589
+"{}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-12-seller-review.png
+
+########## 买家 B：评价卖家 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/profile
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/login
+"clicked"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/profile/orders
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✗ Evaluation error: TypeError: Illegal invocation
+    at setT (<anonymous>:1:291)
+    at <anonymous>:1:427
+    at <anonymous>:1:588
+"{}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-13-buyer-review.png
+
+########## 发布校验：价格 0 / 负数 / 超限 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/publish
+"ok"
+"set0"
+"clicked"
+"{\"price0\":[\"价格必须大于 0\"]}"
+"neg"
+"clicked"
+"{\"neg\":[\"价格必须大于 0\"]}"
+"big"
+"clicked"
+"{\"big\":[\"价格过于离谱啦\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-14-price-validation.png
+
+########## 发布校验：标题过短 / 描述过短 / 未选图片 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/publish
+"ok"
+"clicked"
+"{\"errs\":[\"标题至少 4 个字\",\"描述至少 10 个字，便于买家了解\",\"请输入价格\"],\"imgErr\":[\"请至少选择一张商品图片\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-15-other-validation.png
+
+########## 超长文本：200 字标题 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5175/publish
+"ok"
+"clicked"
+"{\"path\":\"/product/p_mu3im1ic_0mdizwg5\",\"titleLen\":200}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/r3-16-longtext.png
+
+########## 收尾 ##########
+✓ Closed session: default
+DONE

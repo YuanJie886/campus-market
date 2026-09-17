@@ -1,0 +1,180 @@
+
+########## 启动 dev server ##########
+dev server http=200 pid=41881
+route / -> 200
+route /index.html -> 200
+route /src/main.tsx -> 200
+route /src/App.tsx -> 200
+route /product/xyz -> 200
+route /publish -> 200
+route /profile -> 200
+route /messages -> 200
+route /login -> 200
+
+########## 首页加载 + 种子数据初始化 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+"{\"market\":true,\"auth\":true}"
+"{\"products\":26,\"users\":5,\"currentUserId\":null}"
+"{\"cards\":26}"
+"{\"cats\":[\"数码电子\",\"教材书籍\",\"生活用品\",\"服饰鞋包\",\"运动户外\",\"其他\"],\"campuses\":[\"东校区\",\"西校区\",\"南校区\",\"北校区\"],\"statuses\":[\"在售\",\"已售出\"]}"
+"{\"onSaleText\":\"当前在售 24 件好物\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/01-home.png
+
+########## 搜索：关键词命中标题/描述 ##########
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✓ Done
+"{\"url\":\"\",\"cards\":26,\"countText\":\"共 26 件闲置\"}"
+"{\"titles\":[\"索尼 WH-1000XM4 头戴降噪耳机\",\"iPhone 13 128G 蓝色 国行\",\"捷安特 ATX 660 山地车 26寸\",\"小米手环 8 NFC 版\",\"Nike Air Force 1 白色 42码\",\"高等数学 第七版 上下册 同济大学\",\"线性代数 第六版 同济大学\",\"卡西欧 fx-991CN X 科学计算器\",\"小米台灯 Pro 护眼版\",\"考研英语一 历年真题 黄皮书\",\"李宁 篮球 7号 室内外通用\",\"iPad Air 4 64G WiFi版 深空灰\",\"迪卡侬 羽毛球拍 双拍套装\",\"罗技 MX Master 3 无线鼠标\",\"美的电热水壶 1.5L\",\"优衣库 摇粒绒外套 男 L 码\",\"C Primer Plus 第6版 中文版\",\"尤克里里 23寸 初学者套装\",\"宿舍小冰箱 海尔 42L 单门\",\"JanSport 双肩包 学院风\",\"Kindle Paperwhite 4 电子书阅读器\",\"阿迪达斯 运动长裤 M 码\",\"折叠床上书桌 懒人桌\",\"自行车骑行头盔 均码\",\"大学物理 上下册 第五版\",\"民谣吉他 41寸 单板\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/02-search.png
+
+########## 搜索：无结果空状态 ##########
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+✓ Done
+"{\"cards\":26,\"empty\":null}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/03-search-empty.png
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+
+########## 分类筛选：教材书籍 ##########
+"clicked"
+"{\"cards\":5,\"catChips\":[\"轻微使用痕迹高等数学 第七版 上下册 同济大学¥45¥89东校区教材书籍12 小时前210\",\"几乎全新线性代数 第六版 同济大学¥20¥38东校区教材书籍14 小时前88\",\"轻微使用痕迹考研英语一 历年真题 黄皮书¥60¥158南校区教材书籍20 小时前134\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/04-category.png
+
+########## 排序：价格从低到高 / 从高到低 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+true
+"no-el"
+"no-opt"
+"{\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/05-sort-asc.png
+✗ Evaluation error: TypeError: Cannot read properties of null (reading 'click')
+    at <anonymous>:1:180
+    at <anonymous>:1:205
+✗ Evaluation error: TypeError: Cannot read properties of undefined (reading 'click')
+    at <anonymous>:1:109
+    at <anonymous>:1:134
+"{\"prices\":[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/06-sort-desc.png
+
+########## 未登录访问受限页 → 重定向登录 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/login
+"{\"path\":\"/login\"}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/login
+"{\"path\":\"/login\"}"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/login
+"{\"path\":\"/login\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/07-redirect-login.png
+
+########## 登录：错误密码 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/login
+4
+"clicked"
+"{\"path\":\"/login\",\"toast\":[]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/08-login-wrong.png
+
+########## 一键体验账号登录 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/login
+"clicked"
+"{\"path\":\"/\",\"currentUserId\":\"u_demo\"}"
+"{\"nickname\":null}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/09-login-demo.png
+
+########## 商品详情：进入 + 浏览量 + 收藏 + 我想要 ##########
+"{\"uid\":\"u_demo\"}"
+target product id = p01
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/product/p01
+"{\"h1\":\"iPhone 13 128G 蓝色 国行\",\"path\":\"/product/p01\"}"
+"{\"viewsText\":\"358 次浏览\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/10-detail.png
+"clicked"
+"{\"favCount\":3,\"toast\":[\"已取消收藏\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/11-favorited.png
+"clicked"
+"{\"path\":\"/profile/orders\",\"orders\":3}"
+"{\"latestOrder\":{\"status\":\"待确认\",\"price\":3200}}"
+"{\"productStatus\":\"已售出\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/12-order-created.png
+
+########## 我的订单：取消订单 → 商品回滚在售 ##########
+"clicked"
+"{\"orderStatus\":\"已取消\",\"productStatus\":\"在售\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/13-order-cancelled.png
+
+########## 个人中心：我的收藏 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/profile/favorites
+"{\"favCards\":1}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/14-favorites.png
+
+########## 个人中心：我的发布 + 下架/重新上架 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/profile/listings
+"{\"listings\":7,\"body\":[\"搜索\",\"发布闲置\",\"1\",\"\",\"搜索\",\"全部\",\"在售\",\"已售出\",\"已下架\",\"发布新商品\",\"\",\"小米手环 8 NFC 版\",\"编辑\",\"标记已售\",\"下架\",\"\",\"小米台灯 Pro 护眼版\",\"编辑\",\"标记已售\",\"下架\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/15-listings.png
+"clicked"
+"{\"statuses\":[\"已下架\",\"在售\",\"在售\",\"在售\",\"已售出\"]}"
+"clicked"
+"{\"statuses\":[\"在售\",\"在售\",\"在售\",\"在售\",\"已售出\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/16-listings-relisted.png
+
+########## 发布：空表单校验 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/publish
+"clicked"
+"{\"errors\":[\"请输入商品标题\",\"请输入商品描述\",\"请输入价格\"]}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/17-publish-validation.png
+
+########## 发布：填写并提交 ##########
+"{\"inputs\":22,\"textareas\":2}"
+"imgs-selected"
+"{\"imgCount\":2}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/18-publish-filled.png
+"clicked"
+"{\"path\":\"/product/p_mu3ib3yb_m41w6zr6\",\"h1\":\"QA 测试商品 九成新机械键盘\"}"
+"{\"products\":27,\"newest\":\"QA 测试商品 九成新机械键盘\"}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/19-published.png
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+"{\"found\":true}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/20-home-new-product.png
+
+########## 详情页留言 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/product/p01
+"typed"
+"clicked"
+"{\"comments\":6,\"hasQa\":true}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/21-comment.png
+
+########## 站内消息：联系卖家 → 会话 → 发消息 → 未读角标 ##########
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+"no-btn"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/product/p01
+"clicked"
+"{\"path\":\"/messages/conv01\",\"convs\":1}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/22-messages.png
+"typed"
+"clicked"
+"{\"messages\":5,\"hasMsg\":true}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/23-message-sent.png
+
+########## localStorage 损坏 → 自愈 ##########
+"corrupted"
+✓ 校园集市 · 校园二手交易平台
+  http://127.0.0.1:5173/
+"{\"recovered\":26}"
+[shot] /Users/lhz/WorkBuddy AI/2026-09-16-10-16-58/campus-market/qa-tests/screenshots/24-corrupt-selfheal.png
+
+########## 收尾 ##########
+✓ Closed session: default
+DONE

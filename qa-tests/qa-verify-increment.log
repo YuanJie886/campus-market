@@ -1,0 +1,9 @@
+HTTP=200  URL=http://127.0.0.1:5191
+
+##### T1 种子数据完整性 #####
+[INFO] T1 seed | INFO|products=26 notDelisted=26 onSale=24
+
+##### T2 回归：无关键词时默认排序 = createdAt 降序 #####
+[PASS] T2 no-keyword createdAt desc | PASS|noKw createdAtDesc n=26 expected=26
+
+##### T3 回归：显式排序严格单调（相关性加权不得干预） #####

@@ -1,0 +1,40 @@
+http=200
+"cleared"
+
+##### 注册买家 B（eval 点击） #####
+"filled"
+"ok"
+"{\"uid\":\"u_mu3j5oyx_vbaaz4u9\",\"users\":6}"
+
+##### B 下单 p13 #####
+"ok"
+"{\"orderStatus\":\"待确认\",\"p13\":\"已售出\"}"
+
+##### 切到 demo（卖家） #####
+"ok"
+"ok"
+"{\"uid\":\"u_demo\"}"
+
+##### 我卖出的 tab → 确认交易 → 交易中 #####
+"tab-clicked"
+"{\"chips\":[\"待确认\",\"已完成\"]}"
+"ok"
+"{\"status\":\"交易中\"}"
+
+##### 完成交易 #####
+"ok"
+"{\"status\":\"已完成\",\"p13\":\"已售出\"}"
+
+##### 卖家评价买家 #####
+"ok"
+"submitted"
+"{\"sellerReview\":{\"rating\":5,\"comment\":\"卖家评价：买家很爽快，交易顺利\",\"createdAt\":1789528678928}}"
+
+##### 切回 B → 评价卖家 #####
+"ok"
+"ok"
+"{\"uid\":\"u_mu3j5oyx_vbaaz4u9\"}"
+"ok"
+"submitted"
+"{\"buyerReview\":{\"rating\":5,\"comment\":\"买家评价：卖家很好，物美价廉\",\"createdAt\":1789528690355},\"sellerReview\":{\"rating\":5,\"comment\":\"卖家评价：买家很爽快，交易顺利\",\"createdAt\":1789528678928}}"
+DONE

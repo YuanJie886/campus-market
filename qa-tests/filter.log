@@ -1,0 +1,7 @@
+http=200
+east opt=@e3
+✓ Done
+"{\"cards\":11,\"allEast\":true}"
+new opt=@e3
+"{\"cards\":2,\"allNew\":true}"
+DONE

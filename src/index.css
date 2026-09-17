@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
+    -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f7f9f8;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: #b0ede6;
+  color: #0f4f4b;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/*
+ * 因关闭了 Tailwind preflight（避免与 MUI CssBaseline 冲突），
+ * 这里手动补上原生 button 的最小重置。
+ * MUI 组件的样式选择器为类选择器，优先级高于此元素选择器，因此不受影响。
+ */
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0 solid;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role='button']:focus-visible {
+  outline: 3px solid rgba(13, 138, 132, 0.28);
+  outline-offset: 3px;
+}
+
+/* 轻量滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 商品图片骨架微动效 */
+@keyframes cm-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.cm-fade-in {
+  animation: cm-fade-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Hero 的柔和网格，让渐变背景更有层次 */
+.cm-hero {
+  isolation: isolate;
+  background-image:
+    linear-gradient(135deg, rgba(5, 77, 74, 0.98), rgba(13, 138, 132, 0.94) 58%, rgba(44, 181, 169, 0.9)),
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+
+.cm-app-shell {
+  background-image: radial-gradient(circle at 14% 0%, rgba(176, 237, 230, 0.2), transparent 28rem);
+}
+
+/* 底部导航占位，避免内容被遮挡 */
+.cm-bottom-safe {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+@media (min-width: 768px) {
+  .cm-bottom-safe {
+    padding-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

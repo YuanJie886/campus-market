@@ -1,0 +1,8 @@
+http=200
+CHECK_A=noKeywordCreatedAtDesc=true count=26
+CHECK_B=priceAscOrder=true count=26 prices=20,35,40,45,45,50,55,60,60,70,80,90,95,120,130,150,150,380,380,400,420,450,850,1200,2200,3200
+KW_RAW=le|1|1|false|2
+keyword=[le] titleHits=1 descOnly=1 naiveOrderCorrect=false matched=2
+RELEVANCE_RESULT=kw=le rendered=2 titleHit=1 descOnly=1 levels=2,1 correctOrder=true
+PRICE_RESULT=inlineHint=true emptyTitle=true cardsRendered=0
+DONE

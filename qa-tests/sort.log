@@ -1,0 +1,19 @@
+http=200
+"expanded"
+--- comboboxes ---
+  - generic "全部校区校区" [ref=e41] clickable [onclick]
+    - combobox "校区 全部校区" [expanded=false, ref=e76]: 全部校区
+  - generic "全部成色成色" [ref=e42] clickable [onclick]
+    - combobox "成色 全部成色" [expanded=false, ref=e77]: 全部成色
+  - generic "最新发布排序" [ref=e45] clickable [onclick]
+    - combobox "排序 最新发布" [expanded=false, ref=e80]: 最新发布
+--- click sort combobox (nth 3) ---
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+--- options after open ---
+  - generic "最新发布排序" [ref=e45] clickable [onclick]
+    - combobox "排序 最新发布" [expanded=false, ref=e80]: 最新发布
+--- click option 价格从低到高 ---
+✗ Element not found. Verify the selector is correct and the element exists in the DOM.
+"[\"¥1200\",\"¥3200\",\"¥850\",\"¥150\",\"¥400\",\"¥45\",\"¥20\",\"¥95\",\"¥130\",\"¥60\",\"¥60\",\"¥2200\",\"¥70\",\"¥380\",\"¥45\",\"¥80\",\"¥55\",\"¥150\",\"¥380\",\"¥120\",\"¥420\",\"¥90\",\"¥35\",\"¥50\",\"¥40\",\"¥450\"]"
+shot done
+DONE
