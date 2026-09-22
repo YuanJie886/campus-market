@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lulu.campusmarketbackend.mapper.OrderMapper">
+    <select id="selectRowsByRole" resultType="map">
+        SELECT * FROM orders
+        WHERE
+        <choose>
+            <when test="role == 'buyer'">buyer_id = #{uid}</when>
+            <when test="role == 'seller'">seller_id = #{uid}</when>
+            <otherwise>(buyer_id = #{uid} OR seller_id = #{uid})</otherwise>
+        </choose>
+        ORDER BY created_at DESC
+    </select>
+</mapper>

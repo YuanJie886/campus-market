@@ -1,0 +1,6 @@
+{
+  "name": "@campus-market/api", "private": true, "version": "1.0.0",
+  "scripts": { "dev": "node --env-file-if-exists=.env --watch dist/main.js", "build": "tsc -p tsconfig.json", "start": "node --env-file-if-exists=.env dist/main.js", "migrate": "node --env-file-if-exists=.env dist/migrate.js", "seed": "node --env-file-if-exists=.env dist/seed.js", "test": "npm run build && node --test test/*.test.cjs" },
+  "dependencies": { "@nestjs/common": "^11.1.0", "@nestjs/core": "^11.1.0", "@nestjs/platform-express": "^11.1.0", "@nestjs/swagger": "^11.2.0", "@nestjs/jwt": "^11.0.0", "bcryptjs": "^3.0.2", "cookie-parser": "^1.4.7", "express-rate-limit": "^8.1.0", "helmet": "^8.1.0", "pg": "^8.16.0", "reflect-metadata": "^0.2.2", "rxjs": "^7.8.2", "zod": "^4.1.0" },
+  "devDependencies": { "@types/node": "^24.0.0", "@types/express": "^5.0.0", "@types/cookie-parser": "^1.4.9", "@types/pg": "^8.15.0", "typescript": "^5.5.3", "@electric-sql/pglite": "^0.3.14" }
+}

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lulu.campusmarketbackend.mapper.ProductMapper">
+    <select id="selectProductRows" resultType="map">
+        SELECT * FROM products
+        WHERE (status &lt;&gt; '已下架' OR seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+        <if test="category != null and category != ''">AND category = #{category}</if>
+        <if test="campus != null and campus != ''">AND campus = #{campus}</if>
+        <if test="condition != null and condition != ''">AND condition = #{condition}</if>
+        <if test="keyword != null and keyword != ''">AND (title ILIKE CONCAT('%', #{keyword}, '%') OR description ILIKE CONCAT('%', #{keyword}, '%'))</if>
+        <if test="minPrice != null">AND price &gt;= #{minPrice}</if>
+        <if test="maxPrice != null">AND price &lt;= #{maxPrice}</if>
+        ORDER BY ${orderBy}, id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countProductRows" resultType="long">
+        SELECT count(*) FROM products
+        WHERE (status &lt;&gt; '已下架' OR seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+        <if test="category != null and category != ''">AND category = #{category}</if>
+        <if test="campus != null and campus != ''">AND campus = #{campus}</if>
+        <if test="condition != null and condition != ''">AND condition = #{condition}</if>
+        <if test="keyword != null and keyword != ''">AND (title ILIKE CONCAT('%', #{keyword}, '%') OR description ILIKE CONCAT('%', #{keyword}, '%'))</if>
+        <if test="minPrice != null">AND price &gt;= #{minPrice}</if>
+        <if test="maxPrice != null">AND price &lt;= #{maxPrice}</if>
+    </select>
+
+    <update id="updateProductFields">
+        UPDATE products
+        <set>
+            <if test="titleSet">title = #{title},</if>
+            <if test="descriptionSet">description = #{description},</if>
+            <if test="priceSet">price = #{price},</if>
+            <if test="originalPriceSet">original_price = #{originalPrice,jdbcType=NUMERIC},</if>
+            <if test="categorySet">category = #{category},</if>
+            <if test="conditionSet">condition = #{condition},</if>
+            <if test="campusSet">campus = #{campus},</if>
+            <if test="imagesSet">images = #{images,typeHandler=com.lulu.campusmarketbackend.mapper.JsonbTypeHandler},</if>
+            <if test="contactSet">contact = #{contact},</if>
+            <if test="statusSet">status = #{status}, sold_at = #{soldAt,jdbcType=TIMESTAMP_WITH_TIMEZONE},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+</mapper>

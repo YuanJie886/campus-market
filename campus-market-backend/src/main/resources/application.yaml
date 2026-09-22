@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: campus-market-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/campus_market}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+
+server:
+  port: ${PORT:3000}
+
+campus-market:
+  web-origin: ${WEB_ORIGIN:http://localhost:5173}
+  jwt-secret: ${JWT_SECRET:change-me-in-development-only-secret-please-set-a-long-random-value}
+  jwt-issuer: campus-market
+  jwt-audience: campus-market-web
+  access-token-minutes: 15
+  refresh-token-days: 7
+  secure-cookies: ${SECURE_COOKIES:false}
+
+logging:
+  level:
+    com.lulu.campusmarketbackend: INFO
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-handlers-package: com.lulu.campusmarketbackend.mapper
+  configuration:
+    map-underscore-to-camel-case: true

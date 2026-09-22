@@ -1,0 +1,237 @@
+classDiagram
+    direction LR
+
+    class User {
+      +__init__(string id, string account, string nickname, Campus campus)
+      +string id
+      +string account
+      +string nickname
+      +string avatar
+      +Campus campus
+      +string contactMasked
+      +string createdAtIso
+    }
+    class Product {
+      +__init__(string id, string title, number price, string sellerId)
+      +string id
+      +string title
+      +string description
+      +number price
+      +number? originalPrice
+      +Category category
+      +Condition condition
+      +Campus campus
+      +string[] images
+      +string sellerId
+      +ProductStatus status
+      +number views
+      +string createdAtIso
+      +string? soldAtIso
+    }
+    class Order {
+      +__init__(string id, string productId, string buyerId, string sellerId)
+      +string id
+      +string productId
+      +string buyerId
+      +string sellerId
+      +number price
+      +CanonicalOrderStatus status
+      +string? meetingPointId
+      +string? meetingAtIso
+      +string? confirmationCodeMasked
+      +string createdAtIso
+      +string updatedAtIso
+    }
+    class Review {
+      +__init__(number rating, string comment)
+      +number rating
+      +string comment
+      +string createdAtIso
+    }
+    class Comment {
+      +__init__(string id, string productId, string userId, string content)
+      +string id
+      +string productId
+      +string userId
+      +string content
+      +string? parentId
+      +string createdAtIso
+    }
+    class Favorite {
+      +__init__(string id, string userId, string productId)
+      +string id
+      +string userId
+      +string productId
+      +string createdAtIso
+    }
+    class Conversation {
+      +__init__(string id, string productId, string buyerId, string sellerId)
+      +string id
+      +string productId
+      +string buyerId
+      +string sellerId
+      +string createdAtIso
+      +string updatedAtIso
+    }
+    class ChatMessage {
+      +__init__(string id, string conversationId, string senderId, string content)
+      +string id
+      +string conversationId
+      +string senderId
+      +string content
+      +string createdAtIso
+    }
+    class ProductQuery {
+      +__init__(string? keyword, number page, number pageSize)
+      +string? keyword
+      +Category? category
+      +Campus? campus
+      +Condition? condition
+      +number? minPrice
+      +number? maxPrice
+      +SortKey sort
+      +number page
+      +number pageSize
+    }
+    class ProductPage {
+      +__init__(Product[] items, number page, number pageSize, number total)
+      +Product[] items
+      +number page
+      +number pageSize
+      +number total
+    }
+    class AuthSession {
+      +__init__(User user, string accessToken, string expiresAtIso)
+      +User user
+      +string accessToken
+      +string? refreshToken
+      +string expiresAtIso
+    }
+    class ApiEnvelope~T~ {
+      +__init__(number code, T data, string message)
+      +number code
+      +T data
+      +string message
+      +string? requestId
+    }
+    class ApiError {
+      +__init__(number code, string message)
+      +number code
+      +string message
+      +unknown? details
+      +string? requestId
+    }
+
+    class CampusMarketApi {
+      <<interface/port>>
+      +Promise~AuthSession~ login(LoginInput input)
+      +Promise~AuthSession~ register(RegisterInput input)
+      +Promise~User|null~ getCurrentUser()
+      +Promise~User~ updateProfile(ProfilePatch patch)
+      +Promise~void~ logout()
+      +Promise~ProductPage~ listProducts(ProductQuery query)
+      +Promise~Product~ getProduct(string id)
+      +Promise~Product~ createProduct(ProductInput input)
+      +Promise~Product~ updateProduct(string id, ProductPatch patch)
+      +Promise~Product~ setProductStatus(string id, ProductStatus status)
+      +Promise~void~ incrementProductViews(string id)
+      +Promise~Favorite[]~ listFavorites()
+      +Promise~boolean~ toggleFavorite(string productId)
+      +Promise~Order~ createOrder(CreateOrderInput input)
+      +Promise~Order~ transitionOrder(string id, OrderTransitionInput input)
+      +Promise~Order[]~ listOrders(OrderRole role)
+      +Promise~Review~ addReview(string orderId, ReviewInput input)
+      +Promise~Comment[]~ listComments(string productId)
+      +Promise~Comment~ addComment(CommentInput input)
+      +Promise~Conversation[]~ listConversations()
+      +Promise~Conversation~ getOrCreateConversation(string productId)
+      +Promise~ChatMessage[]~ listMessages(string conversationId)
+      +Promise~ChatMessage~ sendMessage(string conversationId, string content)
+      +Promise~number~ getUnreadCount()
+    }
+    class ApiClient {
+      +CampusMarketApi api
+      +TokenStore tokenStore
+      +constructor(CampusMarketApi, TokenStore)
+      +CampusMarketApi createFromEnv()
+    }
+    class MockCampusMarketApi {
+      -LegacyStorage storage
+      -MockDatabase db
+      +constructor(MockDatabase, LegacyStorage)
+      +Promise~T~ methods defined by CampusMarketApi
+    }
+    class RestCampusMarketApi {
+      -HttpTransport http
+      -TokenStore tokenStore
+      +constructor(HttpTransport, TokenStore)
+      +Promise~T~ methods defined by CampusMarketApi
+    }
+    class HttpTransport {
+      +string baseUrl
+      +constructor(string baseUrl)
+      +Promise~ApiEnvelope~ request(HttpRequest request)
+    }
+    class TokenStore {
+      <<interface>>
+      +string? getAccessToken()
+      +void setSession(AuthSession session)
+      +void clear()
+    }
+    class LegacyStorage {
+      +T load(string key, T fallback)
+      +void save(string key, T value)
+      +void remove(string key)
+      +void clearDemoState()
+    }
+    class MockDatabase {
+      +AuthState auth
+      +MarketState market
+      +constructor(AuthState, MarketState)
+      +void persist()
+      +void reset()
+    }
+    class AuthContext {
+      +User? currentUser
+      +boolean isAuthenticated
+      +Promise~void~ initialize()
+      +Promise~void~ login(LoginInput input)
+      +Promise~void~ register(RegisterInput input)
+      +Promise~void~ logout()
+    }
+    class MarketContext {
+      +Product[] products
+      +Order[] orders
+      +Promise~void~ initialize()
+      +Promise~void~ loadProducts(ProductQuery query)
+      +Promise~Product~ createProduct(ProductInput input)
+      +Promise~Order~ createOrder(CreateOrderInput input)
+      +Promise~void~ transitionOrder(string id, OrderTransitionInput input)
+    }
+
+    User "1" --> "0..*" Product : sells
+    User "1" --> "0..*" Order : buys/sells
+    Product "1" --> "0..*" Favorite : favorited by
+    User "1" --> "0..*" Favorite : owns
+    Product "1" --> "0..*" Comment : has
+    Product "1" --> "0..*" Order : traded in
+    Order "1" --> "0..2" Review : receives
+    Product "1" --> "0..*" Conversation : discussed in
+    Conversation "1" --> "0..*" ChatMessage : contains
+    CampusMarketApi <|.. MockCampusMarketApi : adapter
+    CampusMarketApi <|.. RestCampusMarketApi : adapter
+    RestCampusMarketApi --> HttpTransport : uses
+    RestCampusMarketApi --> TokenStore : uses
+    MockCampusMarketApi --> MockDatabase : uses
+    MockCampusMarketApi --> LegacyStorage : migrates
+    ApiClient --> CampusMarketApi : selects
+    ApiClient --> TokenStore : owns
+    AuthContext --> CampusMarketApi : port
+    MarketContext --> CampusMarketApi : port
+    MockDatabase o-- User
+    MockDatabase o-- Product
+    MockDatabase o-- Order
+    MockDatabase o-- Favorite
+    MockDatabase o-- Comment
+    MockDatabase o-- Conversation
+    MockDatabase o-- ChatMessage

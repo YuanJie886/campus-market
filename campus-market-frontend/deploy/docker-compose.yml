@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: campus_market
+      POSTGRES_USER: campus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 deploy/.env 配置数据库密码}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus -d campus_market"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build:
+      context: ../..
+      dockerfile: campus-market-frontend/deploy/api.Dockerfile
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/campus_market
+      DATABASE_USERNAME: campus
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请在 deploy/.env 配置随机 JWT 密钥}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+volumes:
+  postgres_data:

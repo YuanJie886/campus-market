@@ -1,0 +1,130 @@
+sequenceDiagram
+    autonumber
+    participant App as React App
+    participant AuthCtx as AuthContext
+    participant MarketCtx as MarketContext
+    participant Api as CampusMarketApi
+    participant Mock as MockCampusMarketApi
+    participant Rest as RestCampusMarketApi
+    participant Store as TokenStore/LegacyStorage
+    participant Server as NestJS API (future)
+    participant DB as PostgreSQL (future)
+
+    App->>AuthCtx: Provider mount / init()
+    AuthCtx->>Api: getCurrentUser()
+    Api->>Store: read access token
+    alt VITE_API_MODE=mock
+        Api->>Mock: getCurrentUser(token)
+        Mock->>Store: read mock session
+        Mock-->>Api: ApiEnvelope<User|null>
+    else VITE_API_MODE=rest
+        Api->>Rest: GET /v1/auth/me
+        Rest->>Server: Authorization: Bearer token
+        Server->>DB: query user by JWT subject
+        DB-->>Server: user row
+        Server-->>Rest: {code,data,message}
+        Rest-->>Api: ApiEnvelope<User|null>
+    end
+    Api-->>AuthCtx: Result<User|null>
+    AuthCtx-->>App: auth state ready
+
+    App->>MarketCtx: Provider mount / load initial data
+    MarketCtx->>Api: listProducts(default ProductQuery)
+    alt mock mode
+        Api->>Mock: listProducts(query)
+        Mock->>Store: read seed/legacy market data
+        Store-->>Mock: products
+        Mock-->>Api: ApiEnvelope<ProductPage>
+    else rest mode
+        Api->>Rest: GET /v1/products?query
+        Rest->>Server: request with token if present
+        Server->>DB: query products and visibility rules
+        DB-->>Server: page rows
+        Server-->>Rest: ApiEnvelope<ProductPage>
+        Rest-->>Api: ApiEnvelope<ProductPage>
+    end
+    Api-->>MarketCtx: page data
+    MarketCtx-->>App: render products
+
+    App->>AuthCtx: login(account,password)
+    AuthCtx->>Api: login(LoginInput)
+    alt mock mode
+        Api->>Mock: login(input)
+        Mock->>Store: verify demo credential
+        Mock->>Store: write mock access token
+        Mock-->>Api: ApiEnvelope<AuthSession>
+    else rest mode
+        Api->>Rest: POST /v1/auth/login
+        Rest->>Server: credentials
+        Server->>DB: verify password hash / account
+        DB-->>Server: user row
+        Server-->>Rest: ApiEnvelope<AuthSession>
+        Rest->>Store: write access/refresh tokens
+        Rest-->>Api: AuthSession
+    end
+    Api-->>AuthCtx: AuthSession (without password)
+    AuthCtx-->>App: authenticated user
+
+    App->>MarketCtx: createProduct(ProductInput)
+    MarketCtx->>Api: createProduct(input)
+    Api->>Mock: createProduct(input) or Rest: POST /v1/products
+    Note over Api,Server: sellerId is derived from auth subject; never trust client sellerId
+    alt mock mode
+        Mock->>Store: append product and persist
+        Store-->>Mock: Product
+        Mock-->>Api: ApiEnvelope<Product>
+    else rest mode
+        Rest->>Server: POST /v1/products
+        Server->>DB: insert product + audit event
+        DB-->>Server: Product
+        Server-->>Rest: ApiEnvelope<Product>
+        Rest-->>Api: Product
+    end
+    Api-->>MarketCtx: Product
+    MarketCtx-->>App: update list/cache
+
+    App->>MarketCtx: toggleFavorite(productId)
+    MarketCtx->>Api: toggleFavorite(productId)
+    Api->>Mock: toggleFavorite() or Rest: PUT /v1/products/{id}/favorite
+    alt mock mode
+        Mock->>Store: upsert/delete favorite
+        Store-->>Mock: boolean
+    else rest mode
+        Rest->>Server: PUT /v1/products/{id}/favorite
+        Server->>DB: transaction upsert/delete favorite
+        DB-->>Server: boolean
+        Server-->>Rest: ApiEnvelope<boolean>
+    end
+    Api-->>MarketCtx: favorite state
+    MarketCtx-->>App: refresh favorite indicator
+
+    App->>MarketCtx: createOrder(productId, meetingInput)
+    MarketCtx->>Api: createOrder(input)
+    Api->>Mock: createOrder() or Rest: POST /v1/orders
+    Note over Api,Server: API atomically checks ownership, product availability and idempotency key
+    alt mock mode
+        Mock->>Store: validate and lock product
+        Store-->>Mock: Order
+    else rest mode
+        Rest->>Server: POST /v1/orders + Idempotency-Key
+        Server->>DB: transaction lock product, insert order/event
+        DB-->>Server: Order
+        Server-->>Rest: ApiEnvelope<Order>
+    end
+    Api-->>MarketCtx: Order
+    MarketCtx-->>App: show pending seller confirmation
+
+    App->>MarketCtx: updateOrderStatus(orderId,nextStatus)
+    MarketCtx->>Api: transitionOrder(orderId,nextStatus,confirmCode?)
+    Api->>Mock: transitionOrder() or Rest: POST /v1/orders/{id}/transitions
+    alt mock mode
+        Mock->>Store: validate state transition and persist event
+        Store-->>Mock: Order
+    else rest mode
+        Rest->>Server: POST /v1/orders/{id}/transitions
+        Server->>DB: transaction validate actor/state, append order_event
+        DB-->>Server: Order
+        Server-->>Rest: ApiEnvelope<Order>
+    end
+    Api-->>MarketCtx: Order
+    MarketCtx-->>App: update order and product view
