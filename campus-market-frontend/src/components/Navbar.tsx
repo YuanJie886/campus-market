@@ -31,6 +31,7 @@ import RadarOutlinedIcon from "@mui/icons-material/RadarOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import { getApiClient } from "../api/client";
 import { useDemandUnreadCount } from "../context/DemandUnreadContext";
 
@@ -45,11 +46,15 @@ export default function Navbar() {
   const [keyword, setKeyword] = useState("");
   // 模块 7：只有服务端确认的本校平台工作人员才显示工作台入口（权限以后端为准，这里只是体验）
   const [isStaff, setIsStaff] = useState(false);
+  const [isAuditor, setIsAuditor] = useState(false);
   useEffect(() => {
     let active = true;
     setIsStaff(false);
+    setIsAuditor(false);
     if (!currentUser) return;
-    getApiClient().getStaffStatus().then((s) => { if (active) setIsStaff(s.staff) }).catch(() => undefined);
+    getApiClient().getStaffStatus().then((s) => {
+      if (active) { setIsStaff(s.staff); setIsAuditor(s.role === 'AUDITOR'); }
+    }).catch(() => undefined);
     return () => { active = false };
   }, [currentUser?.id]);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -196,11 +201,19 @@ export default function Navbar() {
             </IconButton>
           </Tooltip>
 
-          {isStaff && (
+          {isStaff && !isAuditor && (
             <Tooltip title="治理工作台">
               <IconButton onClick={() => navigate("/moderation")} aria-label="治理工作台"
                 sx={{ borderRadius: 2.5, "&:hover": { bgcolor: "rgba(13,138,132,0.08)" } }}>
                 <GavelOutlinedIcon aria-hidden />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {isStaff && import.meta.env.VITE_API_MODE !== 'mock' && import.meta.env.VITE_API_MODE !== 'MOCK' && (
+            <Tooltip title="管理后台">
+              <IconButton component="a" href="/admin/" aria-label="管理后台" sx={{ borderRadius: 2.5 }}>
+                <AdminPanelSettingsOutlinedIcon aria-hidden />
               </IconButton>
             </Tooltip>
           )}

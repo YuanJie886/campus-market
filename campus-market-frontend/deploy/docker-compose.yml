@@ -40,6 +40,11 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+  admin:
+    build:
+      context: ../..
+      dockerfile: campus-market-admin/deploy/Dockerfile
+    restart: unless-stopped
   web:
     build:
       context: ..
@@ -48,6 +53,7 @@ services:
       - "127.0.0.1:8080:80"
     depends_on:
       - api
+      - admin
     restart: unless-stopped
 volumes:
   postgres_data:

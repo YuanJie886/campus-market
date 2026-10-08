@@ -49,7 +49,7 @@ class FlywayLegacyBaselineIT {
     private static final String V1_RESOURCE = "db/migration/V1__initial_schema.sql";
     private static final String BASELINE_DESCRIPTION = "legacy-schema-v1";
     /** 最新迁移版本。新增迁移时只改这里（以及对应的新场景），各起点应执行的条数由它推出。 */
-    private static final int LATEST = 11;
+    private static final int LATEST = 13;
 
     /** 仅一次性容器使用的测试凭据，与项目 .env / 生产配置无关。 */
     private static final String TEST_DB = "campus_market_legacy";
@@ -818,7 +818,7 @@ class FlywayLegacyBaselineIT {
                 .dataSource(dataSource).locations(MIGRATION_LOCATION).cleanDisabled(true).load();
         MigrateResult result = toLatest.migrate();
         assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).as("只应执行 V11 一条").isEqualTo(1);
+        assertThat(result.migrationsExecuted).as("应执行 V11～当前最新版本").isEqualTo(LATEST - 10);
 
         // ① 不猜：旧原始预约仍没有结束时间，也没有快照；它上面的报告不能再被承认 / 确认
         assertThat(jdbc.queryForObject("SELECT meeting_ends_at FROM orders WHERE id=?", Object.class, legacy)).isNull();

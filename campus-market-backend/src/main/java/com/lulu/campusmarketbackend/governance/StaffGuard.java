@@ -20,7 +20,7 @@ import java.util.UUID;
 public class StaffGuard {
 
     public record Staff(UUID userId, String schoolId, String role) {
-        public boolean senior() { return "SENIOR_MODERATOR".equals(role); }
+        public boolean senior() { return "SENIOR_MODERATOR".equals(role) || "SCHOOL_ADMIN".equals(role); }
     }
 
     private final GovernanceMapper governance;
@@ -32,7 +32,7 @@ public class StaffGuard {
     /** 非工作人员一律 403：页面入口隐藏只是体验，权限以这里为准。 */
     public Staff require(String uid) {
         Staff staff = find(uid);
-        if (staff == null) throw ApiException.forbidden("需要平台工作人员权限");
+        if (staff == null || "AUDITOR".equals(staff.role())) throw ApiException.forbidden("需要平台审核工作人员权限");
         return staff;
     }
 

@@ -77,6 +77,7 @@ class PostgresSchemaIT {
      * 逐条建立，而非依据文档。V3 新增 buildings，V4 新增需求雷达两张表，V5 新增可信面交 8 张表。
      */
     private static final Set<String> EXPECTED_TABLES = Set.of(
+            "admin_staff_audit",
             // V10：交易承诺与可信治理
             "order_cancellations",
             "order_no_show_reports",
@@ -238,7 +239,7 @@ class PostgresSchemaIT {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("2. public schema 下的业务表集合与 V1～V7 迁移完全一致（排除 Flyway 历史表）")
+    @DisplayName("2. public schema 下的业务表集合与全部迁移完全一致（排除 Flyway 历史表）")
     void allSchemaTablesExist() {
         List<String> actual = jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables "
@@ -418,13 +419,13 @@ class PostgresSchemaIT {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("6. flyway_schema_history 将 V1～V11 记录为成功执行的 SQL 迁移（非 BASELINE）")
+    @DisplayName("6. flyway_schema_history 将 V1～V13 记录为成功执行的 SQL 迁移（非 BASELINE）")
     void flywayHistoryRecordsInitialMigration() {
         List<Map<String, Object>> history = jdbc.queryForList(
                 "SELECT installed_rank, version, description, type, checksum, installed_on, success "
                         + "FROM " + FLYWAY_HISTORY_TABLE + " ORDER BY installed_rank");
 
-        assertThat(history).as("空库场景下应有 V1～V11 十一条迁移记录").hasSize(11);
+        assertThat(history).as("空库场景下应有 V1～V13 十三条迁移记录").hasSize(13);
 
         Map<String, Object> v1 = history.get(0);
         assertThat(v1.get("version")).as("首条版本应为 1").isEqualTo("1");
@@ -501,10 +502,16 @@ class PostgresSchemaIT {
         assertThat((Boolean) v10.get("success")).isTrue();
 
         Map<String, Object> v11 = history.get(10);
-        assertThat(v11.get("version")).as("最新版本应为 11").isEqualTo("11");
+        assertThat(v11.get("version")).isEqualTo("11");
         assertThat((String) v11.get("description")).isEqualTo("slots corrections and content moderation");
         assertThat((String) v11.get("type")).isEqualTo("SQL");
         assertThat((Boolean) v11.get("success")).isTrue();
+        for (int version = 12; version <= 13; version++) {
+            Map<String, Object> migration = history.get(version - 1);
+            assertThat(migration.get("version")).isEqualTo(String.valueOf(version));
+            assertThat(migration.get("type")).isEqualTo("SQL");
+            assertThat(migration.get("success")).isEqualTo(true);
+        }
 
         // V1 只应成功记录一次，且不存在任何失败记录
         Integer v1SuccessCount = jdbc.queryForObject(

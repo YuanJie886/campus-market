@@ -11,6 +11,7 @@
 ```
 campus-market/
 ├── campus-market-frontend/      # 前端工程 (React 18 + TS + Vite + TailwindCSS + MUI)
+├── campus-market-admin/         # 复用 react-admin 的运营后台（角色鉴权、工作人员、治理与审计）
 ├── campus-market-backend/       # 后端服务 (Java 17 + Spring Boot 3 + MyBatis-Plus)
 ├── docker-compose.yml           # 仅本机开发用的 PostgreSQL 16（固定开发密码，只绑定 127.0.0.1）
 ├── .github/workflows/ci.yml     # CI 配置（尚未在远程执行过）
@@ -93,7 +94,13 @@ npm run build        # 等同于 build:all；无论本机 .env 是什么，产�
 - 真实浏览器 E2E：`cd campus-market-frontend && npm run e2e`（需要 Docker、JDK 17、已打包的后端 jar；默认使用本机 Chrome）。
 - 治理规则（明确档期、自动限制重算、利益回避、内容处置）：[docs/commitment-and-moderation.md](docs/commitment-and-moderation.md) 第 13 节。
 
-## 四、更多文档
+## 四、管理后台
+
+后台复用 MIT 开源项目 [react-admin](https://github.com/marmelab/react-admin)，同源入口为 `/admin/`，共用现有登录、后端和数据库。支持学校管理员、高级审核员、审核员、只读审计员，以及人员授权审计。
+
+启动与首位管理员配置见 [管理后台说明](campus-market-admin/README.md)，选型与接入设计见 [后台复用决策](docs/admin-reuse.md)。
+
+## 五、更多文档
 - [后端开发与 API 文档](campus-market-backend/README.md)
 - [前端工程说明文档](campus-market-frontend/README.md)
 - [产品方案与设计文档](campus-market-frontend/方案设计.md)

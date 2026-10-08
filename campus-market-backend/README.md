@@ -39,7 +39,7 @@
 
 ### 1. 前后端协同规范
 - **统一接口前缀**：所有业务接口统一规范在 `/v1/*` 命名空间下。
-- **统一响应封装**：所有响应统一格式为 `{ code: 200, data: ..., message: "success", requestId: "..." }`。
+- **统一响应封装**：成功响应格式为 `{ code: 0, data: ..., message: "ok", requestId: "..." }`，HTTP 状态码为 200。
 - **双 Token 认证机制 (JWT Dual-Token)**：
   - **Access Token**：保存在前端内存中（模块闭包，不落任何 Web Storage / Cookie / URL），有效期 15 分钟，通过请求头 `Authorization: Bearer <token>` 传输；
     页面刷新后令牌随之消失，由前端携带 `cm_refresh` Cookie 调用 `POST /v1/auth/refresh` 重新换取；
@@ -101,12 +101,20 @@ docker exec -it campus-market-postgres psql -U postgres -d campus_market
 
 ### 步骤 2：启动 Spring Boot 后端服务
 
-后端已在 `src/main/resources/application.yaml` 中配置了开箱即用的默认参数，完美匹配上述 Docker 数据库默认账号密码，**本地启动无需手动配置任何环境变量**。
+后端的数据库默认参数匹配上述 Docker 数据库账号密码。首次本地启动还需生成独立的 JWT 签名密钥，在 `campus-market-backend/` 目录执行（已有 `.env` 时请保留原密钥）：
+
+```bash
+umask 077
+printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" > .env
+```
+
+应用从后端目录或仓库根目录启动时都会读取这个私有 `.env`，IDEA 直接运行主类也适用。
+环境变量 `JWT_SECRET` 可以覆盖文件配置；没有有效密钥时应用会拒绝启动。
 
 在 `campus-market-backend/` 目录下运行：
 
 ```bash
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 或使用 IDEA / Eclipse 直接运行主类：
@@ -138,11 +146,11 @@ curl http://localhost:3000/v1/health
 返回如下 JSON 表示后端与数据库连通正常：
 ```json
 {
-  "code": 200,
+  "code": 0,
   "data": {
     "status": "ok"
   },
-  "message": "success"
+  "message": "ok"
 }
 ```
 
@@ -181,7 +189,7 @@ npm run dev
 | `DATABASE_USERNAME` | `postgres` | 数据库用户名 |
 | `DATABASE_PASSWORD` | `postgres` | 数据库密码 |
 | `WEB_ORIGIN` | `http://localhost:5173` | 允许跨域访问的前端域名/端口 |
-| `JWT_SECRET` | 内置长字符串（开发环境兜底） | JWT 签名密钥（生产环境请设置至少 32 位的强随机字符） |
+| `JWT_SECRET` | 无，必填 | 至少 32 字节的强随机 JWT 签名密钥；本地可配置在后端私有 `.env`，生产环境通过环境变量注入 |
 | `SECURE_COOKIES` | `false`（`deploy/docker-compose.yml` 中**无默认值，必须显式设置**） | 刷新 Cookie 的 `Secure` 标记。若 `WEB_ORIGIN` 是 `https://` 而此处为 `false`，应用会**拒绝启动**——该组合意味着七天有效的长期凭据将在明文连接上发送，只可能是配置遗漏 |
 | `DATABASE_POOL_SIZE` | `10` | HikariCP 连接池最大连接数 |
 

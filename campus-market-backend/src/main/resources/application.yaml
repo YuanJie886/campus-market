@@ -1,4 +1,10 @@
 spring:
+  config:
+    # 本地开发可从仓库根目录或后端目录启动；私有 .env 不进入版本控制。
+    # 环境变量仍可覆盖文件中的值。没有文件时，仍要求显式提供 JWT_SECRET。
+    import:
+      - optional:file:./campus-market-backend/.env[.properties]
+      - optional:file:./.env[.properties]
   application:
     name: campus-market-backend
   datasource:
@@ -30,7 +36,7 @@ server:
 campus-market:
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
   # 必填，无默认值：JWT_SECRET 缺失时应用必须启动失败，绝不能回落到任何仓库内固定密钥。
-  # 要求至少 32 字节（UTF-8）的强随机值，由部署方通过环境变量提供。
+  # 要求至少 32 字节（UTF-8）的强随机值，通过环境变量或本地私有 .env 提供。
   # 本地开发同样需要显式设置；测试环境使用 src/test/resources/application-test.yaml 中的专用测试值。
   jwt-secret: ${JWT_SECRET}
   jwt-issuer: campus-market

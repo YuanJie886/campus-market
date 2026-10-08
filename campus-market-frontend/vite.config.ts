@@ -17,12 +17,29 @@ export default defineConfig(({ mode }) => ({
         define: { 'import.meta.env.VITE_API_MODE': JSON.stringify(mode) },
       }
     : {}),
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'admin-entry-redirect',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (/^\/admin(?:\?|$)/.test(req.url ?? '')) {
+          res.writeHead(308, { Location: `/admin/${(req.url ?? '').slice('/admin'.length)}` });
+          res.end();
+          return;
+        }
+        next();
+      });
+    },
+  }],
   server: {
     port: 5173,
     host: true,
     open: false,
-    proxy: { '/v1': 'http://localhost:3000', '/docs': 'http://localhost:3000' },
+    proxy: {
+      '/v1': 'http://localhost:3000',
+      '/docs': 'http://localhost:3000',
+      // 同源访问后台：复用 HttpOnly Cookie 和后端 Origin 校验。
+      '/admin': 'http://127.0.0.1:5174',
+    },
   },
   build: {
     outDir: 'dist',

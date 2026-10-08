@@ -432,7 +432,7 @@ export interface MyGovernance {
 export interface AppealInput { restrictionId?: string; actionId?: string; reason: string }
 export const APPEAL_REASON_MAX = 500;
 
-export type StaffRole = 'MODERATOR' | 'SENIOR_MODERATOR';
+export type StaffRole = 'MODERATOR' | 'SENIOR_MODERATOR' | 'SCHOOL_ADMIN' | 'AUDITOR';
 export interface StaffStatus { staff: boolean; role: StaffRole | null }
 export type ModerationCaseStatus = 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED' | 'DISMISSED' | 'APPEALED';
 export type ModerationActionCode = 'HIDE_PRODUCT' | 'RESTORE_PRODUCT' | 'ARCHIVE_CIRCLE' | 'RESTRICT_BOOKING' | 'RESTRICT_PUBLISHING'
