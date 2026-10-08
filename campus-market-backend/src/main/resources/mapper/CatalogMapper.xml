@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lulu.campusmarketbackend.mapper.CatalogMapper">
+
+    <!-- 某教材版本当前在售的商品数。教材目录按学校划分，关联的商品必然同校（V6 触发器保证） -->
+    <!-- 模块 6：只计当前查看者可见的商品（V9 的 product_visible_to），私密圈子商品不会让数量泄露它的存在 -->
+    <sql id="onSaleCount">
+        (SELECT count(*) FROM product_textbook_details d
+         JOIN products p ON p.id = d.product_id AND p.status = '在售'
+         WHERE d.textbook_edition_id = e.id
+           AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{viewerId,javaType=java.util.UUID,jdbcType=OTHER}))
+    </sql>
+
+    <!--
+      课程搜索。q 已在 Java 中用 DemandText.normalize 规范化，与 normalized_name 同一规则；
+      用 strpos 做字面子串比较（% 与 _ 不是通配符）。codePrefix 只含 [A-Z0-9-]，前缀匹配课程代码。
+      学期 / 学年 / 校区条件作用在开课上。
+    -->
+    <sql id="courseFilters">
+        c.school_id = #{schoolId} AND c.active
+        <if test="q != null">
+            AND (strpos(c.normalized_name, #{q}) &gt; 0
+                 <if test="codePrefix != null">OR c.course_code LIKE #{codePrefix} || '%'</if>)
+        </if>
+        <if test="term != null or academicYear != null or campus != null">
+            AND EXISTS (SELECT 1 FROM course_offerings fo
+                        WHERE fo.course_id = c.id AND fo.active
+                        <if test="term != null">AND fo.term = #{term}</if>
+                        <if test="academicYear != null">AND fo.academic_year = #{academicYear}</if>
+                        <if test="campus != null">AND fo.campus_id = #{campus}</if>)
+        </if>
+    </sql>
+
+    <select id="selectCourses" resultType="map">
+        SELECT c.id, c.course_code, c.name, c.department, c.is_demo,
+               (SELECT count(*) FROM course_offerings o WHERE o.course_id = c.id AND o.active) AS offering_count,
+               (SELECT count(DISTINCT ct.textbook_edition_id) FROM course_textbooks ct
+                JOIN course_offerings o ON o.id = ct.course_offering_id AND o.active
+                WHERE o.course_id = c.id AND ct.verification_status = 'VERIFIED') AS textbook_count
+        FROM courses c
+        WHERE <include refid="courseFilters"/>
+        <!-- 按字节序排序：结果不依赖数据库的 locale，与前端 Mock 的逐码点比较一致 -->
+        ORDER BY c.normalized_name COLLATE "C", c.id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countCourses" resultType="long">
+        SELECT count(*) FROM courses c WHERE <include refid="courseFilters"/>
+    </select>
+
+    <!-- PENDING / REJECTED 的关系不出现在这里：公开目录只有 VERIFIED -->
+    <select id="selectVerifiedTextbooks" resultType="map">
+        SELECT ct.course_offering_id, ct.usage_type,
+               e.id, e.isbn10, e.isbn13, e.normalized_isbn, e.title, e.subtitle, e.authors, e.publisher,
+               e.edition_label, e.published_year, e.cover_url, e.work_key, e.is_demo,
+               <include refid="onSaleCount"/> AS on_sale_count
+        FROM course_textbooks ct
+        JOIN course_offerings o ON o.id = ct.course_offering_id AND o.active
+        JOIN textbook_editions e ON e.id = ct.textbook_edition_id AND e.active
+        WHERE ct.verification_status = 'VERIFIED'
+        <if test="courseId != null">AND o.course_id = #{courseId}</if>
+        <if test="offeringId != null">AND o.id = #{offeringId}</if>
+        ORDER BY ct.course_offering_id,
+                 CASE ct.usage_type WHEN 'REQUIRED' THEN 0 WHEN 'RECOMMENDED' THEN 1 ELSE 2 END,
+                 e.title COLLATE "C", e.id
+    </select>
+
+    <select id="selectEditionCourses" resultType="map">
+        SELECT c.id AS course_id, c.name AS course_name, c.course_code, c.is_demo,
+               o.id AS offering_id, o.academic_year, o.term, o.instructor_name, ct.usage_type
+        FROM course_textbooks ct
+        JOIN course_offerings o ON o.id = ct.course_offering_id AND o.active
+        JOIN courses c ON c.id = o.course_id AND c.active
+        WHERE ct.textbook_edition_id = #{editionId}
+          AND ct.school_id = #{schoolId}
+          AND ct.verification_status = 'VERIFIED'
+        ORDER BY o.academic_year DESC, c.name COLLATE "C", o.id
+    </select>
+
+    <select id="selectOtherEditions" resultType="map">
+        SELECT e.id, e.normalized_isbn, e.title, e.edition_label, e.publisher, e.published_year,
+               <include refid="onSaleCount"/> AS on_sale_count
+        FROM textbook_editions e
+        WHERE e.school_id = #{schoolId} AND e.work_key = #{workKey} AND e.id &lt;&gt; #{excludeId} AND e.active
+        ORDER BY e.published_year DESC NULLS LAST, e.id
+    </select>
+
+    <select id="countOnSale" resultType="long">
+        SELECT count(*) FROM product_textbook_details d
+        JOIN products p ON p.id = d.product_id AND p.status = '在售'
+        WHERE d.textbook_edition_id = #{editionId}
+          AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{viewerId,javaType=java.util.UUID,jdbcType=OTHER})
+    </select>
+</mapper>

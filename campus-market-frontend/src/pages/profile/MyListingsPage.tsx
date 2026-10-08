@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -27,6 +27,9 @@ import {
 } from "../../utils/constants";
 import { formatPrice, formatRelativeTime } from "../../utils/format";
 import type { Product, ProductInput, ProductStatus } from "../../types";
+import { toUserMessage } from '../../api/errors';
+import { getApiClient } from '../../api/client';
+import type { ProductDisclosure, ProductTextbook } from '../../api/contracts';
 
 const STATUS_TABS: (ProductStatus | "全部")[] = [
   "全部",
@@ -58,6 +61,29 @@ export default function MyListingsPage() {
 
   const [statusTab, setStatusTab] = useState<ProductStatus | "全部">("全部");
   const [editing, setEditing] = useState<Product | null>(null);
+  // 编辑前读取商品当前声明：列表接口不带声明，不能拿空值当作「未声明」
+  const [editingDisclosure, setEditingDisclosure] = useState<ProductDisclosure | null | undefined>(undefined);
+  const [disclosureError, setDisclosureError] = useState<string | null>(null);
+  const [editingTextbook, setEditingTextbook] = useState<ProductTextbook | null>(null);
+  useEffect(() => {
+    if (!editing) return;
+    let active = true;
+    setEditingDisclosure(undefined);
+    setDisclosureError(null);
+    getApiClient()
+      .getProduct(editing.id)
+      .then((detail) => {
+        if (!active) return;
+        setEditingTextbook(detail.textbook ?? null);
+        setEditingDisclosure(detail.inspection ?? null);
+      })
+      .catch((e) => {
+        if (active) setDisclosureError(toUserMessage(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [editing]);
 
   const listings = currentUser ? getSellerProducts(currentUser.id) : [];
 
@@ -80,13 +106,20 @@ export default function MyListingsPage() {
         category: data.category,
         condition: data.condition,
         campus: data.campus,
+        // 始终显式提交取货楼栋：切换校区时表单已清掉不兼容的旧值，
+        // 显式提交让后端不必走「只改校区」的 400 分支
+        buildingId: data.buildingId ?? null,
         contact: data.contact,
         images: data.images,
+        // 表单只在需要替换声明时才给出 inspection；缺省即「声明不变」
+        ...(data.inspection ? { inspection: data.inspection } : {}),
+        ...(data.textbookEditionId !== undefined ? { textbookEditionId: data.textbookEditionId } : {}),
+        ...(data.visibility !== undefined ? { visibility: data.visibility, circleIds: data.circleIds ?? [] } : {}),
       });
       setEditing(null);
       success("商品信息已更新");
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
@@ -102,8 +135,12 @@ export default function MyListingsPage() {
         category: editing.category,
         condition: editing.condition,
         campus: editing.campus,
+        // 编辑时保留原有的合法楼栋；BuildingSelect 会在校区变化时清掉不兼容的值
+        buildingId: editing.buildingId ?? null,
         contact: editing.contact,
         images: editing.images,
+        visibility: editing.visibility ?? "PUBLIC",
+        circleIds: (editing.circles ?? []).map((c) => c.id),
       }
     : undefined;
 
@@ -230,7 +267,7 @@ export default function MyListingsPage() {
                           await markSold(product.id);
                           success("已标记为售出");
                         } catch (e) {
-                          error((e as Error).message);
+                          error(toUserMessage(e));
                         }
                       }}
                     >
@@ -246,7 +283,7 @@ export default function MyListingsPage() {
                           await takedownProduct(product.id);
                           success("商品已下架");
                         } catch (e) {
-                          error((e as Error).message);
+                          error(toUserMessage(e));
                         }
                       }}
                     >
@@ -264,7 +301,7 @@ export default function MyListingsPage() {
                         await relistProduct(product.id);
                         success("商品已重新上架");
                       } catch (e) {
-                        error((e as Error).message);
+                        error(toUserMessage(e));
                       }
                     }}
                   >
@@ -281,7 +318,7 @@ export default function MyListingsPage() {
                         await relistProduct(product.id);
                         success("商品已重新上架");
                       } catch (e) {
-                        error((e as Error).message);
+                        error(toUserMessage(e));
                       }
                     }}
                   >
@@ -304,10 +341,19 @@ export default function MyListingsPage() {
       >
         <DialogTitle sx={{ fontWeight: 700 }}>编辑商品</DialogTitle>
         <DialogContent dividers>
-          {editing && (
+          {editing && disclosureError && (
+            <p className="text-sm text-red-700" role="alert">{disclosureError}</p>
+          )}
+          {editing && !disclosureError && editingDisclosure === undefined && (
+            <p className="text-sm text-slate-600" role="status">正在读取商品信息…</p>
+          )}
+          {editing && editingDisclosure !== undefined && (
             <ProductForm
               initial={editInitial}
               compact
+              mode="edit"
+              initialInspection={editingDisclosure}
+              initialTextbook={editingTextbook}
               submitLabel="保存修改"
               onSubmit={handleEditSubmit}
               onCancel={() => setEditing(null)}

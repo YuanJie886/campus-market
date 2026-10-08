@@ -660,6 +660,9 @@ export const seedOrders: Order[] = [
     buyerId: 'u_demo',
     sellerId: 'u_lin',
     price: 2200,
+    // canonicalStatus 是真值，中文文案只是展示。种子数据必须自带它，
+    // 否则新装用户的订单会缺少 canonical 值，被兜底成最保守的初始态（0.9E）。
+    canonicalStatus: 'PENDING_SELLER_CONFIRM',
     status: '待确认',
     createdAt: NOW - 20 * HOUR,
     updatedAt: NOW - 20 * HOUR,
@@ -670,6 +673,7 @@ export const seedOrders: Order[] = [
     buyerId: 'u_chen',
     sellerId: 'u_demo',
     price: 450,
+    canonicalStatus: 'COMPLETED',
     status: '已完成',
     createdAt: NOW - 92 * HOUR,
     updatedAt: NOW - 88 * HOUR,

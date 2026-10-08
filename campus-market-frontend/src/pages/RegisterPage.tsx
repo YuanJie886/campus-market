@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
@@ -8,10 +8,15 @@ import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotificationContext";
 import { CAMPUSES } from "../types";
 import type { Campus } from "../types";
+import { toUserMessage } from '../api/errors';
+import { clearPendingInvite } from '../utils/pendingInvite';
 
 /** 注册页 */
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // 6.1B：从圈子邀请页进入登录 / 注册时，注册成功后回到邀请页（邀请码仍在本页内存里）
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/";
   const { register } = useAuth();
   const { success, error } = useNotify();
 
@@ -40,12 +45,14 @@ export default function RegisterPage() {
       });
       if (result.ok) {
         success(result.message);
-        navigate("/", { replace: true });
+        navigate(redirectTo, { replace: true });
       } else {
+        clearPendingInvite();
         error(result.message);
       }
     } catch (e) {
-      error((e as Error).message);
+      clearPendingInvite();
+      error(toUserMessage(e));
     } finally {
       setBusy(false);
     }

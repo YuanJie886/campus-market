@@ -41,7 +41,8 @@
 - **统一接口前缀**：所有业务接口统一规范在 `/v1/*` 命名空间下。
 - **统一响应封装**：所有响应统一格式为 `{ code: 200, data: ..., message: "success", requestId: "..." }`。
 - **双 Token 认证机制 (JWT Dual-Token)**：
-  - **Access Token**：保存在前端内存中，有效期 15 分钟，通过请求头 `Authorization: Bearer <token>` 传输；
+  - **Access Token**：保存在前端内存中（模块闭包，不落任何 Web Storage / Cookie / URL），有效期 15 分钟，通过请求头 `Authorization: Bearer <token>` 传输；
+    页面刷新后令牌随之消失，由前端携带 `cm_refresh` Cookie 调用 `POST /v1/auth/refresh` 重新换取；
   - **Refresh Token**：保存在浏览器的安全 `HttpOnly Cookie` 中，有效期 7 天，支持自动无感续期与防 XSS 攻击；
   - **跨域凭据**：跨域请求时允许携带 Cookie 凭证（`allowCredentials = true`）。
 - **CORS 跨域配置**：通过环境变量 `WEB_ORIGIN` 精确允许前端来源（本地开发默认允许 `http://localhost:5173`）。
@@ -111,11 +112,21 @@ mvn spring-boot:run
 或使用 IDEA / Eclipse 直接运行主类：
 `com.lulu.campusmarketbackend.CampusMarketBackendApplication`
 
-#### 自动建表机制
-服务启动时，内置的 `DatabaseInitializer` 会自动加载并执行 `src/main/resources/db/schema.sql`：
-- 自动创建用户、商品、订单、评论、消息、会话、面交点等全量表结构与索引；
-- 采用 `CREATE TABLE IF NOT EXISTS`，已有数据库数据不会被覆盖；
-- **开发者完全无需手动导入 SQL 脚本**。
+#### 数据库结构管理（Flyway）
+数据库结构由 **Flyway** 统一管理，是本项目**唯一**的建表入口。
+（历史说明：早期由 `DatabaseInitializer` 启动时执行 `db/schema.sql`，该机制及其脚本均已删除。）
+
+- 迁移目录：`src/main/resources/db/migration`，当前只有 `V1__initial_schema.sql`
+- **空库**：启动时自动执行 V1，创建 14 张业务表、6 个具名索引与预置的 1 所学校 / 4 个校区 / 12 个面交点
+- **已被 Flyway 管理的库**：校验通过后继续，不重复迁移
+- **非空但无 `flyway_schema_history` 的库**：拒绝启动。这是刻意设置的安全闸
+- `baseline-on-migrate` 默认 **false**，仅在从旧 `DatabaseInitializer` 升级的首次接管时，
+  经 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` 临时开启，**且必须先备份、先做结构 diff、先在测试环境演练**；
+  接管成功后立即改回 false
+- `clean-disabled` 固定为 **true**，任何环境都不得改为 false
+- 当前迁移为 V1～V6（V5：可信面交闭环；V6：课程教材图谱）。后续结构变更一律新增 `V7__*.sql` 起的新版本，**禁止修改已发布的 V1～V6**
+
+完整操作手册见 [`docs/database-migrations.md`](docs/database-migrations.md)。
 
 #### 验证后端就绪
 后端服务默认监听 `3000` 端口。在终端执行健康检查接口：
@@ -171,7 +182,7 @@ npm run dev
 | `DATABASE_PASSWORD` | `postgres` | 数据库密码 |
 | `WEB_ORIGIN` | `http://localhost:5173` | 允许跨域访问的前端域名/端口 |
 | `JWT_SECRET` | 内置长字符串（开发环境兜底） | JWT 签名密钥（生产环境请设置至少 32 位的强随机字符） |
-| `SECURE_COOKIES` | `false` | Cookie 安全标识（本地开发设为 `false`，生产开启 HTTPS 后请设为 `true`） |
+| `SECURE_COOKIES` | `false`（`deploy/docker-compose.yml` 中**无默认值，必须显式设置**） | 刷新 Cookie 的 `Secure` 标记。若 `WEB_ORIGIN` 是 `https://` 而此处为 `false`，应用会**拒绝启动**——该组合意味着七天有效的长期凭据将在明文连接上发送，只可能是配置遗漏 |
 | `DATABASE_POOL_SIZE` | `10` | HikariCP 连接池最大连接数 |
 
 ---
@@ -186,13 +197,16 @@ npm run dev
 - `POST /v1/auth/refresh` - 无感刷新访问令牌
 - `POST /v1/auth/logout` - 退出登录并清除 Cookie
 - `GET /v1/auth/me` - 获取当前登录用户的详细身份信息与学子认证状态
-- `PATCH /v1/auth/me` - 更新个人昵称、头像、联系方式或所属校区
-- `GET /v1/users/{id}` - 获取指定用户的公开信用主页
+- `PATCH /v1/auth/me` - 更新个人昵称、头像、联系方式、所属校区或宿舍楼（`dormBuildingId`，仅本人可见，传 `null` 清空）
+- `GET /v1/users/{id}` - 获取指定用户的公开资料（不含任何信用分）
+- `GET /v1/users/{id}/trade-summary` - 公共交易履历：只有完成次数、加入时间、评价数与平均分（评价少于 3 条不给平均分）
 
 ### 2. 商品与流转广场 (`/v1/products`, `/v1/favorites`)
 - `GET /v1/products` - 多维度分页查询与筛选商品（分类、校区、成色、价格区间、关键词搜索、排序）
+- `GET /v1/products/feed` - 楼栋集市 feed：`scope=BUILDING` 时按 本楼→同园区→同校区→全校 自动降级，支持 `sort=nearest`；返回范围元数据（见 `docs/building-market.md`）
+- `GET /v1/buildings?campus=` - 某校区的可选楼栋（公共只读，不含任何住户信息）
 - `GET /v1/products/{id}` - 获取商品详情与卖家信息
-- `POST /v1/products` - 发布闲置商品（支持多图、原价、成色、面交预选点）
+- `POST /v1/products` - 发布闲置商品（支持多图、原价、成色、面交预选点、可选取货楼栋 `buildingId`）
 - `PATCH /v1/products/{id}` - 编辑更新闲置商品信息
 - `POST /v1/products/{id}/status` - 商品状态流转（在售 / 预约中 / 已售出 / 已下架）
 - `POST /v1/products/{id}/view` - 浏览量自增
@@ -205,8 +219,39 @@ npm run dev
 - `POST /v1/orders/{id}/transitions` - 推进面交订单状态（买家发起预约 -> 卖家接单确认 -> 线下当面试用 -> 双方核验完成 -> 评价/争议/取消）
 - `POST /v1/orders/{id}/reviews` - 交易完成后双向互评打分
 
+### 可信面交闭环（模块 3，详见仓库根目录 `docs/trusted-meeting-flow.md`）
+- `GET /v1/inspection-templates?category=` - 该分类当前启用的验货清单（「其他」返回 `null`）
+- `POST /v1/products`、`PATCH /v1/products/{id}` 的 `inspection` 字段 - 卖家逐项声明（`NORMAL / DEFECT / NOT_TESTED / NOT_APPLICABLE`），受支持分类必填，无默认值
+- `GET /v1/orders/{id}/flow` - 订单双方的流程视图：当前档期、提议、出发/到达、验货快照与结果、时间线（不含确认码与联系方式）
+- `PUT /v1/orders/{id}/inspection` - 买家保存验货草稿；`POST /v1/orders/{id}/inspection/submit` - 最终提交（幂等，提交后不可修改；存在不一致项时订单转为 `DISPUTED`）
+- `POST /v1/orders/{id}/meeting-proposals` - 发起档期提议；`POST …/meeting-proposals/{proposalId}/accept|reject|withdraw` - 接受 / 拒绝 / 撤回
+- `PUT /v1/orders/{id}/presence` - 本人「已出发 / 已到达」（`{"action":"DEPART"|"ARRIVE"}`，人工状态，不是定位）
+- `GET /v1/me/trade-history` - 本人交易履历（计数 + 最近订单）
+- 买家确认与卖家核销之前必须完成验货：验货待提交或存在不一致时返回 409，且不消耗确认码尝试次数
+
+### 课程教材图谱（模块 4，详见仓库根目录 `docs/course-textbook-graph.md`；当前为演示目录）
+- 以下接口均需登录，学校由登录用户的校区推导；他校数据一律 404
+- `GET /v1/courses?q=&term=&academicYear=&campus=&page=&pageSize=` - 课程搜索（名称子串 / 课程代码前缀）
+- `GET /v1/courses/{courseId}` - 课程详情：各学期开课与**已验证**的指定教材版本，含本校在售数量
+- `GET /v1/course-offerings/{offeringId}` - 单个开课
+- `GET /v1/textbooks/{textbookEditionId}?sort=nearest|latest` - 教材版本详情：关联课程、精确版本在售商品、单独返回的其他版次
+- `GET /v1/textbooks/isbn/{isbn}` - ISBN 精确查询（接受空格与连字符，校验位错误 400）
+- `POST /v1/textbook-suggestions`、`GET /v1/textbook-suggestions/mine`、`DELETE /v1/textbook-suggestions/{id}` - 教材建议（只能是待审核，只有本人可见，每人每天 10 条）
+- 商品的 `textbookEditionId` 字段 - 只允许教材书籍分类，关联时保存版本快照；商品投影带 `textbook` 摘要
+- 需求订阅的 `textbookEditionId` 字段 - 精确版本订阅，理由码 `TEXTBOOK_EXACT`
+
+### 需求雷达 (`/v1/demand-subscriptions`, `/v1/demand-matches`)
+- `POST /v1/demand-subscriptions` - 创建需求订阅（幂等；同条件返回原订阅，已停用则重新激活）
+- `GET /v1/demand-subscriptions` - 我的订阅
+- `PATCH /v1/demand-subscriptions/{id}` - 修改条件或启用状态
+- `DELETE /v1/demand-subscriptions/{id}` - 软停用
+- `GET /v1/demand-matches` - 需求匹配收件箱（只含本人订阅产生的匹配）
+- `GET /v1/demand-matches/unread-count` - 未读数
+- `POST /v1/demand-matches/{id}/read`、`/dismiss` - 标记已读 / 忽略
+- 商品发布与编辑时在同一事务内同步匹配，详见 `docs/demand-radar.md`
+
 ### 4. 校园常用面交点 (`/v1/meeting-points`)
-- `GET /v1/meeting-points` - 获取校园内官方推荐的安全公共交易点（图书馆一楼正门、学一食堂、宿舍快递驿站、教学楼等）
+- `GET /v1/meeting-points` - 获取校园内官方推荐的安全公共交易点（图书馆一楼正门、学一食堂、宿舍快递驿站、教学楼等）。V3 起附带演示坐标 `latitude` / `longitude`，仅用于校园示意地图与直线距离估算，不是导航数据；V5 起附带 `active`，停用的面交点仍返回（历史订单要显示名称），但不能用于新下单或新提议
 
 ### 5. 留言与即时私信 (`/v1/conversations`, `/v1/messages`)
 - `GET /v1/products/{id}/comments` - 获取商品下方公开留言问答列表
@@ -238,9 +283,9 @@ campus-market-backend/
     │   │   │   ├── ApiExceptionHandler.java         # 全局异常捕获器
     │   │   │   └── ApiResponseAdvice.java           # 自动报文包装拦截器
     │   │   ├── config/                              # 基础配置
-    │   │   │   ├── DatabaseInitializer.java         # 数据库脚本自动执行器 (schema.sql)
     │   │   │   ├── WebConfig.java                   # CORS 跨域配置与定时任务支持
-    │   │   │   └── MybatisPlusConfig.java           # MyBatis-Plus 分页与插件配置
+    │   │   │   ├── JacksonConfig.java               # ObjectMapper
+    │   │   │   └── MybatisPlusConfig.java           # MyBatis-Plus Mapper 扫描
     │   │   ├── entity/                              # 数据实体对象
     │   │   ├── mapper/                              # 数据访问接口与 XML 映射
     │   │   ├── security/                            # JWT、Cookie 与安全校验逻辑

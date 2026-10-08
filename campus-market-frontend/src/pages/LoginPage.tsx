@@ -7,6 +7,8 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { useAuth, DEMO_ACCOUNT, DEMO_PASSWORD } from "../context/AuthContext";
 import { useNotify } from "../context/NotificationContext";
+import { toUserMessage } from '../api/errors';
+import { clearPendingInvite, hasPendingInvite } from '../utils/pendingInvite';
 
 interface LocationState {
   from?: string;
@@ -34,13 +36,23 @@ export default function LoginPage() {
         success(result.message);
         navigate(redirectTo, { replace: true });
       } else {
+        inviteLost();
         error(result.message);
       }
     } catch (e) {
-      error((e as Error).message);
+      inviteLost();
+      error(toUserMessage(e));
     } finally {
       setBusy(false);
     }
+  };
+
+  // 6.1B：登录失败时清除内存里的圈子邀请码（安全取舍），并如实告诉用户
+  const [inviteDropped, setInviteDropped] = useState(false);
+  const inviteLost = () => {
+    if (!hasPendingInvite()) return;
+    clearPendingInvite();
+    setInviteDropped(true);
   };
 
   const handleDemo = async () => {
@@ -55,7 +67,7 @@ export default function LoginPage() {
         error(result.message);
       }
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -75,6 +87,17 @@ export default function LoginPage() {
             用学号或手机号登录，继续淘好物
           </p>
         </div>
+
+        {hasPendingInvite() && !inviteDropped && (
+          <p className="mb-4 rounded-xl bg-indigo-50 px-3 py-2 text-sm text-indigo-900" role="note">
+            登录后会回到圈子邀请页，由你确认是否加入。邀请码只保存在这个页面里，刷新页面会丢失。
+          </p>
+        )}
+        {inviteDropped && (
+          <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900" role="alert">
+            登录没有成功，为了安全，刚才的圈子邀请码已清除。登录后请重新打开邀请链接，或手动输入邀请码。
+          </p>
+        )}
 
         <div className="flex flex-col gap-4">
           <TextField
@@ -131,7 +154,7 @@ export default function LoginPage() {
 
       <p className="text-center text-sm text-slate-500">
         还没有账号？
-        <Link to="/register" className="ml-1 font-semibold text-brand-600">
+        <Link to="/register" state={{ from: redirectTo }} className="ml-1 font-semibold text-brand-600">
           立即注册
         </Link>
       </p>

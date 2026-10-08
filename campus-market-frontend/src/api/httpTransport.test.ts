@@ -1,18 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { HttpTransport } from "./httpTransport";
-import { TokenStore } from "../utils/tokenStore";
-function store() {
-  let token: string | null = "old-token";
-  return {
-    get: () => token ? { accessToken: token, expiresAtIso: new Date(Date.now() + 900000).toISOString() } : null,
-    getAccessToken: () => token,
-    set: (value: { accessToken: string }) => {
-      token = value.accessToken;
-    },
-    clear: () => {
-      token = null;
-    },
-  } as TokenStore;
+import { authTokenStore } from "../utils/authTokenStore";
+
+/** Token 已改为模块级内存单例（0.9A），测试前重置并预置一个初始值。 */
+function seedToken(token: string | null = "old-token") {
+  authTokenStore.clearAccessToken();
+  if (token) authTokenStore.setAccessToken(token, new Date(Date.now() + 900_000).toISOString());
 }
 const response = (data: unknown, status = 200) =>
   new Response(
@@ -26,7 +19,7 @@ const response = (data: unknown, status = 200) =>
 describe("REST transport", () => {
   it("does not turn server rejection into a successful local write", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(response(null, 409));
-    const http = new HttpTransport({ tokenStore: store(), fetchImpl });
+    const http = (seedToken(), new HttpTransport({ fetchImpl }));
     await expect(http.post("/v1/orders", {})).rejects.toMatchObject({
       code: 409,
       message: "服务拒绝",
@@ -34,7 +27,6 @@ describe("REST transport", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("refreshes once for concurrent expired requests and retries with the new token", async () => {
-    const tokens = store();
     let refreshes = 0;
     const fetchImpl = vi.fn(
       async (path: RequestInfo | URL, options?: RequestInit) => {
@@ -52,7 +44,7 @@ describe("REST transport", () => {
           : response(null, 401);
       },
     );
-    const http = new HttpTransport({ tokenStore: tokens, fetchImpl });
+    const http = (seedToken(), new HttpTransport({ fetchImpl }));
     const results = await Promise.all([
       http.get("/v1/auth/me"),
       http.get("/v1/favorites"),
@@ -65,7 +57,7 @@ describe("REST transport", () => {
   });
   it("does not refresh on a bad password and propagates failed refresh", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(response(null, 401));
-    const http = new HttpTransport({ tokenStore: store(), fetchImpl });
+    const http = (seedToken(), new HttpTransport({ fetchImpl }));
     await expect(http.post("/v1/auth/login", {})).rejects.toMatchObject({
       code: 401,
     });
@@ -80,10 +72,23 @@ describe("REST transport", () => {
       return response("ok");
     };
     try {
-      const http = new HttpTransport({ tokenStore: store() });
+      const http = (seedToken(), new HttpTransport({}));
       expect(await http.get("/v1/health")).toBe("ok");
     } finally {
       globalThis.fetch = original;
     }
+  });
+  it("8.1 回归：错误 envelope 的结构化详情（后端放在 data 里）进入 ApiError.details；data 为 null 时没有详情", async () => {
+    const envelope = (code: number, data: unknown) => new Response(JSON.stringify({ code, data, message: "失败", requestId: "req-1" }),
+      { status: code, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(envelope(403, { code: "RESTRICTED", scope: "BOOKING", endsAt: 123 }))
+      .mockResolvedValueOnce(envelope(400, { items: [{ position: 2, code: "MISSING_FIELD", field: "price" }] }))
+      .mockResolvedValueOnce(envelope(404, null));
+    const http = (seedToken(), new HttpTransport({ fetchImpl }));
+    await expect(http.post("/v1/orders", {})).rejects.toMatchObject({ code: 403, details: { code: "RESTRICTED", scope: "BOOKING", endsAt: 123 } });
+    await expect(http.post("/v1/listing-batches/b/publish")).rejects.toMatchObject({ code: 400, details: { items: [{ position: 2 }] } });
+    const missing = (await http.get("/v1/products/x").catch((e: unknown) => e)) as { details?: unknown };
+    expect(missing.details).toBeUndefined();
   });
 });

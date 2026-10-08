@@ -1,0 +1,10 @@
+# 本地部署演练专用覆盖文件（模块 8.2）：与 docker-compose.yml 叠加使用，只改端口，其余配置与生产编排完全相同。
+#   · PostgreSQL 不发布任何主机端口（生产编排也只绑定 127.0.0.1）；
+#   · Web 只绑定 127.0.0.1 上的临时端口（由演练脚本选一个空闲端口，经 DRILL_WEB_PORT 传入），避免与本机已有服务冲突。
+# 用法见 docs/local-deployment.md；不要单独使用本文件。
+services:
+  postgres:
+    ports: !reset []
+  web:
+    ports: !override
+      - "127.0.0.1:${DRILL_WEB_PORT:?DRILL_WEB_PORT 由演练脚本设置}:80"

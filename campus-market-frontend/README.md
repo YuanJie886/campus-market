@@ -55,8 +55,20 @@ npm install
 # 3. 启动开发服务器（默认 http://localhost:5173）
 npm run dev
 
-# 4. 生产构建（含 TypeScript 类型检查）
-npm run build
+# 4. 生产构建（含 TypeScript 类型检查）。显式模式不读取本机 .env：
+npm run build:rest   # 连接真实后端 → dist/（部署镜像使用这一项）
+npm run build:mock   # 纯前端离线演示 → dist-mock/
+npm run build:all    # 两种构建 + scripts/check-bundles.mjs 产物检查
+npm run build        # 等同于 build:all，不读取 .env：本机 VITE_API_MODE 是什么，产物都逐字节相同
+npm run check:deterministic  # 在未设置 / mock / rest 三种环境下各构建一次并逐字节比较 dist 与 dist-mock
+# 模块 7：离线演示（build:mock）的「个人资料」里有「设为演示工作人员」开关，用来体验治理工作台；
+# 它只在 Mock 构建里懒加载，REST 构建里被常量折叠删掉（check-bundles 以 demo-staff-switch 标记验证）。
+# 真实部署没有默认工作人员，首个工作人员见 ../campus-market-backend/docs/staff-runbook.md。
+# 6.1A：商品浏览与搜索需要登录，只显示本校商品；未登录只看到落地页。
+
+# 模块 8：真实浏览器 E2E（REST 构建 + 后端 jar + 一次性 PostgreSQL 16，默认使用本机 Chrome）
+npm run e2e          # 先 build:rest，再 playwright test；需要 Docker、JDK 17 与 ../campus-market-backend/target 下的 jar
+# 本地部署演练（生产编排 + 唯一项目名 + 精确清理）：node deploy/drill/local-deploy-drill.mjs <报告目录>
 
 # 5. 本地预览构建产物（http://localhost:4173）
 npm run preview

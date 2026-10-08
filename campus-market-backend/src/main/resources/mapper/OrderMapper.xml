@@ -3,14 +3,60 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.lulu.campusmarketbackend.mapper.OrderMapper">
+    <!--
+      订单列表（3.8A）。流程摘要所需的验货状态、本人/对方到达状态、是否有待回应的改约
+      都在<b>这一条</b> SQL 里 LEFT JOIN 出来，订单数量是 1 还是 100 语句数都不变；
+      「能否确认面交」由 Java 侧 OrderActionability 用这些列计算，前端不复制条件。
+      o.* 放在最前，保持原有列名不变。
+    -->
+    <sql id="orderWithSummaryColumns">
+        o.*,
+        i.status AS summary_inspection_status,
+        mp.status AS summary_my_presence,
+        cp.status AS summary_counterpart_presence,
+        EXISTS (SELECT 1 FROM order_meeting_proposals pr
+                WHERE pr.order_id = o.id AND pr.status = 'PENDING') AS summary_has_pending_proposal,
+        EXISTS (SELECT 1 FROM order_slot_agreements sa
+                WHERE sa.order_id = o.id AND sa.meeting_revision = o.meeting_revision) AS summary_slot_agreed
+    </sql>
+    <sql id="orderWithSummaryJoins">
+        LEFT JOIN order_inspections i ON i.order_id = o.id
+        LEFT JOIN order_presence mp ON mp.order_id = o.id AND mp.meeting_revision = o.meeting_revision
+             AND mp.user_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER}
+        LEFT JOIN order_presence cp ON cp.order_id = o.id AND cp.meeting_revision = o.meeting_revision
+             AND cp.user_id = CASE WHEN o.buyer_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER}
+                                   THEN o.seller_id ELSE o.buyer_id END
+    </sql>
+
     <select id="selectRowsByRole" resultType="map">
-        SELECT * FROM orders
+        SELECT <include refid="orderWithSummaryColumns"/>
+        FROM orders o
+        <include refid="orderWithSummaryJoins"/>
         WHERE
         <choose>
-            <when test="role == 'buyer'">buyer_id = #{uid}</when>
-            <when test="role == 'seller'">seller_id = #{uid}</when>
-            <otherwise>(buyer_id = #{uid} OR seller_id = #{uid})</otherwise>
+            <when test="role == 'buyer'">o.buyer_id = #{uid}</when>
+            <when test="role == 'seller'">o.seller_id = #{uid}</when>
+            <otherwise>(o.buyer_id = #{uid} OR o.seller_id = #{uid})</otherwise>
         </choose>
-        ORDER BY created_at DESC
+        ORDER BY o.created_at DESC, o.id
+    </select>
+
+    <!-- 单个订单（下单 / 迁移后的返回值），与列表同一投影，只有订单双方能读到 -->
+    <select id="selectRowWithSummary" resultType="map">
+        SELECT <include refid="orderWithSummaryColumns"/>
+        FROM orders o
+        <include refid="orderWithSummaryJoins"/>
+        WHERE o.id = #{orderId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND (o.buyer_id = #{uid} OR o.seller_id = #{uid})
+    </select>
+
+    <!-- 一次取回多笔订单的评价，替代原先每笔订单一条查询（N+1） -->
+    <select id="selectReviewRowsForOrders" resultType="map">
+        SELECT * FROM reviews
+        WHERE order_id IN
+        <foreach collection="orderIds" item="id" open="(" separator="," close=")">
+            #{id,javaType=java.util.UUID,jdbcType=OTHER}
+        </foreach>
+        ORDER BY order_id, created_at, id
     </select>
 </mapper>

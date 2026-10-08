@@ -45,6 +45,27 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
+        <!-- 数据库结构版本化管理。
+             Spring Boot 4 把自动配置按技术拆分成独立模块，FlywayAutoConfiguration 位于
+             spring-boot-flyway 中，仅引入 org.flywaydb 的 jar 不会激活自动配置，
+             因此必须通过 spring-boot-starter-flyway 引入（实测验证，非推测）。
+             flyway-core 被 FlywayLegacyBaselineIT 直接 import，按「直接依赖显式声明」
+             原则单独列出，不依赖 starter 的传递引入。
+             flyway-database-postgresql 提供 PostgreSQL 方言，Flyway 10+ 起必须显式引入。
+             三者版本均由 spring-boot-dependencies 管理（flyway.version = 12.4.0）。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
@@ -75,6 +96,19 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 真实 PostgreSQL 集成测试底座；版本由 spring-boot-dependencies 的
+             testcontainers.version (2.0.5) 管理，此处不重复声明 version。 -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -123,5 +157,35 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          真实 PostgreSQL 集成测试 Profile。
+
+          用法：
+            ./mvnw test                      仅 Surefire，运行普通单元测试，不需要 Docker
+            ./mvnw verify -Ppostgres-it      额外启用 Failsafe，运行 *IT 集成测试，需要 Docker
+
+          说明：
+          - Surefire 默认 includes 为 Test*.java / *Test.java / *Tests.java / *TestCase.java，
+            PostgresSchemaIT 不匹配，因此普通 test 阶段不会执行集成测试。
+          - Failsafe 默认 includes 为 IT*.java / *IT.java / *ITCase.java，恰好匹配 *IT。
+          - maven-failsafe-plugin 的 version(3.5.6) 与 integration-test/verify 两个 goal
+            已由 spring-boot-starter-parent 的 pluginManagement 提供，此处仅激活，
+            不重复声明 version，也不重复声明 executions。
+          - 未配置任何“Docker 缺失时跳过”的开关：Docker 不可用时集成测试将直接失败。
+        -->
+        <profile>
+            <id>postgres-it</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志格式：在 Spring Boot 默认布局基础上加入 MDC 的 requestId。
+
+  RequestIdFilter 已为每个请求把 requestId 放进 MDC，但默认 pattern 不引用它，
+  于是日志里看不到——前端拿到的「错误编号」无法定位到具体日志行。这里补上 %X{requestId}。
+
+  非 HTTP 的后台任务（定时清扫等）没有 requestId，用 defaultVal 显示为 "-"。
+
+  刻意不改日志级别，也不输出请求体、Token、Cookie、密码或确认码。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <property name="CAMPUS_MARKET_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%t] [requestId=%X{requestId:--}] %-40.40logger{39} : %m%n%wEx"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CAMPUS_MARKET_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

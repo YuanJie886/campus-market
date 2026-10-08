@@ -14,6 +14,8 @@ import { useMarket } from "../context/MarketContext";
 import { useNotify } from "../context/NotificationContext";
 import { CATEGORY_EMOJI, CATEGORY_GRADIENT } from "../utils/constants";
 import { formatChatTime } from "../utils/format";
+import { toUserMessage } from '../api/errors';
+import ReportDialog from '../components/governance/ReportDialog';
 
 /** 站内消息页：会话列表 + 聊天窗口 */
 export default function MessagesPage() {
@@ -26,6 +28,8 @@ export default function MessagesPage() {
 
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  // 模块 7：举报对方发来的某一条消息（只快照这一条，不复制整段会话）
+  const [reportingMessage, setReportingMessage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const conversations = currentUser
@@ -85,7 +89,7 @@ export default function MessagesPage() {
       await sendMessage(active.id, currentUser.id, content);
       setText("");
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -162,7 +166,7 @@ export default function MessagesPage() {
                         {product?.title ?? "商品已删除"}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {last ? last.content : "暂无消息"}
+                        {last ? (last.quarantined ? "该消息已被平台隔离" : last.content) : "暂无消息"}
                       </p>
                     </div>
                   </button>
@@ -190,6 +194,7 @@ export default function MessagesPage() {
                   </IconButton>
                   <Avatar
                     src={counterpart?.avatar}
+                    alt={`${counterpart?.nickname ?? "对方"}的头像`}
                     sx={{ width: 32, height: 32 }}
                   >
                     {counterpart?.nickname?.slice(0, 1)}
@@ -235,6 +240,7 @@ export default function MessagesPage() {
                       >
                         <Avatar
                           src={sender?.avatar}
+                          alt={`${sender?.nickname ?? "同学"}的头像`}
                           sx={{ width: 30, height: 30 }}
                         >
                           {sender?.nickname?.slice(0, 1)}
@@ -249,11 +255,21 @@ export default function MessagesPage() {
                                 : "rounded-bl-sm bg-white text-slate-700"
                             }`}
                           >
-                            {message.content}
+                            {message.quarantined ? (
+                              <span role="note" className="italic">
+                                {mine ? "你发送的这条消息已被平台隔离，对方看不到内容；可以在「我的限制」里申诉。" : "该消息已被平台隔离。"}
+                              </span>
+                            ) : message.content}
                           </div>
                           <span className="mt-0.5 text-[10px] text-slate-400">
                             {formatChatTime(message.createdAt)}
                           </span>
+                          {!mine && !message.quarantined && (
+                            <button type="button" className="text-[11px] text-slate-600 underline" onClick={() => setReportingMessage(message.id)}
+                              aria-label={`举报 ${formatChatTime(message.createdAt)} 的这条消息`}>
+                              举报
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -302,6 +318,9 @@ export default function MessagesPage() {
             )}
           </section>
         </div>
+      )}
+      {reportingMessage && (
+        <ReportDialog open targetType="MESSAGE" targetId={reportingMessage} targetLabel="对方发来的一条消息" onClose={() => setReportingMessage(null)} />
       )}
     </div>
   );

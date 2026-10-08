@@ -7,8 +7,16 @@ spring:
   task:
     scheduling:
       enabled: false
+  # 普通 H2 测试只验证 Spring 上下文装配，不建表。
+  # db/migration 下的 V1 是 PostgreSQL 专用脚本（jsonb、部分唯一索引等），
+  # 不得强行套用到 H2，因此这里关闭 Flyway。
+  # 真实结构验证由 PostgresSchemaIT / FlywayLegacyBaselineIT 在 PostgreSQL 16 上完成。
+  flyway:
+    enabled: false
 
 campus-market:
-  schema-init: false
   expiry-job-enabled: false
+  # 测试 profile 不创建限流清理 Job，避免定时线程建连接
+  rate-limit:
+    cleanup-enabled: false
   jwt-secret: test-only-secret-at-least-thirty-two-characters

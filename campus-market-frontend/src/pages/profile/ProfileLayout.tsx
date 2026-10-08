@@ -10,6 +10,10 @@ const TAB_ROUTES: { label: string; path: string }[] = [
   { label: '我的发布', path: '/profile/listings' },
   { label: '我的收藏', path: '/profile/favorites' },
   { label: '我的订单', path: '/profile/orders' },
+  { label: '交易履历', path: '/profile/history' },
+  { label: '教材建议', path: '/profile/textbook-suggestions' },
+  { label: '我的举报', path: '/profile/reports' },
+  { label: '我的限制', path: '/profile/restrictions' },
 ];
 
 /** 个人中心布局：用户概要卡 + 标签页 + 子路由出口 */

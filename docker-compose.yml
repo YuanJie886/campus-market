@@ -9,8 +9,10 @@ services:
       POSTGRES_DB: campus_market
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    # 仅供本机开发：固定的开发密码，只绑定 127.0.0.1（不对局域网 / 公网开放）。任何服务器部署请使用
+    # campus-market-frontend/deploy/docker-compose.yml，见 docs/local-deployment.md
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

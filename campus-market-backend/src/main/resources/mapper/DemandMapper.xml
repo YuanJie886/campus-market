@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lulu.campusmarketbackend.mapper.DemandMapper">
+
+    <!-- ======================= 订阅 ======================= -->
+
+    <sql id="subscriptionColumns">
+        s.id, s.keyword, s.normalized_keyword, s.category, s.min_price, s.max_price,
+        s.geo_scope, s.campus_id, s.building_id, s.active, s.created_at, s.updated_at,
+        sb.zone AS anchor_zone, sb.name AS anchor_building_name,
+        s.textbook_edition_id, te.normalized_isbn AS textbook_isbn, te.title AS textbook_title,
+        te.edition_label AS textbook_edition_label, te.publisher AS textbook_publisher,
+        s.circle_id, ci.name AS circle_name
+    </sql>
+
+    <select id="selectSubscriptionsByUser" resultType="map">
+        SELECT <include refid="subscriptionColumns"/>,
+               (SELECT count(*) FROM demand_matches m WHERE m.subscription_id = s.id) AS match_count
+        FROM demand_subscriptions s
+        LEFT JOIN buildings sb ON sb.id = s.building_id
+        LEFT JOIN textbook_editions te ON te.id = s.textbook_edition_id
+        LEFT JOIN circles ci ON ci.id = s.circle_id
+        WHERE s.user_id = #{userId}
+        ORDER BY s.created_at DESC, s.id
+    </select>
+
+    <select id="selectSubscriptionForUser" resultType="map">
+        SELECT <include refid="subscriptionColumns"/>,
+               (SELECT count(*) FROM demand_matches m WHERE m.subscription_id = s.id) AS match_count
+        FROM demand_subscriptions s
+        LEFT JOIN buildings sb ON sb.id = s.building_id
+        LEFT JOIN textbook_editions te ON te.id = s.textbook_edition_id
+        LEFT JOIN circles ci ON ci.id = s.circle_id
+        WHERE s.id = #{id} AND s.user_id = #{userId}
+    </select>
+
+    <!--
+      商品发布 / 编辑时的候选订阅。
+
+      所有硬性条件都在这里：学校、非卖家本人、分类、价格、关键词、地理范围。
+      关键词比较的两侧都已在 Java 中用 DemandText.normalize 规范化，这里用 strpos
+      做字面子串比较——不用 LIKE，因此关键词中的 % 与 _ 永远是普通字符。
+      全部参数化，不拼接任何客户端输入。
+    -->
+    <sql id="candidateColumns">
+        s.id, s.created_at, s.normalized_keyword, s.category, s.min_price, s.max_price,
+        s.geo_scope, s.campus_id, s.building_id, sb.zone AS anchor_zone, s.textbook_edition_id
+    </sql>
+    <sql id="candidateFilters">
+          <!--
+            模块 6：可见范围是硬条件。全校公开的商品只匹配普通（非圈子）订阅；
+            圈子可见的商品只匹配明确绑定了其中某个圈子、且订阅人仍是该圈在籍成员的订阅——
+            普通全校订阅永远收不到私密圈子商品。
+          -->
+          <choose>
+              <when test="circleIds == null">AND s.circle_id IS NULL</when>
+              <otherwise>
+          AND s.circle_id IN <foreach collection="circleIds" item="c" open="(" separator="," close=")">#{c,javaType=java.util.UUID,jdbcType=OTHER}</foreach>
+          AND EXISTS (SELECT 1 FROM circle_memberships cm JOIN circles cc ON cc.id = cm.circle_id AND cc.status = 'ACTIVE'
+                      WHERE cm.circle_id = s.circle_id AND cm.user_id = s.user_id AND cm.status = 'ACTIVE')
+              </otherwise>
+          </choose>
+          AND s.school_id = #{schoolId}
+          AND s.user_id &lt;&gt; #{sellerId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND (s.category IS NULL OR s.category = #{category})
+          AND (s.min_price IS NULL OR s.min_price &lt;= #{price})
+          AND (s.max_price IS NULL OR s.max_price &gt;= #{price})
+          AND (s.normalized_keyword IS NULL
+               OR strpos(#{normalizedTitle}, s.normalized_keyword) &gt; 0
+               OR strpos(#{normalizedDescription}, s.normalized_keyword) &gt; 0)
+          AND (
+                s.geo_scope = 'SCHOOL'
+             OR (s.geo_scope = 'CAMPUS' AND s.campus_id = #{campus})
+             <if test="buildingId != null">
+             OR (s.geo_scope = 'BUILDING' AND s.building_id = #{buildingId})
+             OR (s.geo_scope = 'ZONE' AND s.campus_id = #{campus} AND sb.zone = #{zone})
+             </if>
+          )
+    </sql>
+
+    <!--
+      候选订阅分两路（模块 4）：
+        1) 普通订阅（没有教材版本）：沿用 V4 的学校 + 分类收敛，走 V6 的
+           demand_subscriptions_match_plain 部分索引——教材版本订阅不在这个索引里，不会被逐条扫描；
+        2) 精确教材版本订阅：只有商品关联了版本时才查，按版本 id 精确取回
+           （demand_subscriptions_match_textbook），从不按书名匹配。
+      两路的其余硬性条件完全相同（candidateFilters）。
+    -->
+    <select id="selectMatchCandidates" resultType="map">
+        SELECT * FROM (
+            SELECT <include refid="candidateColumns"/>
+            FROM demand_subscriptions s
+            LEFT JOIN buildings sb ON sb.id = s.building_id
+            WHERE s.active AND s.textbook_edition_id IS NULL
+            <include refid="candidateFilters"/>
+            <if test="textbookEditionId != null">
+            UNION ALL
+            SELECT <include refid="candidateColumns"/>
+            FROM demand_subscriptions s
+            LEFT JOIN buildings sb ON sb.id = s.building_id
+            WHERE s.active AND s.textbook_edition_id = #{textbookEditionId}
+            <include refid="candidateFilters"/>
+            </if>
+        ) candidates
+        ORDER BY candidates.created_at, candidates.id
+    </select>
+
+    <!-- ======================= 匹配 ======================= -->
+
+    <!--
+      批量写入 / 刷新匹配。一次商品写入只发这一条语句，与命中订阅数无关（无 N+1）。
+      已存在的 (订阅, 商品) 只刷新分数与理由，并清除失效标记；read_at / dismissed_at 保持不变——
+      用户已经处理过的记录，不会因为卖家改了个标题就重新冒出来。
+    -->
+    <insert id="upsertMatches">
+        INSERT INTO demand_matches(id, subscription_id, product_id, score, reason_codes)
+        VALUES
+        <foreach collection="matches" item="m" separator=",">
+            (#{m.id,javaType=java.util.UUID,jdbcType=OTHER},
+             #{m.subscriptionId,javaType=java.util.UUID,jdbcType=OTHER},
+             #{productId,javaType=java.util.UUID,jdbcType=OTHER},
+             #{m.score},
+             #{m.reasonCodes}::text[])
+        </foreach>
+        ON CONFLICT (subscription_id, product_id) DO UPDATE
+            SET score = EXCLUDED.score,
+                reason_codes = EXCLUDED.reason_codes,
+                invalidated_at = NULL
+    </insert>
+
+    <!-- 不再满足条件的匹配标记失效。已忽略的保持原样；历史记录一律不物理删除。 -->
+    <update id="invalidateMatchesExcept">
+        UPDATE demand_matches
+        SET invalidated_at = now()
+        WHERE product_id = #{productId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND invalidated_at IS NULL
+          AND dismissed_at IS NULL
+        <if test="keep != null and keep.size() > 0">
+          AND subscription_id NOT IN
+            <foreach collection="keep" item="k" open="(" separator="," close=")">
+                #{k,javaType=java.util.UUID,jdbcType=OTHER}
+            </foreach>
+        </if>
+    </update>
+
+    <!--
+      收件箱。只返回<b>本人订阅</b>产生的匹配，已忽略的不再出现。
+      商品字段来自 p.*，匹配与订阅字段加前缀避免与商品列同名。
+    -->
+    <select id="selectMatchesForUser" resultType="map">
+        SELECT p.*, b.name AS building_name, b.zone AS building_zone,
+               <include refid="com.lulu.campusmarketbackend.mapper.ProductMapper.textbookColumns"/>,
+               te.normalized_isbn AS sub_textbook_isbn, te.title AS sub_textbook_title,
+               te.edition_label AS sub_textbook_edition_label, s.textbook_edition_id AS sub_textbook_edition_id,
+               m.id AS match_id, m.score AS match_score, m.reason_codes AS match_reason_codes,
+               m.read_at AS match_read_at, m.invalidated_at AS match_invalidated_at,
+               m.created_at AS match_created_at,
+               s.id AS sub_id, s.keyword AS sub_keyword, s.category AS sub_category,
+               s.min_price AS sub_min_price, s.max_price AS sub_max_price,
+               s.geo_scope AS sub_geo_scope, s.campus_id AS sub_campus_id,
+               s.building_id AS sub_building_id, sb.zone AS sub_zone, sb.name AS sub_building_name
+        FROM demand_matches m
+        JOIN demand_subscriptions s ON s.id = m.subscription_id
+        JOIN products p ON p.id = m.product_id
+        LEFT JOIN buildings b ON b.id = p.building_id
+        LEFT JOIN textbook_editions te ON te.id = s.textbook_edition_id
+        LEFT JOIN buildings sb ON sb.id = s.building_id
+        WHERE s.user_id = #{userId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND m.dismissed_at IS NULL
+          AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, s.user_id)
+        ORDER BY m.created_at DESC, m.id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countMatchesForUser" resultType="long">
+        SELECT count(*)
+        FROM demand_matches m
+        JOIN demand_subscriptions s ON s.id = m.subscription_id
+        JOIN products p ON p.id = m.product_id
+        WHERE s.user_id = #{userId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND m.dismissed_at IS NULL
+          AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, s.user_id)
+    </select>
+
+    <!--
+      未读数：有效（未失效且商品在售）、未读、未忽略，且订阅仍启用。
+      商品被下单锁定或售出时状态会离开「在售」，这里通过 JOIN 即时反映，
+      不依赖订单流程回调来维护计数。
+    -->
+    <select id="countUnread" resultType="long">
+        SELECT count(*)
+        FROM demand_matches m
+        JOIN demand_subscriptions s ON s.id = m.subscription_id
+        JOIN products p ON p.id = m.product_id
+        WHERE s.user_id = #{userId,javaType=java.util.UUID,jdbcType=OTHER}
+          AND s.active
+          AND m.read_at IS NULL
+          AND m.dismissed_at IS NULL
+          AND m.invalidated_at IS NULL
+          AND p.status = '在售'
+          AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, s.user_id)
+    </select>
+</mapper>

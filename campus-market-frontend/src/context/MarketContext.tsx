@@ -19,6 +19,7 @@ import type { MeetingPoint, CreateOrderInput } from "../api/contracts";
 import { getApiClient } from "../api/client";
 import { useAuth } from "./AuthContext";
 import { useNotify } from "./NotificationContext";
+import { toUserMessage } from '../api/errors';
 const empty: MarketState = {
   products: [],
   orders: [],
@@ -42,7 +43,8 @@ function useMarketState() {
     const seq = ++refreshSequence.current,
       gen = generation.current;
     let products: Product[] = [];
-    for (let page = 1; ; page++) {
+    // 6.1A：未登录不读取任何商品（后端同样要求登录）；落地页只展示介绍与登录注册入口
+    for (let page = 1; currentUser; page++) {
       const result = await api.listProducts({
         sort: "latest",
         page,
@@ -128,15 +130,19 @@ function useMarketState() {
     productSaved(p);
     return p;
   };
-  const updateProduct = async (id: string, patch: Partial<Product>) => {
+  const updateProduct = async (id: string, patch: import("../api/contracts").ProductPatch) => {
     const p = await api.updateProduct(id, patch);
     productSaved(p);
   };
   const setStatus = async (id: string, status: Product["status"]) => {
     productSaved(await api.setProductStatus(id, status));
   };
-  const toggleFavorite = async (_uid: string, id: string) => {
-    const active = await api.toggleFavorite(id);
+  /**
+   * 幂等设置收藏状态。desired 由调用方根据当前 UI 状态显式声明，
+   * 底层走 PUT / DELETE，不再由任何一层自行 toggle——那会让重试把收藏删掉。
+   */
+  const setFavorite = async (_uid: string, id: string, desired: boolean) => {
+    const active = await api.setFavorite(id, desired);
     const favorites = await api.listFavorites();
     setState((p) => ({ ...p, favorites }));
     return active;
@@ -160,6 +166,8 @@ function useMarketState() {
     id: string,
     status: OrderStatus | CanonicalOrderStatus,
     confirmationCode?: string,
+    // 模块 7：取消时的结构化原因与说明
+    cancellation?: { reasonCode?: import("../api/contracts").CancellationReason; note?: string },
   ) => {
     const to =
       (
@@ -170,7 +178,7 @@ function useMarketState() {
           待确认: "PENDING_SELLER_CONFIRM",
         } as Record<string, CanonicalOrderStatus>
       )[status] ?? (status as CanonicalOrderStatus);
-    const o = await api.transitionOrder(id, { to, confirmationCode });
+    const o = await api.transitionOrder(id, { to, ...(confirmationCode ? { confirmationCode } : {}), ...(to === "CANCELLED" ? cancellation ?? {} : {}) });
     setState((p) => ({
       ...p,
       orders: p.orders.map((x) => (x.id === id ? o : x)),
@@ -178,7 +186,8 @@ function useMarketState() {
     afterMutation();
   };
   const addReview = async (id: string, uid: string, review: Review) => {
-    const saved = await api.addReview(id, review);
+    // 只提交接口允许的两个字段：后端 REVIEW_FIELDS = rating / comment，其他字段一律 400（8.1 E2E 发现 createdAt 被一并提交）
+    const saved = await api.addReview(id, { rating: review.rating, comment: review.comment });
     setState((p) => ({
       ...p,
       orders: p.orders.map((o) =>
@@ -198,7 +207,7 @@ function useMarketState() {
         api.getProduct(id),
         api.listComments(id),
       ]);
-      if (gen !== generation.current) return;
+      if (gen !== generation.current) return p;
       productSaved(p);
       setState((prev) => ({
         ...prev,
@@ -208,6 +217,8 @@ function useMarketState() {
         ],
       }));
       void loadUsers([p.sellerId, ...comments.map((c) => c.userId)]);
+      // 列表接口不含验货声明，调用方需要详情里的声明时直接用这里的返回值
+      return p;
     },
     [api, loadUsers],
   );
@@ -216,7 +227,7 @@ function useMarketState() {
       try {
         await api.incrementProductViews(id);
       } catch (e) {
-        error((e as Error).message);
+        error(toUserMessage(e));
       }
     },
     [api],
@@ -290,7 +301,7 @@ function useMarketState() {
       state.products.filter((p) => p.sellerId === id),
     isFavorite: (uid: string | null | undefined, id: string) =>
       state.favorites.some((f) => f.userId === uid && f.productId === id),
-    toggleFavorite,
+    setFavorite,
     getFavoriteProducts: (uid: string) =>
       state.favorites
         .filter((f) => f.userId === uid)

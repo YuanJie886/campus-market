@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppBar from "@mui/material/AppBar";
@@ -26,6 +26,13 @@ import LoginIcon from "@mui/icons-material/Login";
 import { useAuth } from "../context/AuthContext";
 import { useMarket } from "../context/MarketContext";
 import { useNotify } from "../context/NotificationContext";
+import { toUserMessage } from '../api/errors';
+import RadarOutlinedIcon from "@mui/icons-material/RadarOutlined";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
+import { getApiClient } from "../api/client";
+import { useDemandUnreadCount } from "../context/DemandUnreadContext";
 
 /** 全局顶部导航栏：Logo / 搜索 / 发布 / 消息 / 用户菜单 */
 export default function Navbar() {
@@ -33,8 +40,18 @@ export default function Navbar() {
   const { currentUser, isAuthenticated, logout } = useAuth();
   const { getUnreadCount } = useMarket();
   const { success, error } = useNotify();
+  const { count: demandUnread } = useDemandUnreadCount();
 
   const [keyword, setKeyword] = useState("");
+  // 模块 7：只有服务端确认的本校平台工作人员才显示工作台入口（权限以后端为准，这里只是体验）
+  const [isStaff, setIsStaff] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setIsStaff(false);
+    if (!currentUser) return;
+    getApiClient().getStaffStatus().then((s) => { if (active) setIsStaff(s.staff) }).catch(() => undefined);
+    return () => { active = false };
+  }, [currentUser?.id]);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const menuOpen = Boolean(anchorEl);
   const unread = currentUser ? getUnreadCount(currentUser.id) : 0;
@@ -63,7 +80,7 @@ export default function Navbar() {
       success("已退出登录");
       navigate("/");
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
@@ -152,6 +169,57 @@ export default function Navbar() {
           >
             发布闲置
           </Button>
+
+          <Tooltip title="课程教材">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/courses" : "/login", isAuthenticated ? undefined : { state: { from: "/courses" } })}
+              aria-label="课程教材"
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <MenuBookOutlinedIcon aria-hidden />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="我的圈子">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/circles" : "/login", isAuthenticated ? undefined : { state: { from: "/circles" } })}
+              aria-label="我的圈子"
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <GroupsOutlinedIcon aria-hidden />
+            </IconButton>
+          </Tooltip>
+
+          {isStaff && (
+            <Tooltip title="治理工作台">
+              <IconButton onClick={() => navigate("/moderation")} aria-label="治理工作台"
+                sx={{ borderRadius: 2.5, "&:hover": { bgcolor: "rgba(13,138,132,0.08)" } }}>
+                <GavelOutlinedIcon aria-hidden />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          <Tooltip title="需求匹配">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/demands" : "/login", isAuthenticated ? undefined : { state: { from: "/demands" } })}
+              // 可访问名称里带上数字：读屏用户听到的是「需求匹配，3 条未读」，而不只是一个图标
+              aria-label={demandUnread > 0 ? `需求匹配，${demandUnread} 条未读` : "需求匹配"}
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <Badge color="error" badgeContent={demandUnread} max={99}>
+                <RadarOutlinedIcon aria-hidden />
+              </Badge>
+            </IconButton>
+          </Tooltip>
 
           <Tooltip title="消息">
             <IconButton

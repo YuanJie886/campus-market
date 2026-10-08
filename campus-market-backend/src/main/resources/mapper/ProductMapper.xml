@@ -3,28 +3,105 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.lulu.campusmarketbackend.mapper.ProductMapper">
+    <!--
+      模块 4：商品卡片上的教材版本摘要（关联时的快照 + 关联课程名）。
+      用相关标量子查询而不是 LEFT JOIN：PostgreSQL 会把这类「昂贵」的输出列推迟到
+      Sort + Limit 之后才计算，因此一页 20 张卡片只按主键探测 20 次；
+      若写成 JOIN，规划器会先把整张关联表哈希连接进来再排序（1 万级数据时实测 12 ms 对 0.x ms）。
+      语句数与卡片数量无关（无 N+1）。未关联教材的商品两列都是 NULL。
+    -->
+    <sql id="textbookColumns">
+        (SELECT d.textbook_edition_id FROM product_textbook_details d WHERE d.product_id = p.id) AS tb_edition_id,
+        (SELECT json_build_object(
+                    'editionId', d.textbook_edition_id, 'isbn', d.isbn_snapshot, 'title', d.title_snapshot,
+                    'editionLabel', d.edition_snapshot, 'publisher', d.publisher_snapshot,
+                    'courseNames', COALESCE((
+                        SELECT json_agg(x.name ORDER BY x.name COLLATE "C")
+                        FROM (SELECT DISTINCT c.name
+                              FROM course_textbooks ct
+                              JOIN course_offerings o ON o.id = ct.course_offering_id AND o.active
+                              JOIN courses c ON c.id = o.course_id AND c.active
+                              WHERE ct.textbook_edition_id = d.textbook_edition_id
+                                AND ct.verification_status = 'VERIFIED') x), '[]'::json))::text
+         FROM product_textbook_details d WHERE d.product_id = p.id) AS tb_json,
+        <!-- 模块 5：整套打包摘要（明细条数、总件数、分类数），同样是推迟到 LIMIT 之后才计算的标量子查询 -->
+        CASE WHEN p.listing_kind = 'BUNDLE' THEN (
+            SELECT json_build_object('itemCount', count(*), 'totalQuantity', sum(bi.quantity),
+                                     'categoryCount', count(DISTINCT bi.category))::text
+            FROM bundle_items bi WHERE bi.product_id = p.id) END AS bundle_json
+    </sql>
+
+    <!--
+      模块 6：权威可见性条件（V9 的 SQL 函数，唯一实现）。所有列表、计数、feed 都用它；
+      单个商品的直接访问在 Java 侧用同一套函数的 product_readable_by（见 ProductVisibility）。
+    -->
+    <sql id="visibleToViewer">
+        product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+    </sql>
+
+    <!--
+      模块 6：卡片上的圈子标签。只列出<b>当前查看者自己也在籍</b>的关联圈子（卖家本人看到全部），
+      不会让成员知道这件商品还发到了哪些别的圈子；PUBLIC 商品为 NULL。
+      同样是推迟到 LIMIT 之后才计算的标量子查询，语句数与卡片数、圈子数都无关。
+    -->
+    <sql id="circleColumns">
+        CASE WHEN p.visibility = 'CIRCLE_ONLY' THEN (
+            SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'type', c.type) ORDER BY c.name COLLATE "C", c.id)::text
+            FROM product_circle_visibility v
+            JOIN circles c ON c.id = v.circle_id AND c.status = 'ACTIVE'
+            WHERE v.product_id = p.id
+              AND (p.seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER}
+                   OR EXISTS (SELECT 1 FROM circle_memberships m
+                              WHERE m.circle_id = v.circle_id AND m.status = 'ACTIVE'
+                                AND m.user_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER}))) END AS circle_json
+    </sql>
+
+    <!-- 内部使用（需求匹配、发布后的投影等），不带查看者 -->
+    <select id="selectRowById" resultType="map">
+        SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>
+        FROM products p
+        LEFT JOIN buildings b ON b.id = p.building_id
+        WHERE p.id = #{id,javaType=java.util.UUID,jdbcType=OTHER}
+    </select>
+
+    <!--
+      面向查看者的单个商品读取（详情、分享链接）。readable 列就是 V9 的 product_readable_by：
+      调用方据此决定 404，与列表的 product_visible_to 出自同一套函数。
+    -->
+    <select id="selectRowForViewer" resultType="map">
+        SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>, <include refid="circleColumns"/>,
+               product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid,javaType=java.util.UUID,jdbcType=OTHER}) AS readable
+        FROM products p
+        LEFT JOIN buildings b ON b.id = p.building_id
+        WHERE p.id = #{id,javaType=java.util.UUID,jdbcType=OTHER}
+    </select>
     <select id="selectProductRows" resultType="map">
-        SELECT * FROM products
-        WHERE (status &lt;&gt; '已下架' OR seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
-        <if test="category != null and category != ''">AND category = #{category}</if>
-        <if test="campus != null and campus != ''">AND campus = #{campus}</if>
-        <if test="condition != null and condition != ''">AND condition = #{condition}</if>
-        <if test="keyword != null and keyword != ''">AND (title ILIKE CONCAT('%', #{keyword}, '%') OR description ILIKE CONCAT('%', #{keyword}, '%'))</if>
-        <if test="minPrice != null">AND price &gt;= #{minPrice}</if>
-        <if test="maxPrice != null">AND price &lt;= #{maxPrice}</if>
-        ORDER BY ${orderBy}, id
+        <!-- LEFT JOIN 一次取回楼栋名与园区，避免每条商品再查一次（N+1） -->
+        SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>, <include refid="circleColumns"/>
+        FROM products p
+        LEFT JOIN buildings b ON b.id = p.building_id
+        WHERE (p.status &lt;&gt; '已下架' OR p.seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+          AND <include refid="visibleToViewer"/>
+        <if test="category != null and category != ''">AND p.category = #{category}</if>
+        <if test="campus != null and campus != ''">AND p.campus = #{campus}</if>
+        <if test="condition != null and condition != ''">AND p.condition = #{condition}</if>
+        <if test="keyword != null and keyword != ''">AND (p.title ILIKE CONCAT('%', #{keyword}, '%') OR p.description ILIKE CONCAT('%', #{keyword}, '%'))</if>
+        <if test="minPrice != null">AND p.price &gt;= #{minPrice}</if>
+        <if test="maxPrice != null">AND p.price &lt;= #{maxPrice}</if>
+        ORDER BY ${orderBy}, p.id
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countProductRows" resultType="long">
-        SELECT count(*) FROM products
-        WHERE (status &lt;&gt; '已下架' OR seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
-        <if test="category != null and category != ''">AND category = #{category}</if>
-        <if test="campus != null and campus != ''">AND campus = #{campus}</if>
-        <if test="condition != null and condition != ''">AND condition = #{condition}</if>
-        <if test="keyword != null and keyword != ''">AND (title ILIKE CONCAT('%', #{keyword}, '%') OR description ILIKE CONCAT('%', #{keyword}, '%'))</if>
-        <if test="minPrice != null">AND price &gt;= #{minPrice}</if>
-        <if test="maxPrice != null">AND price &lt;= #{maxPrice}</if>
+        SELECT count(*) FROM products p
+        WHERE (p.status &lt;&gt; '已下架' OR p.seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+          AND <include refid="visibleToViewer"/>
+        <if test="category != null and category != ''">AND p.category = #{category}</if>
+        <if test="campus != null and campus != ''">AND p.campus = #{campus}</if>
+        <if test="condition != null and condition != ''">AND p.condition = #{condition}</if>
+        <if test="keyword != null and keyword != ''">AND (p.title ILIKE CONCAT('%', #{keyword}, '%') OR p.description ILIKE CONCAT('%', #{keyword}, '%'))</if>
+        <if test="minPrice != null">AND p.price &gt;= #{minPrice}</if>
+        <if test="maxPrice != null">AND p.price &lt;= #{maxPrice}</if>
     </select>
 
     <update id="updateProductFields">
@@ -39,8 +116,103 @@
             <if test="campusSet">campus = #{campus},</if>
             <if test="imagesSet">images = #{images,typeHandler=com.lulu.campusmarketbackend.mapper.JsonbTypeHandler},</if>
             <if test="contactSet">contact = #{contact},</if>
+            <if test="buildingIdSet">building_id = #{buildingId,jdbcType=VARCHAR},</if>
             <if test="statusSet">status = #{status}, sold_at = #{soldAt,jdbcType=TIMESTAMP_WITH_TIMEZONE},</if>
         </set>
         WHERE id = #{id}
     </update>
+
+    <!--
+      楼栋集市 feed 的公共过滤条件。
+      scope 只取 BUILDING / ZONE / CAMPUS / SCHOOL 四个枚举值之一，由 Java 侧的
+      BuildingScope 枚举保证，不接受任意字符串拼接。
+    -->
+    <sql id="feedFilters">
+        (p.status &lt;&gt; '已下架' OR p.seller_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER})
+        AND <include refid="visibleToViewer"/>
+        <!-- 模块 6：圈子商品流。调用方已确认查看者是该圈在籍成员 -->
+        <if test="circleId != null">
+            AND EXISTS (SELECT 1 FROM product_circle_visibility cv
+                        WHERE cv.product_id = p.id AND cv.circle_id = #{circleId,javaType=java.util.UUID,jdbcType=OTHER})
+        </if>
+        <if test="category != null and category != ''">AND p.category = #{category}</if>
+        <if test="condition != null and condition != ''">AND p.condition = #{condition}</if>
+        <if test="keyword != null and keyword != ''">AND (p.title ILIKE CONCAT('%', #{keyword}, '%') OR p.description ILIKE CONCAT('%', #{keyword}, '%'))</if>
+        <if test="minPrice != null">AND p.price &gt;= #{minPrice}</if>
+        <if test="maxPrice != null">AND p.price &lt;= #{maxPrice}</if>
+        <!-- 模块 4：教材版本商品流。精确版本与「其他版本」各自单独查询，从不混排 -->
+        <if test="onSaleOnly">AND p.status = '在售'</if>
+        <if test="textbookEditionIds != null">
+            AND EXISTS (SELECT 1 FROM product_textbook_details fe
+                        WHERE fe.product_id = p.id
+                          AND fe.textbook_edition_id IN
+                          <foreach collection="textbookEditionIds" item="e" open="(" separator="," close=")">#{e}</foreach>)
+        </if>
+        <!-- 范围条件。降级只改变这一段，上面的用户筛选条件<b>逐条保留</b>：
+             本楼没有「数码」类商品时，应该去同园区找「数码」，而不是拿别的分类凑数。 -->
+        <choose>
+            <when test="scope == 'BUILDING'">
+                AND p.building_id = #{buildingId}
+            </when>
+            <when test="scope == 'ZONE'">
+                AND p.building_id IN (
+                    SELECT id FROM buildings WHERE campus_id = #{campus} AND zone = #{zone} AND active)
+            </when>
+            <when test="scope == 'CAMPUS'">
+                AND p.campus = #{campus}
+            </when>
+            <otherwise><!-- SCHOOL：全校，不加范围限制 --></otherwise>
+        </choose>
+    </sql>
+
+    <!--
+      近似直线距离（米）。Haversine，地球半径取 6371000 m。
+      这是后端<b>唯一</b>的距离公式，前端 Mock 用等价实现并有对照测试。
+      不引入 PostGIS：当前只需要几百米量级的粗略估算，装一个扩展的代价远大于收益。
+    -->
+    <sql id="haversineMeters">
+        2 * 6371000 * asin(sqrt(
+            power(sin(radians(b.latitude - #{originLat}) / 2), 2)
+            + cos(radians(#{originLat})) * cos(radians(b.latitude))
+              * power(sin(radians(b.longitude - #{originLng}) / 2), 2)))
+    </sql>
+
+    <select id="countFeedRows" resultType="long">
+        SELECT count(*) FROM products p WHERE <include refid="feedFilters"/>
+    </select>
+
+    <select id="selectFeedRows" resultType="map">
+        SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>, <include refid="circleColumns"/>,
+        <choose>
+            <when test="originLat != null and originLng != null">
+                CASE WHEN b.latitude IS NULL OR b.longitude IS NULL THEN NULL
+                     ELSE <include refid="haversineMeters"/> END AS distance_meters,
+            </when>
+            <otherwise>NULL AS distance_meters,</otherwise>
+        </choose>
+        (p.building_id IS NOT NULL AND p.building_id = #{originBuildingId,jdbcType=VARCHAR}) AS same_building
+        FROM products p
+        LEFT JOIN buildings b ON b.id = p.building_id
+        WHERE <include refid="feedFilters"/>
+        <choose>
+            <when test="orderBy == 'nearest'">
+                <!-- 同楼栋最优先；其次按距离；没有楼栋的商品一律排在最后。
+                     最后用 created_at DESC 与 id 收敛，保证同一查询的顺序稳定可分页。 -->
+                ORDER BY
+                  CASE WHEN p.building_id IS NOT NULL AND p.building_id = #{originBuildingId,jdbcType=VARCHAR} THEN 0
+                       WHEN p.building_id IS NOT NULL THEN 1
+                       ELSE 2 END,
+                  <choose>
+                      <when test="originLat != null and originLng != null">
+                          (CASE WHEN b.latitude IS NULL OR b.longitude IS NULL THEN NULL
+                                ELSE <include refid="haversineMeters"/> END) ASC NULLS LAST,
+                      </when>
+                      <otherwise></otherwise>
+                  </choose>
+                  p.created_at DESC, p.id
+            </when>
+            <otherwise>ORDER BY ${orderBy}, p.id</otherwise>
+        </choose>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
 </mapper>

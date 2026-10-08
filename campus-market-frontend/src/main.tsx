@@ -8,6 +8,7 @@ import theme from './theme';
 import { NotificationProvider } from './context/NotificationContext';
 import { AuthProvider } from './context/AuthContext';
 import { MarketProvider } from './context/MarketContext';
+import { DemandUnreadProvider } from './context/DemandUnreadContext';
 import './index.css';
 
 const container = document.getElementById('root');
@@ -24,7 +25,9 @@ ReactDOM.createRoot(container).render(
         <NotificationProvider>
           <AuthProvider>
             <MarketProvider>
-              <App />
+              <DemandUnreadProvider>
+                <App />
+              </DemandUnreadProvider>
             </MarketProvider>
           </AuthProvider>
         </NotificationProvider>

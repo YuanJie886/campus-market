@@ -13,7 +13,7 @@ import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
-import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
+import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import NorthEastRoundedIcon from '@mui/icons-material/NorthEastRounded';
 import type { Product } from '../types';
 import {
@@ -26,6 +26,7 @@ import { useAuth } from '../context/AuthContext';
 import { useMarket } from '../context/MarketContext';
 import { useNotify } from '../context/NotificationContext';
 import ImageWithFallback from './ImageWithFallback';
+import { toUserMessage } from '../api/errors';
 
 interface ProductCardProps {
   product: Product;
@@ -40,9 +41,21 @@ interface ProductCardProps {
  * - 渐进式信息展示 (Progressive Information Disclosure)
  */
 export default function ProductCard({ product, index = 0 }: ProductCardProps) {
+  // feed 返回的商品带有相对当前用户宿舍楼的近似位置。普通列表没有这些字段，
+  // 此时什么都不显示——绝不拿校区距离编一个「约 N 分钟」出来。
+  const feedProduct = product as Product & {
+    sameBuilding?: boolean;
+    approximateWalkMinutes?: number | null;
+  };
+  const proximityLabel = feedProduct.sameBuilding
+    ? '同楼栋'
+    : typeof feedProduct.approximateWalkMinutes === 'number'
+      ? `步行约 ${feedProduct.approximateWalkMinutes} 分钟`
+      : null;
+
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { isFavorite, toggleFavorite } = useMarket();
+  const { isFavorite, setFavorite } = useMarket();
   const { success, info, error } = useNotify();
 
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -135,10 +148,10 @@ export default function ProductCard({ product, index = 0 }: ProductCardProps) {
         return;
       }
       setIsPopping(true);
-      const nowFav = await toggleFavorite(currentUser.id, product.id);
+      const nowFav = await setFavorite(currentUser.id, product.id, !isFavorite(currentUser.id, product.id));
       success(nowFav ? '已加入心愿单' : '已移出心愿单');
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
@@ -243,16 +256,51 @@ export default function ProductCard({ product, index = 0 }: ProductCardProps) {
           {/* 顶部元数据：分类与校区 */}
           <div className="cm-apple-meta-row">
             <span className="cm-apple-category-tag">{product.category}</span>
+            {/*
+              有取货楼栋时显示「园区 · 楼栋」，没有就回退到校区。
+              这里展示的是<b>商品的取货楼栋</b>，来自商品记录本身，
+              不读取卖家的个人资料——卖家的宿舍楼永远不出现在任何公共位置。
+            */}
             <span className="cm-apple-campus-tag">
               <PlaceOutlinedIcon sx={{ fontSize: 13, mr: 0.3 }} />
-              {product.campus}
+              {product.buildingName
+                ? `${product.buildingZone ?? product.campus} · ${product.buildingName}`
+                : product.campus}
             </span>
+            {proximityLabel && (
+              <span className="cm-apple-campus-tag" title="直线估算，实际路线以校园道路为准">
+                {proximityLabel}
+              </span>
+            )}
           </div>
 
           {/* 标题 */}
           <h3 className="cm-apple-title" title={product.title}>
             {product.title}
           </h3>
+          {/* 模块 4：关联了教材版本时写出具体版本，而不是只写「教材」 */}
+          {product.textbook && (
+            <p className="mt-0.5 truncate text-xs font-medium text-teal-800" data-textbook-edition={product.textbook.editionId}
+              title={`${product.textbook.title} ${product.textbook.editionLabel} · ${product.textbook.publisher}${product.textbook.isbn ? ` · ISBN ${product.textbook.isbn}` : ''}`}>
+              课程教材 · {product.textbook.editionLabel} · {product.textbook.publisher}
+              {product.textbook.isbn ? ` · ISBN ${product.textbook.isbn}` : ''}
+              {product.textbook.courseNames[0] ? ` · ${product.textbook.courseNames[0]}` : ''}
+            </p>
+          )}
+
+          {/* 模块 5：整套打包写明「整套转让」与包含的类数 / 件数，价格是整套总价 */}
+          {product.listingKind === 'BUNDLE' && product.bundle && (
+            <p className="mt-0.5 text-xs font-medium text-amber-900" data-listing-kind="BUNDLE">
+              整套转让 · 包含 {product.bundle.categoryCount} 类 / {product.bundle.totalQuantity} 件
+            </p>
+          )}
+
+          {/* 模块 6：圈子标签只写服务端返回给当前查看者的圈子（查看者在籍或是卖家本人），不猜测其他圈子 */}
+          {product.visibility === 'CIRCLE_ONLY' && product.circles && product.circles.length > 0 && (
+            <p className="mt-0.5 truncate text-xs font-medium text-indigo-800" data-visibility="CIRCLE_ONLY">
+              圈子可见 · {product.circles.map((c) => c.name).join('、')}
+            </p>
+          )}
 
           {/* 价格行 */}
           <div className="cm-apple-price-row">
@@ -278,8 +326,9 @@ export default function ProductCard({ product, index = 0 }: ProductCardProps) {
             </div>
             <div className="cm-apple-stats-cue">
               <span className="cm-apple-verified-tag">
-                <VerifiedUserOutlinedIcon sx={{ fontSize: 13 }} />
-                学子实名
+                {/* 8.0：平台不核验学籍或身份，不能写「实名」；这里只说明是同校商品 */}
+                <SchoolOutlinedIcon sx={{ fontSize: 13 }} />
+                同校
               </span>
               <span className="cm-apple-view-count">
                 <VisibilityOutlinedIcon sx={{ fontSize: 12 }} />

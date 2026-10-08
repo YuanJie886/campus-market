@@ -23,9 +23,18 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/campus_market
       DATABASE_USERNAME: campus
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET:?请在 deploy/.env 配置随机 JWT 密钥}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：请先用 openssl rand -base64 48 生成，再填入 deploy/.env；不要使用 .env.example 中的任何示例值}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
-      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      # 必须显式声明，没有默认值。
+      # 刷新 Cookie 是系统里生命周期最长的凭据（默认 7 天），在 0.9A 之后又是刷新页面
+      # 后恢复登录的唯一途径。过去这里默认 false，部署到 HTTPS 时忘记设置不会有任何
+      # 征兆，Cookie 就在明文连接上裸奔。现在不填就起不来，把遗漏挡在部署阶段。
+      # 后端还会拒绝「WEB_ORIGIN 是 https 而此处为 false」的矛盾组合。
+      SECURE_COOKIES: ${SECURE_COOKIES:?SECURE_COOKIES 未设置：HTTPS 部署必须为 true；仅本地 http 调试可设为 false}
+      # Flyway 基线开关。默认 false：对没有 flyway_schema_history 的非空数据库拒绝启动。
+      # 仅在从旧 DatabaseInitializer 升级的首次接管时临时设为 true，成功后必须改回 false。
+      # 详见 campus-market-backend/docs/database-migrations.md
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
       PORT: 3000
     depends_on:
       postgres:

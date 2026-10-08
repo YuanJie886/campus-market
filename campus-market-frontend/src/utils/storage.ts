@@ -64,7 +64,8 @@ export const STORAGE_KEYS = {
   auth: 'auth_v1',
   market: 'market_v1',
   mockDatabase: 'mock_database_v1',
-  token: 'access_token_v1',
+  // 刻意不再有 token 项：Access Token 自 0.9A 起只存在于内存（见 utils/authTokenStore）。
+  // 留着这个常量等于给「顺手存一下」留了入口；历史 key 的清理名单在 LEGACY_AUTH_STORAGE_KEYS。
 } as const;
 
 /** Keys used by the offline mock only; REST mode never writes business state here. */

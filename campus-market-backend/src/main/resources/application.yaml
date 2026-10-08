@@ -8,18 +8,101 @@ spring:
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
     hikari:
       maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  # Flyway 是本项目唯一的数据库结构管理入口，使用上面的 DataSource，不另建账号。
+  # 详见 docs/database-migrations.md
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    # 默认 false：对没有 flyway_schema_history 的非空数据库必须拒绝启动，
+    # 避免把任意未知数据库误当作本项目的旧库接管。
+    # 仅在「从旧 DatabaseInitializer 升级、且已备份并核对过结构」的首次接管时，
+    # 临时设置 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true，成功后必须改回 false。
+    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: 1
+    baseline-description: legacy-schema-v1
+    # 禁止 flyway clean，防止误删生产数据。任何环境都不得改为 false。
+    clean-disabled: true
 
 server:
   port: ${PORT:3000}
 
 campus-market:
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
-  jwt-secret: ${JWT_SECRET:change-me-in-development-only-secret-please-set-a-long-random-value}
+  # 必填，无默认值：JWT_SECRET 缺失时应用必须启动失败，绝不能回落到任何仓库内固定密钥。
+  # 要求至少 32 字节（UTF-8）的强随机值，由部署方通过环境变量提供。
+  # 本地开发同样需要显式设置；测试环境使用 src/test/resources/application-test.yaml 中的专用测试值。
+  jwt-secret: ${JWT_SECRET}
   jwt-issuer: campus-market
   jwt-audience: campus-market-web
+  # BUYER_CONFIRMED 停留超过该时长后自动 EXPIRED 并释放商品。
+  # 与早期订单的 expires_at 是两套独立阈值，不要混用。
+  buyer-confirmed-expiry-hours: ${BUYER_CONFIRMED_EXPIRY_HOURS:24}
   access-token-minutes: 15
   refresh-token-days: 7
   secure-cookies: ${SECURE_COOKIES:false}
+
+  # 主体维度限流（非 IP 限流）。计数存于 PostgreSQL 的 rate_limit_counters，
+  # 多实例一致；limit 与 window-seconds 必须为正数，否则启动失败。
+  # 订单的 code_attempts <= 5 仍然独立生效，此处只是纵深防御。
+  rate-limit:
+    # 同一账号 10 次 / 10 分钟
+    login:
+      limit: ${RATE_LIMIT_LOGIN:10}
+      window-seconds: ${RATE_LIMIT_LOGIN_WINDOW:600}
+    # 同一账号 5 次 / 60 分钟
+    register:
+      limit: ${RATE_LIMIT_REGISTER:5}
+      window-seconds: ${RATE_LIMIT_REGISTER_WINDOW:3600}
+    # 同一 session 30 次 / 10 分钟
+    refresh:
+      limit: ${RATE_LIMIT_REFRESH:30}
+      window-seconds: ${RATE_LIMIT_REFRESH_WINDOW:600}
+    # 同一用户 20 次 / 10 分钟
+    confirmation-code:
+      limit: ${RATE_LIMIT_CONFIRMATION_CODE:20}
+      window-seconds: ${RATE_LIMIT_CONFIRMATION_CODE_WINDOW:600}
+    # 同一用户每天 10 条教材建议（只计新建）
+    textbook-suggestion:
+      limit: ${RATE_LIMIT_TEXTBOOK_SUGGESTION:10}
+      window-seconds: ${RATE_LIMIT_TEXTBOOK_SUGGESTION_WINDOW:86400}
+    # 模块 5（均按登录用户计）：草稿创建、批量发布、协助邀请创建与兑换、价格参考
+    listing-draft-create:
+      limit: ${RATE_LIMIT_LISTING_DRAFT_CREATE:120}
+      window-seconds: 3600
+    listing-batch-publish:
+      limit: ${RATE_LIMIT_LISTING_BATCH_PUBLISH:30}
+      window-seconds: 3600
+    assist-invite-create:
+      limit: ${RATE_LIMIT_ASSIST_INVITE_CREATE:20}
+      window-seconds: 86400
+    assist-invite-redeem:
+      limit: ${RATE_LIMIT_ASSIST_INVITE_REDEEM:10}
+      window-seconds: 600
+    price-guidance:
+      limit: ${RATE_LIMIT_PRICE_GUIDANCE:60}
+      window-seconds: 600
+    circle-create:
+      limit: ${RATE_LIMIT_CIRCLE_CREATE:10}
+      window-seconds: 86400
+    circle-invite-create:
+      limit: ${RATE_LIMIT_CIRCLE_INVITE_CREATE:30}
+      window-seconds: 86400
+    circle-invite-redeem:
+      limit: ${RATE_LIMIT_CIRCLE_INVITE_REDEEM:10}
+      window-seconds: 600
+    # 模块 7：举报每日 20 次、爽约报告每日 10 次、申诉每日 5 次（均按登录用户计）
+    moderation-report:
+      limit: ${RATE_LIMIT_MODERATION_REPORT:20}
+      window-seconds: 86400
+    no-show-report:
+      limit: ${RATE_LIMIT_NO_SHOW_REPORT:10}
+      window-seconds: 86400
+    appeal-submit:
+      limit: ${RATE_LIMIT_APPEAL_SUBMIT:5}
+      window-seconds: 86400
+    # 过期计数清理任务；测试 profile 关闭
+    cleanup-enabled: ${RATE_LIMIT_CLEANUP_ENABLED:true}
 
 logging:
   level:
@@ -30,3 +113,6 @@ mybatis-plus:
   type-handlers-package: com.lulu.campusmarketbackend.mapper
   configuration:
     map-underscore-to-camel-case: true
+    # 关闭事务内的一级缓存（默认 SESSION）：业务依赖「加锁之后重新读」得到最新行，
+    # SESSION 缓存会在同一事务里把加锁前读到的旧结果原样返回（CircleConcurrencyIT 暴露过这个问题）
+    local-cache-scope: statement

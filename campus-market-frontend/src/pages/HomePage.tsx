@@ -11,6 +11,11 @@ import RecyclingOutlinedIcon from '@mui/icons-material/RecyclingOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import ProductGrid from '../components/ProductGrid';
 import FilterBar from '../components/FilterBar';
+import BuildingScopeBar from '../components/BuildingScopeBar';
+import DemandEmptyStateCta from '../components/demand/DemandEmptyStateCta';
+import type { DemandConditions } from '../api/contracts';
+import { useBuildingFeed } from '../hooks/useBuildingFeed';
+import type { FeedQuery } from '../api/contracts';
 import { useMarket } from '../context/MarketContext';
 import { useAuth } from '../context/AuthContext';
 import { DEFAULT_FILTER } from '../types';
@@ -32,16 +37,17 @@ const STORY_STEPS = [
   },
   {
     index: '02',
-    eyebrow: 'AUTHENTICITY · 真实成色与学子背书',
+    eyebrow: 'AUTHENTICITY · 逐项声明与当面验货',
     title: '少一点搜索，\n多一点笃定。',
-    copy: '全量通过校园统一身份认证。真实学号与邮箱背书，实物原貌诚实呈现，电池健康度、划痕瑕疵透明披露，告别网络交易的信息不对称。',
-    tag: '实名学子 · 原图实拍',
+    // 8.0：如实说明——注册时由同学自己选择学校与校区，平台目前不核验学籍或身份；图片为示例图，不是实拍
+    copy: '卖家发布时逐项声明物品状况，电池、屏幕、划痕等问题写在明处；买家当面逐项验货，一致后再付款。注册时的学校与校区由同学自己选择，平台目前不核验学籍或身份。',
+    tag: '逐项声明 · 当面验货',
   },
   {
     index: '03',
     eyebrow: 'CIRCULATION · 绿色可持续循环',
     title: '一件闲置，\n重新被需要。',
-    copy: '每一次在校内的循环交接，平均减少 1.8kg 生产与运输碳足迹，累计帮助同学节省 65% 生活预算。让美好物品在不同年级间温暖接力。',
+    copy: '校内的循环交接让闲置在不同年级之间继续被使用。',
     tag: '年级接力 · 减碳生活',
   },
 ];
@@ -227,6 +233,39 @@ export default function HomePage() {
     return sorted;
   }, [products, filter]);
 
+  // ---- 只看本楼 ----
+  // 开关关闭时完全走原来的本地筛选流；打开时才请求 feed 端点。
+  // 这样普通浏览的行为一个字节都没变，降级逻辑也只在用户主动要求时生效。
+  const [buildingOnly, setBuildingOnly] = useState(false);
+  const feedQuery = useMemo<FeedQuery | null>(() => {
+    if (!buildingOnly) return null;
+    return {
+      scope: 'BUILDING',
+      sort: filter.sort,
+      page: 1,
+      pageSize: 100,
+      keyword: filter.keyword.trim() || undefined,
+      category: filter.category === '全部' ? undefined : filter.category,
+      condition: filter.condition === '全部' ? undefined : filter.condition,
+      minPrice: filter.minPrice === '' ? undefined : Number(filter.minPrice),
+      maxPrice: filter.maxPrice === '' ? undefined : Number(filter.maxPrice),
+    };
+  }, [buildingOnly, filter]);
+  const feed = useBuildingFeed(feedQuery);
+  const displayedProducts = buildingOnly ? (feed.page?.items ?? []) : filtered;
+  const displayedLoading = buildingOnly ? feed.status === 'loading' : loading;
+
+  // 搜索空态的订阅预填：地理范围取自<b>状态</b>（开关、校区筛选），不取任何展示文案
+  const demandPrefill = useMemo<DemandConditions>(() => ({
+    keyword: filter.keyword.trim() || null,
+    category: filter.category === '全部' ? null : filter.category,
+    minPrice: filter.minPrice === '' ? null : Number(filter.minPrice),
+    maxPrice: filter.maxPrice === '' ? null : Number(filter.maxPrice),
+    geoScope: buildingOnly ? 'BUILDING' : filter.campus !== '全部' ? 'CAMPUS' : 'SCHOOL',
+    campusId: !buildingOnly && filter.campus !== '全部' ? filter.campus : null,
+    buildingId: null,   // BUILDING 时省略即使用本人宿舍楼
+  }), [filter, buildingOnly]);
+
   // 从真实商品中提取 3 件代表性旗舰好物作为 Hero 展台
   const spotlightItems: Product[] = useMemo(() => {
     const onSale = products.filter((p) => p.status === '在售');
@@ -276,11 +315,11 @@ export default function HomePage() {
               <span>CAMPUS / MARKET · KEYNOTE 2026</span>
             </div>
             <div className="cm-apple-hero-stats-pill">
-              <span>{onSaleCount || '1,400+'} 件好物在线</span>
+              <span>{onSaleCount} 件在售好物</span>
               <span className="cm-apple-dot-sep">·</span>
-              <span>4 个校区极速面交</span>
+              <span>校内公共交易点面交</span>
               <span className="cm-apple-dot-sep">·</span>
-              <span>学子实名认证</span>
+              <span>只和本校同学交易</span>
             </div>
           </div>
 
@@ -397,7 +436,7 @@ export default function HomePage() {
                 <span className="cm-apple-avatar-cluster">
                   <i /><i /><i />
                 </span>
-                <span>全校 2,300+ 名认证同学已在此完成面对面流转</span>
+                <span>同校同学线下当面交接，平台不代收货款</span>
               </div>
             </div>
           </div>
@@ -477,9 +516,9 @@ export default function HomePage() {
                     <div className="cm-inspect-header">
                       <div className="cm-inspect-badge">
                         <VerifiedIcon sx={{ fontSize: 16 }} />
-                        <span>校园可信认证</span>
+                        <span>卖家逐项声明</span>
                       </div>
-                      <span className="cm-inspect-id">学号 2021**** 认证</span>
+                      <span className="cm-inspect-id">示例卡片</span>
                     </div>
                     <div className="cm-inspect-loupe">
                       <div className="cm-loupe-circle">
@@ -509,12 +548,12 @@ export default function HomePage() {
                       <RecyclingOutlinedIcon sx={{ fontSize: 36, color: 'var(--cm-moss)' }} />
                     </div>
                     <div className="cm-eco-stat">
-                      <strong>-1.8 kg</strong>
-                      <span>每件闲置流转平均减碳</span>
+                      <strong>循环</strong>
+                      <span>闲置在校内继续被使用</span>
                     </div>
                     <div className="cm-eco-stat">
-                      <strong>65%</strong>
-                      <span>相比新品平均为同学节省</span>
+                      <strong>自定价</strong>
+                      <span>价格由卖家决定，平台不估价</span>
                     </div>
                     <div className="cm-eco-meter">
                       <span className="cm-eco-meter-fill" style={{ width: '82%' }} />
@@ -567,6 +606,7 @@ export default function HomePage() {
       {/* =========================================================================
           MODULE 3 & 4: 校园集市商品广场与吸顶分类筛选
          ========================================================================= */}
+      {isAuthenticated ? (
       <section id="marketplace" className="cm-apple-market-section" aria-labelledby="market-title">
         <div className="cm-apple-market-container">
           {/* 集市顶部巨幅标题与数据指标 */}
@@ -583,28 +623,35 @@ export default function HomePage() {
                 <span>件在售好物</span>
               </div>
               <div className="cm-stat-item">
-                <strong>4</strong>
-                <span>大校区同校</span>
+                <strong>本校</strong>
+                <span>只显示本校商品</span>
               </div>
               <div className="cm-stat-item">
-                <strong>100%</strong>
-                <span>学子实名</span>
+                <strong>当面</strong>
+                <span>验货后再付款</span>
               </div>
             </div>
           </div>
 
           {/* 吸顶分类导航与精细筛选 */}
+          <BuildingScopeBar enabled={buildingOnly} onToggle={setBuildingOnly} feed={feed} />
+
           <FilterBar
             value={filter}
             onChange={setFilter}
-            resultCount={filtered.length}
+            resultCount={displayedProducts.length}
           />
 
           {/* 商品网格区 */}
           <div className="cm-apple-grid-wrapper">
+            {/* 搜索空态的订阅入口：结果为空时直接出现在商品区，而不是藏在「我的」里 */}
+            <DemandEmptyStateCta
+              prefill={demandPrefill}
+              showCta={!displayedLoading && !priceInvalid && displayedProducts.length === 0}
+            />
             <ProductGrid
-              products={filtered}
-              loading={loading}
+              products={displayedProducts}
+              loading={displayedLoading}
               emptyTitle={priceInvalid ? '价格区间设置有误' : '暂时没有找到符合条件的物品'}
               emptyDescription={
                 priceInvalid
@@ -644,6 +691,23 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      ) : (
+        // 6.1A：未登录只看到落地页与登录注册入口；商品列表、详情、搜索都需要登录，结果只包含本校商品
+        <section id="marketplace" className="cm-apple-market-section" aria-labelledby="guest-market-title">
+          <div className="cm-apple-market-container">
+            <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-6 text-center">
+              <h2 id="guest-market-title" className="text-xl font-extrabold text-slate-800">登录后查看本校在售好物</h2>
+              <p className="mt-2 text-sm text-slate-700">
+                校园集市只在同一所学校内交易：登录后才能浏览、搜索和查看商品，看到的都是你所在学校的商品。
+              </p>
+              <div className="mt-4 flex justify-center gap-3">
+                <Button variant="contained" onClick={() => navigate('/login', { state: { from: '/' } })}>登录</Button>
+                <Button variant="outlined" onClick={() => navigate('/register')}>注册</Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
