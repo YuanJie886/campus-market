@@ -109,6 +109,81 @@ class AdminIT {
     }
 
     private record Trade(User buyer, User seller, String productId, String orderId) {}
+    private String product(User seller) throws Exception {
+        return api.ok(api.post(seller, "/v1/products", SupplyApi.single("生活用品", "目录管理测试台灯", 88))).path("id").asText();
+    }
+    private Map<String, Object> editProduct(User admin, String id, String version) {
+        return Map.of("title", "已核实的台灯", "description", "管理员核对后的商品描述", "price", 79.50, "note", "核对信息后修正", "version", version);
+    }
+    @Test void productEditsAreAuditedAndStaleWritesDoNotOverwriteChanges() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"), seller = api.register(); String id = product(seller);
+        var old = api.ok(api.get(admin, "/v1/admin/products/" + id));
+        assertThat(old.path("sellerAccount").asText()).isNotBlank();
+        assertThat(old.path("images").size()).isEqualTo(1);
+        assertThat(old.toString()).doesNotContain("contact", "password_hash");
+        var edited = api.ok(api.patch(admin, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())));
+        assertThat(edited.path("title").asText()).isEqualTo("已核实的台灯");
+        assertThat(edited.path("price").asDouble()).isEqualTo(79.5);
+        assertThat(edited.path("history").get(0).path("action").asText()).isEqualTo("EDIT_PRODUCT");
+        assertThat(status(api.patch(admin, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())))).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT old_values->>'title' FROM admin_product_audit WHERE product_id=?", String.class, UUID.fromString(id))).isEqualTo("目录管理测试台灯");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_product_audit WHERE product_id=?", Integer.class, UUID.fromString(id))).isEqualTo(1);
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM admin_product_audit WHERE product_id=?", UUID.fromString(id))).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        Map<String, Object> forged = new java.util.HashMap<>(editProduct(admin, id, edited.path("version").asText()));
+        forged.put("sellerId", admin.id());
+        assertThat(status(api.patch(admin, "/v1/admin/products/" + id, forged))).isEqualTo(400);
+        forged.remove("sellerId"); forged.put("price", -1);
+        assertThat(status(api.patch(admin, "/v1/admin/products/" + id, forged))).isEqualTo(400);
+    }
+    @Test void productHidingAndRestoreUseGovernanceHistoryAndAffectBuyerVisibility() throws Exception {
+        User admin = staff("SENIOR_MODERATOR"), seller = api.register(), buyer = api.register(); String id = product(seller);
+        var old = api.ok(api.get(admin, "/v1/admin/products/" + id));
+        var hidden = api.ok(api.post(admin, "/v1/admin/products/" + id + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "商品需重新核实", "version", old.path("version").asText())));
+        assertThat(hidden.path("moderationHidden").asBoolean()).isTrue();
+        assertThat(hidden.path("status").asText()).isEqualTo("在售");
+        assertThat(status(api.get(buyer, "/v1/products/" + id))).isEqualTo(404);
+        assertThat(hidden.path("history").get(0).path("action").asText()).isEqualTo("HIDE_PRODUCT");
+        var restored = api.ok(api.post(admin, "/v1/admin/products/" + id + "/visibility", Map.of("action", "RESTORE_PRODUCT", "note", "核实后恢复展示", "version", hidden.path("version").asText())));
+        assertThat(restored.path("moderationHidden").asBoolean()).isFalse();
+        assertThat(restored.path("history").size()).isEqualTo(2);
+        assertThat(status(api.get(buyer, "/v1/products/" + id))).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE target_id=? AND status='RESOLVED'", Integer.class, UUID.fromString(id))).isEqualTo(2);
+    }
+    @Test void productManagementRequiresAuthorizedRoleSameSchoolAndOtherSeller() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"), auditor = staff("AUDITOR"), moderator = staff("MODERATOR"), seller = api.register(); String id = product(seller);
+        var old = api.ok(api.get(admin, "/v1/admin/products/" + id));
+        for (User denied : new User[]{auditor, moderator, seller}) {
+            assertThat(status(api.patch(denied, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())))).isEqualTo(403);
+            assertThat(status(api.post(denied, "/v1/admin/products/" + id + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "越权测试", "version", old.path("version").asText())))).isEqualTo(403);
+        }
+        jdbc.update("INSERT INTO staff_members(user_id,school_id,role) VALUES (?,'pilot','SCHOOL_ADMIN')", UUID.fromString(seller.id()));
+        assertThat(status(api.patch(seller, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())))).isEqualTo(403);
+        assertThat(status(api.post(seller, "/v1/admin/products/" + id + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "本人商品", "version", old.path("version").asText())))).isEqualTo(403);
+        jdbc.update("UPDATE users SET campus='后台隔离校区' WHERE id=?", UUID.fromString(admin.id()));
+        jdbc.update("UPDATE staff_members SET school_id='admin-other' WHERE user_id=?", UUID.fromString(admin.id()));
+        assertThat(status(api.patch(admin, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())))).isEqualTo(404);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE target_id=?", Integer.class, UUID.fromString(id))).isZero();
+    }
+    @Test void activeTradeAndUnresolvedCaseCannotBeOverwrittenByCatalogManagement() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"); Trade trade = trade();
+        var product = api.ok(api.get(admin, "/v1/admin/products/" + trade.productId()));
+        assertThat(status(api.patch(admin, "/v1/admin/products/" + trade.productId(), editProduct(admin, trade.productId(), product.path("version").asText())))).isEqualTo(409);
+        var hidden = api.ok(api.post(admin, "/v1/admin/products/" + trade.productId() + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "核实预约商品", "version", product.path("version").asText())));
+        assertThat(hidden.path("status").asText()).isEqualTo("预约中");
+        assertThat(api.ok(api.get(admin, "/v1/admin/orders/" + trade.orderId())).path("price").asInt()).isEqualTo(88);
+        String other = product(api.register());
+        jdbc.update("INSERT INTO moderation_cases(id,school_id,target_type,target_id) VALUES (?,'pilot','PRODUCT',?)", UUID.randomUUID(), UUID.fromString(other));
+        var otherRecord = api.ok(api.get(admin, "/v1/admin/products/" + other));
+        assertThat(status(api.post(admin, "/v1/admin/products/" + other + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "不能覆盖案件", "version", otherRecord.path("version").asText())))).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_actions WHERE target_id=?", Integer.class, UUID.fromString(other))).isZero();
+    }
+    @Test void catalogFiltersSearchSellerAndVisibilityWithoutLeakingOtherSchools() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"), seller = api.register(); String id = product(seller);
+        jdbc.update("UPDATE users SET nickname='目录卖家晓雨' WHERE id=?", UUID.fromString(seller.id()));
+        assertThat(api.ok(api.get(admin, "/v1/admin/products?q=目录卖家晓雨&category=生活用品&status=在售&moderationHidden=false&campus=东校区")).path("items").findValuesAsText("id")).contains(id);
+        assertThat(api.ok(api.get(admin, "/v1/admin/products?q=" + id + "&moderationHidden=true")).path("total").asInt()).isZero();
+        assertThat(status(api.get(admin, "/v1/admin/products?moderationHidden=invalid"))).isEqualTo(400);
+    }
     private Trade trade() throws Exception {
         User buyer = api.register(), seller = api.register();
         jdbc.update("UPDATE users SET nickname='买家明月' WHERE id=?", UUID.fromString(buyer.id()));

@@ -49,7 +49,7 @@ class FlywayLegacyBaselineIT {
     private static final String V1_RESOURCE = "db/migration/V1__initial_schema.sql";
     private static final String BASELINE_DESCRIPTION = "legacy-schema-v1";
     /** 最新迁移版本。新增迁移时只改这里（以及对应的新场景），各起点应执行的条数由它推出。 */
-    private static final int LATEST = 13;
+    private static final int LATEST = 14;
 
     /** 仅一次性容器使用的测试凭据，与项目 .env / 生产配置无关。 */
     private static final String TEST_DB = "campus_market_legacy";

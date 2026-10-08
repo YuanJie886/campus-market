@@ -32,6 +32,12 @@ describe('管理后台适配', () => {
         const query = listQuery('cases', { pagination: { page: 2, perPage: 25 }, sort: { field: 'id', order: 'ASC' }, filter: { status: 'OPEN', q: 'ignored', schoolId: 'forged' } });
         expect(query).toBe('page=2&perPage=25&status=OPEN');
     });
+    it('商品查询支持展示状态 false 并拒绝传递学校等额外筛选', () => {
+        const query = new URLSearchParams(listQuery('products', { pagination: { page: 1, perPage: 25 }, sort: { field: 'price', order: 'ASC' }, filter: { q: '台灯', category: '生活用品', status: '在售', moderationHidden: false, schoolId: 'forged' } }));
+        expect(query.get('moderationHidden')).toBe('false');
+        expect(query.get('category')).toBe('生活用品');
+        expect(query.has('schoolId')).toBe(false);
+    });
     it('不开放创建和删除权限', () => {
         expect(permissionFor('users', 'edit')).toBe('users:write');
         expect(permissionFor('users', 'delete')).toBeNull();

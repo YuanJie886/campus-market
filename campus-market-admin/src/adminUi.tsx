@@ -3,8 +3,8 @@ import CopyIcon from '@mui/icons-material/ContentCopyOutlined';
 import { useNotify, useRecordContext, type FieldProps } from 'react-admin';
 
 export const ROLES = [
-    { id: 'SCHOOL_ADMIN', name: '学校管理员', description: '统筹本校运营，管理工作人员授权，处理治理案件与申诉。', capabilities: ['本校用户、商品与订单', '工作人员授权与停用', '案件处理与申诉复核', '授权审计与角色权限'] },
-    { id: 'SENIOR_MODERATOR', name: '高级审核员', description: '处理复杂案件与申诉，可查看本校运营数据，无人员授权权限。', capabilities: ['本校用户、商品与订单（只读）', '高级案件处理与申诉复核', '授权审计与角色权限（只读）'] },
+    { id: 'SCHOOL_ADMIN', name: '学校管理员', description: '统筹本校运营，管理工作人员授权，处理治理案件与申诉。', capabilities: ['本校用户、商品与订单', '商品信息编辑与展示管理', '工作人员授权与停用', '案件处理与申诉复核', '授权审计与角色权限'] },
+    { id: 'SENIOR_MODERATOR', name: '高级审核员', description: '处理复杂案件与申诉，可查看本校运营数据，无人员授权权限。', capabilities: ['本校用户与订单（只读）', '商品信息编辑与展示管理', '高级案件处理与申诉复核', '授权审计与角色权限（只读）'] },
     { id: 'MODERATOR', name: '审核员', description: '负责日常内容治理和申诉处理，限制类动作最长 7 天。', capabilities: ['本校商品（只读）', '日常案件处理与申诉复核', '限制类动作最长 7 天'] },
     { id: 'AUDITOR', name: '只读审计员', description: '查看业务数据和授权记录，不能修改权限或处理案件。', capabilities: ['本校用户、商品与订单（只读）', '授权审计与角色权限（只读）'] },
 ];

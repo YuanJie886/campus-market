@@ -17,6 +17,7 @@ import StaffPermissions from './StaffPermissions';
 import { adminTheme } from './theme';
 import { ListActions, ListSummary } from './ListTools';
 import { OrdersList, OrderShow } from './Orders';
+import { ProductsList, ProductShow } from './Products';
 import { PageHeading, IdentifierField, RoleField, StatusField, ROLES, statusNames, targetNames, resourceNames } from './adminUi';
 
 const reasonChoices = [
@@ -44,10 +45,6 @@ function UserShow() { return <><PageHeading title="用户详情" description="�
     <TextField source="campus" label="校区" /><RoleField source="role" label="后台角色" /><BooleanField source="active" label="后台权限启用" />
     <DateField locales="zh-CN" source="createdAt" label="注册时间" showTime />
 </SimpleShowLayout></Show></>; }
-function ProductsList() { return <><PageHeading title="商品目录" description="浏览本校商品信息与治理状态，追踪每一件校园闲置。" eyebrow="CATALOG / 商品管理" /><List actions={<ListActions />} perPage={25} filters={search} sort={defaultSort}><ListSummary /><DatagridConfigurable bulkActionButtons={false} rowClick="show">
-    <TextField source="title" label="商品" /><TextField source="category" label="分类" sortable={false} /><NumberField source="price" label="价格" options={{ style: 'currency', currency: 'CNY' }} /><StatusField source="status" label="状态" sortable={false} /><TextField source="campus" label="校区" sortable={false} /><BooleanField source="moderationHidden" label="已治理隐藏" sortable={false} /><DateField locales="zh-CN" source="createdAt" label="发布时间" showTime />
-</DatagridConfigurable></List></>; }
-function ProductShow() { return <><PageHeading title="商品详情" description="查看商品发布信息、交易状态与治理标记。" /><Show><SimpleShowLayout><TextField source="id" label="商品编号" /><TextField source="title" label="商品" /><TextField source="sellerId" label="卖家编号" /><TextField source="category" label="分类" /><NumberField source="price" label="价格" options={{ style: 'currency', currency: 'CNY' }} /><StatusField source="status" label="状态" /><BooleanField source="moderationHidden" label="已治理隐藏" /><DateField locales="zh-CN" source="createdAt" label="发布时间" showTime /></SimpleShowLayout></Show></>; }
 const caseStatuses = ['OPEN', 'UNDER_REVIEW', 'RESOLVED', 'DISMISSED', 'APPEALED'].map(id => ({ id, name: statusNames[id] ?? id }));
 function CasesList() { return <><PageHeading title="治理案件" description="集中查看举报、证据与处理记录，维护校园社区秩序。" eyebrow="MODERATION / 社区治理" /><List actions={<ListActions />} perPage={25} sort={defaultSort} filters={[<SelectInput key="status" source="status" label="案件状态" choices={caseStatuses} alwaysOn />, <SelectInput key="targetType" source="targetType" label="目标类型" choices={Object.entries(targetNames).map(([id, name]) => ({ id, name }))} alwaysOn />]}><ListSummary /><DatagridConfigurable bulkActionButtons={false} rowClick="show">
     <IdentifierField source="id" label="案件编号" sortable={false} /><FunctionField label="目标类型" render={record => targetNames[record.targetType] ?? record.targetType} />

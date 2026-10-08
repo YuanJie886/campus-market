@@ -34,6 +34,14 @@ public class AdminController {
     public Map<String, Object> staff(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
         return admin.updateStaff(auth.authenticate(request, false), id, body, RequestIdFilter.currentRequestId(request));
     }
+    @PatchMapping("/products/{id}")
+    public Map<String, Object> product(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
+        return admin.updateProduct(auth.authenticate(request, false), id, body, RequestIdFilter.currentRequestId(request));
+    }
+    @PostMapping("/products/{id}/visibility")
+    public Map<String, Object> visibility(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
+        return admin.productVisibility(auth.authenticate(request, false), id, body);
+    }
     @GetMapping("/{resource:cases|appeals}")
     public Map<String, Object> queue(HttpServletRequest request, @PathVariable String resource, @RequestParam Map<String, String> query) {
         String uid = auth.authenticate(request, false);

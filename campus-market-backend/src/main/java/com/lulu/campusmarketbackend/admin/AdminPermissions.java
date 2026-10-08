@@ -25,6 +25,7 @@ public class AdminPermissions {
         if ("AUDITOR".equals(role)) result.addAll(READ_ONLY);
         if (Set.of("MODERATOR", "SENIOR_MODERATOR", "SCHOOL_ADMIN").contains(role)) result.addAll(MODERATION);
         if (Set.of("SENIOR_MODERATOR", "SCHOOL_ADMIN").contains(role)) result.addAll(READ_ONLY);
+        if (Set.of("SENIOR_MODERATOR", "SCHOOL_ADMIN").contains(role)) result.add("products:write");
         if ("SCHOOL_ADMIN".equals(role)) result.add("users:write");
         return List.copyOf(result);
     }

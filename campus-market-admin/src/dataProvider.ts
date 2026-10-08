@@ -13,7 +13,7 @@ export function listQuery(resource: string, params: GetListParams): string {
     if (!queueResources.has(resource) && resource !== 'roles') {
         query.set('sort', params.sort?.field ?? 'createdAt'); query.set('order', params.sort?.order ?? 'DESC');
     }
-    const allowed = queueResources.has(resource) ? (resource === 'cases' ? ['status', 'targetType'] : ['status']) : ['q'];
+    const allowed = queueResources.has(resource) ? (resource === 'cases' ? ['status', 'targetType'] : ['status']) : resource === 'products' ? ['q', 'status', 'category', 'campus', 'moderationHidden'] : ['q'];
     for (const key of allowed) if (params.filter?.[key] !== undefined && params.filter[key] !== null && params.filter[key] !== '') query.set(key, String(params.filter[key]));
     return query.toString();
 }
@@ -35,6 +35,10 @@ export const dataProvider: DataProvider = {
     deleteMany: unsupported,
     updateMany: unsupported,
     async update(resource, { id, data }) {
+        if (resource === 'products') {
+            const { title, description, price, note, version } = data;
+            return { data: await request(path(resource, id), { method: 'PATCH', body: JSON.stringify({ title, description, price, note, version }) }) };
+        }
         if (resource === 'users') {
             const { role, active, note } = data;
             return { data: await request(`${path(resource, id)}/staff`, { method: 'PATCH', body: JSON.stringify({ role, active, note }) }) };

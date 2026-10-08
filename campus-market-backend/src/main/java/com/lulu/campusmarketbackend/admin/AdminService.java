@@ -3,6 +3,7 @@ package com.lulu.campusmarketbackend.admin;
 import com.lulu.campusmarketbackend.api.ApiException;
 import com.lulu.campusmarketbackend.api.JsonFieldPolicy;
 import com.lulu.campusmarketbackend.governance.StaffGuard;
+import com.lulu.campusmarketbackend.governance.StaffModerationService;
 import com.lulu.campusmarketbackend.security.AuthService;
 import com.lulu.campusmarketbackend.service.DomainMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,6 +19,7 @@ public class AdminService {
     private final JdbcTemplate jdbc;
     private final AdminPermissions access;
     private final DomainMapper mapper;
+    private final StaffModerationService moderation;
     private record Resource(String fields, String from, String scope, String search, Map<String, String> sorts) {}
     private static final String ORDER_FIELDS = """
         o.id, o.product_id AS "productId", o.buyer_id AS "buyerId", o.seller_id AS "sellerId", o.status,
@@ -42,8 +44,8 @@ public class AdminService {
         "users", new Resource("u.id, u.account, u.nickname, u.campus, u.created_at AS \"createdAt\", s.role, COALESCE(s.active,false) AS active",
             "users u JOIN campuses c ON c.id=u.campus LEFT JOIN staff_members s ON s.user_id=u.id AND s.school_id=c.school_id",
             "c.school_id", "u.nickname || ' ' || u.account", Map.of("id", "u.id", "createdAt", "u.created_at", "nickname", "u.nickname")),
-        "products", new Resource("p.id, p.title, p.category, p.price, p.status, p.campus, p.seller_id AS \"sellerId\", p.created_at AS \"createdAt\", (p.moderation_hidden_at IS NOT NULL) AS \"moderationHidden\"",
-            "products p JOIN campuses c ON c.id=p.campus", "c.school_id", "p.title", Map.of("id", "p.id", "createdAt", "p.created_at", "title", "p.title", "price", "p.price")),
+        "products", new Resource("p.id, p.title, p.category, p.price, p.status, p.campus, p.condition, p.listing_kind AS \"listingKind\", p.images ->> 0 AS image, p.seller_id AS \"sellerId\", seller.nickname AS \"sellerNickname\", seller.account AS \"sellerAccount\", p.created_at AS \"createdAt\", (p.moderation_hidden_at IS NOT NULL) AS \"moderationHidden\", md5(jsonb_build_array(p.title,p.description,p.price,p.status,p.moderation_hidden_action_id)::text) AS version",
+            "products p JOIN campuses c ON c.id=p.campus JOIN users seller ON seller.id=p.seller_id", "c.school_id", "concat_ws(' ',p.title,p.id::text,seller.nickname,seller.account)", Map.of("id", "p.id", "createdAt", "p.created_at", "title", "p.title", "price", "p.price")),
         "orders", new Resource(ORDER_FIELDS, ORDER_JOINS, "COALESCE(o.school_id_snapshot,c.school_id)",
             "concat_ws(' ',o.id::text,p.title,buyer.nickname,buyer.account,seller.nickname,seller.account)",
             Map.of("id", "o.id", "createdAt", "o.created_at", "price", "COALESCE(o.price_snapshot,o.price)")),
@@ -51,7 +53,7 @@ public class AdminService {
             "admin_staff_audit a", "a.school_id", "a.target_user_id::text", Map.of("id", "a.id", "createdAt", "a.created_at"))
     );
 
-    public AdminService(JdbcTemplate jdbc, AdminPermissions access, DomainMapper mapper) { this.jdbc = jdbc; this.access = access; this.mapper = mapper; }
+    public AdminService(JdbcTemplate jdbc, AdminPermissions access, DomainMapper mapper, StaffModerationService moderation) { this.jdbc = jdbc; this.access = access; this.mapper = mapper; this.moderation = moderation; }
 
     public Map<String, Object> me(String uid) {
         StaffGuard.Staff member = access.identity(uid);
@@ -78,7 +80,20 @@ public class AdminService {
         if (keyword.length() > 100) throw ApiException.badRequest("搜索内容过长");
         String where = " WHERE " + definition.scope + "=?";
         List<Object> args = new ArrayList<>(List.of(member.schoolId()));
-
+        if ("products".equals(resource)) {
+            for (String field : List.of("status", "category", "campus")) {
+                String value = query.get(field);
+                if (value != null && !value.isBlank()) {
+                    if (value.length() > 100) throw ApiException.badRequest("筛选参数过长");
+                    where += " AND p." + field + "=?"; args.add(value);
+                }
+            }
+            if (query.containsKey("moderationHidden")) {
+                String value = query.get("moderationHidden");
+                if (!Set.of("true", "false").contains(value)) throw ApiException.badRequest("隐藏状态无效");
+                where += " AND (p.moderation_hidden_at IS NOT NULL)=?"; args.add(Boolean.parseBoolean(value));
+            }
+        }
         if (!keyword.isEmpty()) {
             // literal contains search: %, _ 和反斜杠不能被当成通配符。
             where += " AND " + definition.search + " ILIKE ? ESCAPE '\\'";
@@ -102,14 +117,82 @@ public class AdminService {
         }
         Resource definition = definition(resource);
         String fields = definition.fields;
+        if ("products".equals(resource)) fields += ", p.description, p.images, p.original_price AS \"originalPrice\", p.views, p.visibility";
         if ("orders".equals(resource)) fields += ", p.description AS \"productDescription\", p.condition AS \"productCondition\", p.price AS \"productCurrentPrice\", p.listing_kind AS \"productListingKind\", p.images AS \"productImages\"";
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT " + fields + " FROM " + definition.from
                 + " WHERE " + definition.scope + "=? AND " + definition.sorts.get("id") + "=?", member.schoolId(), uuid(id));
         if (rows.isEmpty()) throw ApiException.notFound("记录不存在");
         Map<String, Object> result = normalize(rows.get(0));
         if ("orders".equals(resource)) addOrderDetails(result);
-
+        if ("products".equals(resource)) {
+            result.put("images", mapper.jsonArray(result.get("images")));
+            result.put("bundleItems", jdbc.queryForList("SELECT item_code AS id,name,category,condition,quantity,note FROM bundle_items WHERE product_id=? ORDER BY sort_order,item_code", uuid(id)));
+            result.put("history", jdbc.queryForList("""
+                SELECT h.*, u.nickname AS "actorNickname" FROM (
+                    SELECT id,staff_user_id AS "actorId",action_code AS action,note,created_at AS "createdAt"
+                    FROM moderation_actions WHERE target_type='PRODUCT' AND target_id=? AND school_id=?
+                    UNION ALL
+                    SELECT id,staff_user_id,'EDIT_PRODUCT',note,created_at FROM admin_product_audit WHERE product_id=? AND school_id=?
+                ) h JOIN users u ON u.id=h."actorId" ORDER BY h."createdAt" DESC,h.id DESC
+                """, uuid(id), member.schoolId(), uuid(id), member.schoolId()).stream().map(AdminService::normalize).toList());
+        }
         return result;
+    }
+
+    private Map<String, Object> lockManagedProduct(String uid, String id, Map<String, Object> body) {
+        StaffGuard.Staff actor = access.require(uid, "products:write");
+        jdbc.queryForObject("SELECT id FROM schools WHERE id=? FOR UPDATE", String.class, actor.schoolId());
+        actor = access.require(uid, "products:write");
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT p.id FROM products p JOIN campuses c ON c.id=p.campus WHERE p.id=? AND c.school_id=? FOR UPDATE OF p", uuid(id), actor.schoolId());
+        if (rows.isEmpty()) throw ApiException.notFound("商品不存在");
+        Map<String, Object> product = one(uid, "products", id);
+        if (uid.equals(product.get("sellerId"))) throw ApiException.forbidden("请由其他工作人员管理本人发布的商品");
+        if (!Objects.equals(product.get("version"), body.get("version"))) throw ApiException.conflict("商品已发生变化，请刷新后重试");
+        return product;
+    }
+
+    @Transactional
+    public Map<String, Object> updateProduct(String uid, String id, Map<String, Object> body, String requestId) {
+        access.require(uid, "products:write");
+        JsonFieldPolicy.rejectUnknown(body, Set.of("title", "description", "price", "note", "version"));
+        String title = AuthService.string(body, "title", 1, 100), description = AuthService.string(body, "description", 1, 4000);
+        String note = AuthService.string(body, "note", 1, 500);
+        java.math.BigDecimal price;
+        try {
+            if (!(body.get("price") instanceof Number)) throw new IllegalArgumentException();
+            price = new java.math.BigDecimal(body.get("price").toString());
+            if (price.signum() < 0 || price.scale() > 2 || price.compareTo(new java.math.BigDecimal("9999999999.99")) > 0) throw new IllegalArgumentException();
+        } catch (IllegalArgumentException e) { throw ApiException.badRequest("价格需为非负金额，最多两位小数"); }
+        Map<String, Object> old = lockManagedProduct(uid, id, body);
+        if (!Set.of("在售", "已下架").contains(old.get("status")) || Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM orders WHERE product_id=? AND status NOT IN ('CANCELLED','EXPIRED','COMPLETED'))", Boolean.class, uuid(id))))
+            throw ApiException.conflict("预约中或已售出的商品不能编辑，避免影响交易记录");
+        Map<String, Object> before = Map.of("title", old.get("title"), "description", old.get("description"), "price", old.get("price"));
+        Map<String, Object> after = Map.of("title", title, "description", description, "price", price);
+        if (title.equals(old.get("title")) && description.equals(old.get("description")) && price.compareTo(new java.math.BigDecimal(old.get("price").toString())) == 0) return old;
+        jdbc.update("UPDATE products SET title=?,description=?,price=? WHERE id=?", title, description, price, uuid(id));
+        jdbc.update("INSERT INTO admin_product_audit(id,school_id,product_id,staff_user_id,old_values,new_values,note,request_id) VALUES (?,?,?,?,?::jsonb,?::jsonb,?,?)",
+                UUID.randomUUID(), access.identity(uid).schoolId(), uuid(id), uuid(uid), mapper.json(before), mapper.json(after), note, requestId);
+        return one(uid, "products", id);
+    }
+
+    @Transactional
+    public Map<String, Object> productVisibility(String uid, String id, Map<String, Object> body) {
+        access.require(uid, "products:write");
+        JsonFieldPolicy.rejectUnknown(body, Set.of("action", "note", "version"));
+        String action = AuthService.string(body, "action", 1, 40), note = AuthService.string(body, "note", 1, 500);
+        if (!Set.of("HIDE_PRODUCT", "RESTORE_PRODUCT").contains(action)) throw ApiException.badRequest("商品管理动作无效");
+        // 先检查未结案件；直接管理不能覆盖正在处理的举报或申诉。
+        one(uid, "products", id);
+        if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM moderation_cases WHERE target_type='PRODUCT' AND target_id=? AND status IN ('OPEN','UNDER_REVIEW','APPEALED'))", Boolean.class, uuid(id))))
+            throw ApiException.conflict("商品有未结治理案件，请到治理案件中处理");
+        UUID caseId = UUID.randomUUID();
+        int inserted = jdbc.update("INSERT INTO moderation_cases(id,school_id,target_type,target_id) VALUES (?,?,'PRODUCT',?) ON CONFLICT DO NOTHING", caseId, access.identity(uid).schoolId(), uuid(id));
+        if (inserted == 0) throw ApiException.conflict("商品有未结治理案件，请到治理案件中处理");
+        Map<String, Object> product = lockManagedProduct(uid, id, body);
+        boolean hidden = Boolean.TRUE.equals(product.get("moderationHidden"));
+        if (hidden == "HIDE_PRODUCT".equals(action)) throw ApiException.conflict("商品展示状态已变化，请刷新后重试");
+        moderation.decide(uid, caseId.toString(), Map.of("action", action, "reasonCode", "OTHER", "note", note));
+        return one(uid, "products", id);
     }
 
     private void addOrderDetails(Map<String, Object> order) {
@@ -184,6 +267,7 @@ public class AdminService {
     }
     private static void rejectQuery(Map<String, String> query, String resource) {
         Set<String> allowed = new HashSet<>(Set.of("page", "perPage", "sort", "order", "q"));
+        if ("products".equals(resource)) allowed.addAll(Set.of("status", "category", "campus", "moderationHidden"));
         if (!allowed.containsAll(query.keySet())) throw ApiException.badRequest("查询参数无效");
     }
     private static Map<String, Object> normalize(Map<String, Object> row) {

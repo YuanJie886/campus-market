@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const read = ['users', 'products', 'orders', 'cases', 'appeals', 'audit', 'roles'].map(resource => `${resource}:read`);
-const adminPermissions = [...read, 'users:write', 'cases:write', 'appeals:write'];
+const adminPermissions = [...read, 'users:write', 'products:write', 'cases:write', 'appeals:write'];
 const sampleOrder = {
     id: '674aad03-c000-4150-b075-42a38b1bcc61', productId: '9405904a-97d5-4e51-8e6b-2bd8b143b190',
     productTitle: '宜家台灯 · 宿舍阅读灯', productCategory: '生活用品', productCampus: '主校区', productCondition: '几乎全新', productListingKind: 'SINGLE', productStatus: '预约中',
@@ -19,8 +19,15 @@ const sampleOrder = {
         { id: 'event-4', actorId: 'seller-1', actorNickname: '清风', eventCode: 'MEETING_ACCEPTED', meetingRevision: 1, createdAt: Date.parse('2026-10-08T03:00:00Z') },
     ], reviews: [], bundleItems: [], cancellation: null,
 };
+const sampleProduct = {
+    id: 'p-1', title: '九成新 Kindle Paperwhite', description: '宿舍阅读用 Kindle，屏幕完好，附赠保护套和充电线。',
+    category: '数码电子', condition: '几乎全新', listingKind: 'SINGLE', price: 280, status: '在售', campus: '主校区',
+    sellerId: 'seller-1', sellerNickname: '清风', sellerAccount: '20250016', moderationHidden: false,
+    images: [], version: 'product-v1', views: 128, visibility: 'PUBLIC', createdAt: Date.parse('2026-10-08T02:20:00Z'), history: [] as Record<string, unknown>[],
+};
 async function mockAdmin(page: Page, permissions = adminPermissions) {
     let authenticated = false;
+    let product = { ...sampleProduct, history: [...sampleProduct.history] };
     const writes: Record<string, unknown>[] = [];
     const queries: URL[] = [];
     let user = { id: 'staff-1', nickname: '林小雨', account: '20260018', campus: '主校区', role: 'MODERATOR', active: true, createdAt: '2026-10-01T08:00:00Z' };
@@ -39,8 +46,15 @@ async function mockAdmin(page: Page, permissions = adminPermissions) {
         else if (path === '/v1/admin/users/staff-1') data = user;
         else if (path === '/v1/admin/users/admin-1') data = { ...user, id: 'admin-1', nickname: '陈予安', role: 'SCHOOL_ADMIN' };
         else if (path === '/v1/admin/users') data = { items: [user], total: 1286 };
+        else if (path === '/v1/admin/products/p-1/visibility' || (path === '/v1/admin/products/p-1' && route.request().method() === 'PATCH')) {
+            const payload = route.request().postDataJSON(); writes.push(payload);
+            const action = payload.action || 'EDIT_PRODUCT';
+            product = { ...product, ...(action === 'EDIT_PRODUCT' ? { title: payload.title, description: payload.description, price: payload.price } : { moderationHidden: action === 'HIDE_PRODUCT' }), version: `${product.version}-next`, history: [{ id: `h-${writes.length}`, action, actorNickname: '陈予安', note: payload.note, createdAt: Date.now() }, ...product.history] };
+            data = product;
+        }
+        else if (path === '/v1/admin/products/p-1') data = product;
         else if (path === '/v1/admin/products') data = { items: [
-            { id: 'p-1', title: '九成新 Kindle Paperwhite', category: '数码电子', price: 280, status: '在售', campus: '主校区', moderationHidden: false, createdAt: '2026-10-08T02:20:00Z' },
+            product,
             { id: 'p-2', title: '高等数学教材 · 同济第八版', category: '书籍教材', price: 25, status: '预约中', campus: '主校区', moderationHidden: false, createdAt: '2026-10-08T01:30:00Z' },
             { id: 'p-3', title: '宜家台灯，毕业低价转让', category: '生活用品', price: 45, status: '在售', campus: '主校区', moderationHidden: false, createdAt: '2026-10-07T11:40:00Z' },
         ], total: 432 };
@@ -213,4 +227,73 @@ test('手机订单详情正常换行，旧快照空值及取消说明、评价�
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: testInfo.outputPath('mobile-order-details.png'), fullPage: true });
+});
+
+
+test('商品管理支持筛选、完整详情、编辑确认与操作历史', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1540, height: 1080 });
+    const { writes, queries } = await mockAdmin(page);
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await expect(page.getByText('清风')).toBeVisible();
+    await page.getByRole('combobox', { name: '展示管理' }).click();
+    await page.getByRole('option', { name: '正常展示' }).click();
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.get('moderationHidden')).toBe('false');
+    await page.screenshot({ path: testInfo.outputPath('product-catalog.png'), fullPage: true });
+    await page.getByRole('link', { name: '管理详情' }).first().click();
+    await expect(page.getByText(sampleProduct.description, { exact: true })).toBeVisible();
+    await expect(page.getByText('校园账号：20250016')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('product-management.png'), fullPage: true });
+    await page.getByRole('button', { name: '编辑商品', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('商品标题').fill('Kindle 阅读器 · 已核实');
+    await dialog.getByLabel('商品价格（元）').fill('260.50');
+    await dialog.getByLabel('操作原因').fill('核实商品描述和当前售价');
+    await dialog.getByRole('button', { name: '预览变更' }).click();
+    expect(writes).toHaveLength(0);
+    await expect(dialog.getByText('价格：¥280.00 → ¥260.50')).toBeVisible();
+    await dialog.getByRole('button', { name: '确认提交' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText('核实商品描述和当前售价', { exact: true })).toBeVisible();
+    expect(writes[0]).toMatchObject({ title: 'Kindle 阅读器 · 已核实', price: 260.5, version: 'product-v1' });
+});
+
+test('商品下架和恢复需要填写原因并确认，失败后可重试', async ({ page }) => {
+    const { writes } = await mockAdmin(page);
+    await page.goto('/admin/products/p-1/show');
+    await page.getByRole('button', { name: '管理下架', exact: true }).click();
+    let dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('button', { name: '预览变更' })).toBeDisabled();
+    await dialog.getByLabel('操作原因').fill('商品信息待核实');
+    await dialog.getByRole('button', { name: '预览变更' }).click();
+    expect(writes).toHaveLength(0);
+    let first = true;
+    await page.route('**/v1/admin/products/p-1/visibility', async route => {
+        if (first) { first = false; await route.fulfill({ status: 503, json: { code: 503, message: '保存暂时失败' } }); }
+        else await route.fallback();
+    });
+    await dialog.getByRole('button', { name: '确认提交' }).click();
+    await expect(dialog.getByText('保存暂时失败')).toBeVisible();
+    await expect(dialog.getByLabel('操作原因')).toHaveValue('商品信息待核实');
+    await dialog.getByRole('button', { name: '预览变更' }).click();
+    await dialog.getByRole('button', { name: '确认提交' }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole('button', { name: '恢复展示', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByLabel('操作原因').fill('核实后恢复展示');
+    await dialog.getByRole('button', { name: '预览变更' }).click();
+    await dialog.getByRole('button', { name: '确认提交' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '管理下架', exact: true })).toBeVisible();
+    expect(writes.map(write => write.action)).toEqual(['HIDE_PRODUCT', 'RESTORE_PRODUCT']);
+});
+
+test('只读角色不能编辑商品，手机详情不溢出', async ({ page }, testInfo) => {
+    await mockAdmin(page, ['products:read']);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/admin/products/p-1/show');
+    await expect(page.getByText('当前角色可查看商品', { exact: false })).toBeVisible();
+    await expect(page.getByRole('button', { name: '编辑商品', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '管理下架', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('mobile-product-management.png'), fullPage: true });
 });
