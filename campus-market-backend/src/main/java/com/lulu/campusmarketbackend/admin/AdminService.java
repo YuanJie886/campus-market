@@ -19,6 +19,24 @@ public class AdminService {
     private final AdminPermissions access;
     private final DomainMapper mapper;
     private record Resource(String fields, String from, String scope, String search, Map<String, String> sorts) {}
+    private static final String ORDER_FIELDS = """
+        o.id, o.product_id AS "productId", o.buyer_id AS "buyerId", o.seller_id AS "sellerId", o.status,
+        COALESCE(o.price_snapshot,o.price) AS price, o.price_snapshot AS "priceSnapshot", o.currency,
+        o.created_at AS "createdAt", o.updated_at AS "updatedAt", o.expires_at AS "expiresAt",
+        o.meeting_at AS "meetingAt", o.meeting_ends_at AS "meetingEndsAt", o.meeting_revision AS "meetingRevision",
+        o.meeting_point_id AS "meetingPointId", mp.name AS "meetingPointName", mp.campus_id AS "meetingCampus",
+        o.category_snapshot AS "categorySnapshot", o.condition_snapshot AS "conditionSnapshot",
+        o.listing_kind_snapshot AS "listingKindSnapshot", o.school_id_snapshot AS "schoolIdSnapshot",
+        p.title AS "productTitle", p.category AS "productCategory", p.campus AS "productCampus",
+        p.status AS "productStatus", p.images ->> 0 AS "productImage",
+        buyer.nickname AS "buyerNickname", buyer.account AS "buyerAccount", buyer.campus AS "buyerCampus", buyer.avatar AS "buyerAvatar",
+        seller.nickname AS "sellerNickname", seller.account AS "sellerAccount", seller.campus AS "sellerCampus", seller.avatar AS "sellerAvatar"
+        """;
+    private static final String ORDER_JOINS = """
+        orders o JOIN products p ON p.id=o.product_id JOIN campuses c ON c.id=p.campus
+        JOIN users buyer ON buyer.id=o.buyer_id JOIN users seller ON seller.id=o.seller_id
+        LEFT JOIN meeting_points mp ON mp.id=o.meeting_point_id
+        """;
     // SQL 结构只从此白名单读取；搜索、学校、ID、页码都用绑定参数。
     private static final Map<String, Resource> RESOURCES = Map.of(
         "users", new Resource("u.id, u.account, u.nickname, u.campus, u.created_at AS \"createdAt\", s.role, COALESCE(s.active,false) AS active",
@@ -26,8 +44,9 @@ public class AdminService {
             "c.school_id", "u.nickname || ' ' || u.account", Map.of("id", "u.id", "createdAt", "u.created_at", "nickname", "u.nickname")),
         "products", new Resource("p.id, p.title, p.category, p.price, p.status, p.campus, p.seller_id AS \"sellerId\", p.created_at AS \"createdAt\", (p.moderation_hidden_at IS NOT NULL) AS \"moderationHidden\"",
             "products p JOIN campuses c ON c.id=p.campus", "c.school_id", "p.title", Map.of("id", "p.id", "createdAt", "p.created_at", "title", "p.title", "price", "p.price")),
-        "orders", new Resource("o.id, o.product_id AS \"productId\", o.buyer_id AS \"buyerId\", o.seller_id AS \"sellerId\", o.status, o.price, o.created_at AS \"createdAt\"",
-            "orders o JOIN products p ON p.id=o.product_id JOIN campuses c ON c.id=p.campus", "c.school_id", "o.id::text", Map.of("id", "o.id", "createdAt", "o.created_at")),
+        "orders", new Resource(ORDER_FIELDS, ORDER_JOINS, "COALESCE(o.school_id_snapshot,c.school_id)",
+            "concat_ws(' ',o.id::text,p.title,buyer.nickname,buyer.account,seller.nickname,seller.account)",
+            Map.of("id", "o.id", "createdAt", "o.created_at", "price", "COALESCE(o.price_snapshot,o.price)")),
         "audit", new Resource("a.id, a.staff_user_id AS \"actorId\", a.target_user_id AS \"targetId\", a.old_role AS \"oldRole\", a.new_role AS \"newRole\", a.old_active AS \"oldActive\", a.new_active AS \"newActive\", a.note, a.request_id AS \"requestId\", a.created_at AS \"createdAt\"",
             "admin_staff_audit a", "a.school_id", "a.target_user_id::text", Map.of("id", "a.id", "createdAt", "a.created_at"))
     );
@@ -83,12 +102,45 @@ public class AdminService {
         }
         Resource definition = definition(resource);
         String fields = definition.fields;
+        if ("orders".equals(resource)) fields += ", p.description AS \"productDescription\", p.condition AS \"productCondition\", p.price AS \"productCurrentPrice\", p.listing_kind AS \"productListingKind\", p.images AS \"productImages\"";
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT " + fields + " FROM " + definition.from
                 + " WHERE " + definition.scope + "=? AND " + definition.sorts.get("id") + "=?", member.schoolId(), uuid(id));
         if (rows.isEmpty()) throw ApiException.notFound("记录不存在");
         Map<String, Object> result = normalize(rows.get(0));
+        if ("orders".equals(resource)) addOrderDetails(result);
 
         return result;
+    }
+
+    private void addOrderDetails(Map<String, Object> order) {
+        UUID orderId = uuid(String.valueOf(order.get("id")));
+        order.put("productImages", mapper.jsonArray(order.get("productImages")));
+        // 只投影交易展示所需字段，不返回确认码、会话、联系方式或幂等凭据。
+        List<Map<String, Object>> events = jdbc.queryForList("""
+            SELECT h.*, actor.nickname AS "actorNickname" FROM (
+                SELECT e.id::text AS id, e.actor_id AS "actorId", e.from_status AS "fromStatus", e.to_status AS "toStatus",
+                    'STATUS_CHANGED' AS "eventCode", NULL::integer AS "meetingRevision", e.reason, e.created_at AS "createdAt"
+                FROM order_events e WHERE e.order_id=?
+                UNION ALL
+                SELECT 'flow-' || f.seq::text AS id, f.actor_id AS "actorId", NULL, NULL,
+                    f.event_code, f.meeting_revision, NULL, f.created_at
+                FROM order_flow_events f WHERE f.order_id=?
+            ) h LEFT JOIN users actor ON actor.id=h."actorId" ORDER BY h."createdAt", h.id
+            """, orderId, orderId);
+        order.put("events", events.stream().map(AdminService::normalize).toList());
+        order.put("reviews", jdbc.queryForList("""
+            SELECT r.id, r.reviewer_id AS "reviewerId", u.nickname AS "reviewerNickname", r.rating, r.comment, r.created_at AS "createdAt"
+            FROM reviews r JOIN users u ON u.id=r.reviewer_id WHERE r.order_id=? ORDER BY r.created_at,r.id
+            """, orderId).stream().map(AdminService::normalize).toList());
+        List<Map<String, Object>> cancellations = jdbc.queryForList("""
+            SELECT actor_user_id AS "actorId", phase, reason_code AS "reasonCode", note, created_at AS "createdAt"
+            FROM order_cancellations WHERE order_id=?
+            """, orderId);
+        order.put("cancellation", cancellations.isEmpty() ? null : normalize(cancellations.get(0)));
+        order.put("bundleItems", jdbc.queryForList("""
+            SELECT item_code AS id, name, category, condition, quantity, note
+            FROM bundle_items WHERE product_id=? ORDER BY sort_order,item_code
+            """, uuid(String.valueOf(order.get("productId")))).stream().map(AdminService::normalize).toList());
     }
 
     /** 授权与审计同一事务提交；按学校加锁，撤销的操作者权限在锁后再次检查。 */

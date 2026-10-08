@@ -107,4 +107,66 @@ class AdminIT {
         staff("AUDITOR");
         assertThat(jdbc.queryForObject("SELECT eligible_staff_for_case(?)", Integer.class, caseId)).isEqualTo(before);
     }
+
+    private record Trade(User buyer, User seller, String productId, String orderId) {}
+    private Trade trade() throws Exception {
+        User buyer = api.register(), seller = api.register();
+        jdbc.update("UPDATE users SET nickname='买家明月' WHERE id=?", UUID.fromString(buyer.id()));
+        jdbc.update("UPDATE users SET nickname='卖家清风' WHERE id=?", UUID.fromString(seller.id()));
+        String product = api.ok(api.post(seller, "/v1/products", SupplyApi.single("生活用品", "订单详情测试台灯", 88))).path("id").asText();
+        return new Trade(buyer, seller, product, api.order(buyer, product));
+    }
+
+    @Test void ordersIncludeParticipantsProductMeetingAndHistoryWithoutCredentials() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"); Trade trade = trade();
+        var summary = api.ok(api.get(admin, "/v1/admin/orders?q=" + trade.orderId())).path("items").get(0);
+        assertThat(summary.path("productTitle").asText()).isEqualTo("订单详情测试台灯");
+        assertThat(summary.path("buyerNickname").asText()).isEqualTo("买家明月");
+        assertThat(summary.path("sellerNickname").asText()).isEqualTo("卖家清风");
+        assertThat(summary.path("buyerAccount").asText()).isNotBlank();
+        assertThat(summary.path("sellerAccount").asText()).isNotBlank();
+        assertThat(summary.path("productImage").asText()).isEqualTo("https://example.invalid/a.png");
+        assertThat(summary.path("price").asInt()).isEqualTo(88);
+        assertThat(summary.path("meetingPointName").asText()).isNotBlank();
+        assertThat(summary.path("meetingAt").asLong()).isPositive();
+        api.ok(api.post(trade.buyer(), "/v1/orders/" + trade.orderId() + "/transitions",
+                Map.of("to", "CANCELLED", "reasonCode", "OTHER", "note", "临时调整面交安排")));
+        var detail = api.ok(api.get(admin, "/v1/admin/orders/" + trade.orderId()));
+        assertThat(detail.path("productDescription").asText()).isEqualTo("毕业季供给测试");
+        assertThat(detail.path("productImages").size()).isEqualTo(1);
+        assertThat(detail.path("categorySnapshot").asText()).isEqualTo("生活用品");
+        assertThat(detail.path("events").size()).isEqualTo(2);
+        assertThat(detail.path("events").get(1).path("toStatus").asText()).isEqualTo("CANCELLED");
+        assertThat(detail.path("cancellation").path("note").asText()).isEqualTo("临时调整面交安排");
+        assertThat(detail.path("reviews").isArray()).isTrue();
+        assertThat(detail.path("bundleItems").isArray()).isTrue();
+        for (var record : new com.fasterxml.jackson.databind.JsonNode[]{summary, detail})
+            assertThat(record.toString()).doesNotContain("confirmationCode", "confirmation_code", "password", "contact", "idempotency", "request_hash", "dormBuilding");
+    }
+
+    @Test void orderSearchSupportsProductAndPartiesAndAmountUsesOrderSnapshot() throws Exception {
+        User auditor = staff("AUDITOR"); Trade trade = trade();
+        jdbc.update("UPDATE products SET price=999 WHERE id=?", UUID.fromString(trade.productId()));
+        for (String keyword : new String[]{"订单详情测试台灯", "买家明月", "卖家清风"}) {
+            var items = api.ok(api.get(auditor, "/v1/admin/orders?q=" + keyword + "&sort=price&order=ASC")).path("items");
+            assertThat(items.findValuesAsText("id")).contains(trade.orderId());
+        }
+        String account = jdbc.queryForObject("SELECT account FROM users WHERE id=?", String.class, UUID.fromString(trade.buyer().id()));
+        assertThat(api.ok(api.get(auditor, "/v1/admin/orders?q=" + account)).path("items").findValuesAsText("id")).contains(trade.orderId());
+        var detail = api.ok(api.get(auditor, "/v1/admin/orders/" + trade.orderId()));
+        assertThat(detail.path("price").asInt()).isEqualTo(88);
+        assertThat(detail.path("productCurrentPrice").asInt()).isEqualTo(999);
+        assertThat(api.ok(api.get(auditor, "/v1/admin/orders?q=%25")).path("items").size()).isZero();
+    }
+
+    @Test void orderSchoolScopeUsesFrozenTradeSchoolEvenIfProductMoves() throws Exception {
+        User admin = staff("SCHOOL_ADMIN"), outsider = api.register("后台隔离校区"); Trade trade = trade();
+        jdbc.update("INSERT INTO staff_members(user_id,school_id,role) VALUES (?,'admin-other','SCHOOL_ADMIN')", UUID.fromString(outsider.id()));
+        jdbc.update("UPDATE users SET campus='后台隔离校区' WHERE id=?", UUID.fromString(trade.seller().id()));
+        jdbc.update("UPDATE products SET campus='后台隔离校区' WHERE id=?", UUID.fromString(trade.productId()));
+        assertThat(status(api.get(admin, "/v1/admin/orders/" + trade.orderId()))).isEqualTo(200);
+        assertThat(status(api.get(outsider, "/v1/admin/orders/" + trade.orderId()))).isEqualTo(404);
+        assertThat(api.ok(api.get(outsider, "/v1/admin/orders?q=" + trade.orderId())).path("items").size()).isZero();
+        assertThat(status(api.get(trade.buyer(), "/v1/admin/orders/" + trade.orderId()))).isEqualTo(403);
+    }
 }

@@ -168,3 +168,49 @@ test('手机宽度工作台不横向溢出，自身权限不能修改', async ({
     await expect(page.getByText('不能修改自己的后台权限，请由其他学校管理员操作。')).toBeVisible();
     await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
 });
+
+
+test('交易订单直接展示商品和双方，详情包含成交价、面交与交易记录', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1540, height: 1080 });
+    const { queries } = await mockAdmin(page);
+    await page.getByRole('menuitem', { name: '交易订单' }).click();
+    await expect(page.getByText(sampleOrder.productTitle, { exact: true })).toBeVisible();
+    await expect(page.getByText('明月', { exact: true })).toBeVisible();
+    await expect(page.getByText('清风', { exact: true })).toBeVisible();
+    await expect(page.getByText('20260021', { exact: true })).toBeVisible();
+    await expect(page.getByText('20250016', { exact: true })).toBeVisible();
+    await page.getByLabel('搜索订单、商品、买家或卖家').fill('明月');
+    await expect.poll(() => queries.filter(url => url.pathname.endsWith('/orders')).at(-1)?.searchParams.get('q')).toBe('明月');
+    await page.getByRole('button', { name: '清除筛选' }).click();
+    await page.screenshot({ path: testInfo.outputPath('orders-list.png'), fullPage: true });
+    await page.getByRole('link', { name: '详情', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/orders/${sampleOrder.id}/show$`));
+    await expect(page.getByText(sampleOrder.productDescription)).toBeVisible();
+    await expect(page.getByRole('heading', { name: '交易双方', exact: true })).toBeVisible();
+    await expect(page.getByText('图书馆东门')).toBeVisible();
+    await expect(page.getByText('当前售价：¥99.00 · 主校区')).toBeVisible();
+    await expect(page.getByText('¥88.00', { exact: true })).toHaveCount(2);
+    await expect(page.getByText('接受改约', { exact: true })).toBeVisible();
+    await expect(page.getByText('暂无交易评价')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('order-details.png'), fullPage: true });
+    await page.reload();
+    await expect(page.getByText(sampleOrder.productDescription)).toBeVisible();
+});
+
+test('手机订单详情正常换行，旧快照空值及取消说明、评价正确展示', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAdmin(page);
+    await page.route(`**/v1/admin/orders/${sampleOrder.id}`, route => route.fulfill({ json: { code: 0, data: {
+        ...sampleOrder, status: 'CANCELLED', priceSnapshot: null, categorySnapshot: null, conditionSnapshot: null, listingKindSnapshot: null, meetingEndsAt: null,
+        cancellation: { actorId: 'buyer-1', reasonCode: 'SCHEDULE_CONFLICT', phase: 'AFTER_SELLER_CONFIRM', note: '临时调整面交安排', createdAt: sampleOrder.updatedAt },
+        reviews: [{ id: 'review-1', reviewerId: 'buyer-1', reviewerNickname: '明月', rating: 5, comment: '沟通及时，态度友好', createdAt: sampleOrder.updatedAt }],
+    } } }));
+    await page.goto(`/admin/orders/${sampleOrder.id}/show`);
+    await expect(page.getByText('临时调整面交安排')).toBeVisible();
+    await expect(page.getByText('沟通及时，态度友好')).toBeVisible();
+    await expect(page.getByText('时间冲突', { exact: true })).toBeVisible();
+    await expect(page.getByText('未记录', { exact: true }).first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: testInfo.outputPath('mobile-order-details.png'), fullPage: true });
+});
