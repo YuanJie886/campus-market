@@ -45,6 +45,8 @@ public interface ProductMapper extends BaseMapper<ProductEntity> {
     Map<String, Object> selectRowById(@Param("id") UUID id);
     /** 模块 6：面向查看者的单个商品；readable 列是 V9 的 product_readable_by。 */
     Map<String, Object> selectRowForViewer(@Param("id") UUID id, @Param("uid") UUID uid);
+    @Select("SELECT EXISTS (SELECT 1 FROM contact_requests WHERE product_id=#{productId} AND buyer_id=#{uid} AND status='APPROVED')")
+    boolean contactApproved(@Param("productId") UUID productId, @Param("uid") UUID uid);
     @Select("SELECT id FROM orders WHERE product_id=#{productId} AND (buyer_id=#{uid} OR seller_id=#{uid})") List<UUID> selectRelatedOrderIds(@Param("productId") UUID productId, @Param("uid") UUID uid);
     @Select("SELECT * FROM products WHERE id=#{id} FOR UPDATE") Map<String, Object> selectForUpdate(@Param("id") UUID id);
     @Update("UPDATE products SET views=views+1 WHERE id=#{id}") int incrementViews(@Param("id") UUID id);

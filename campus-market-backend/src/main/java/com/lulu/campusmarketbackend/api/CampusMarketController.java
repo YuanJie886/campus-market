@@ -4,12 +4,10 @@ import com.lulu.campusmarketbackend.security.AuthService;
 import com.lulu.campusmarketbackend.mapper.ProductMapper;
 import com.lulu.campusmarketbackend.mapper.ReferenceMapper;
 import com.lulu.campusmarketbackend.service.MarketService;
-import com.lulu.campusmarketbackend.service.OrderService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,26 +16,20 @@ import java.util.Map;
 public class CampusMarketController {
     private final AuthService auth;
     private final MarketService market;
-    private final OrderService orders;
     private final ProductMapper products;
     private final ReferenceMapper references;
     private final com.lulu.campusmarketbackend.demand.DemandSubscriptionService demandSubscriptions;
     private final com.lulu.campusmarketbackend.demand.DemandMatchService demandMatchService;
-    private final com.lulu.campusmarketbackend.flow.OrderFlowService orderFlow;
-    private final com.lulu.campusmarketbackend.flow.TradeHistoryService tradeHistory;
     private final com.lulu.campusmarketbackend.textbook.CatalogService catalog;
     private final com.lulu.campusmarketbackend.textbook.TextbookSuggestionService suggestions;
 
-    public CampusMarketController(AuthService auth, MarketService market, OrderService orders, ProductMapper products, ReferenceMapper references,
+    public CampusMarketController(AuthService auth, MarketService market, ProductMapper products, ReferenceMapper references,
                                   com.lulu.campusmarketbackend.demand.DemandSubscriptionService demandSubscriptions,
                                   com.lulu.campusmarketbackend.demand.DemandMatchService demandMatchService,
-                                  com.lulu.campusmarketbackend.flow.OrderFlowService orderFlow,
-                                  com.lulu.campusmarketbackend.flow.TradeHistoryService tradeHistory,
                                   com.lulu.campusmarketbackend.textbook.CatalogService catalog,
                                   com.lulu.campusmarketbackend.textbook.TextbookSuggestionService suggestions) {
-        this.auth = auth; this.market = market; this.orders = orders; this.products = products; this.references = references;
+        this.auth = auth; this.market = market; this.products = products; this.references = references;
         this.demandSubscriptions = demandSubscriptions; this.demandMatchService = demandMatchService;
-        this.orderFlow = orderFlow; this.tradeHistory = tradeHistory;
         this.catalog = catalog; this.suggestions = suggestions;
     }
 
@@ -114,8 +106,6 @@ public class CampusMarketController {
         return market.inspectionTemplate(category);
     }
 
-    @GetMapping("/meeting-points")
-    public List<Map<String, Object>> meetingPoints() { return market.meetingPoints(); }
     // 6.1A：商品的一切读取都需要登录，学校由认证身份推导（未登录只能看落地页与登录注册）
     @GetMapping("/products")
     public Map<String, Object> products(@RequestParam Map<String, String> query, HttpServletRequest request) { return market.products(query, auth.authenticate(request, false)); }
@@ -141,50 +131,6 @@ public class CampusMarketController {
     @DeleteMapping("/products/{id}/favorite")
     public Map<String, Object> unfavorite(HttpServletRequest request, @PathVariable String id) { return market.unfavorite(auth.authenticate(request, false), id); }
 
-    @PostMapping("/orders")
-    public Map<String, Object> createOrder(HttpServletRequest request, @RequestBody Map<String, Object> body, @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) { Map<String, Object> copy = new HashMap<>(body); if (!copy.containsKey("idempotencyKey") && idempotencyKey != null) copy.put("idempotencyKey", idempotencyKey); return orders.create(auth.authenticate(request, false), copy); }
-    @GetMapping("/orders")
-    public List<Map<String, Object>> listOrders(HttpServletRequest request, @RequestParam(defaultValue = "all") String role) { return orders.list(auth.authenticate(request, false), role); }
-    @PostMapping("/orders/{id}/transitions")
-    public Map<String, Object> transition(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) { return orders.transition(auth.authenticate(request, false), id, body); }
-    // ---------------- 可信面交闭环（只有订单双方可访问，他人一律 404） ----------------
-
-    @GetMapping("/orders/{id}/flow")
-    public Map<String, Object> orderFlow(HttpServletRequest request, @PathVariable String id) {
-        return orderFlow.view(auth.authenticate(request, false), id);
-    }
-    @PutMapping("/orders/{id}/inspection")
-    public Map<String, Object> saveInspectionDraft(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
-        return orderFlow.saveInspectionDraft(auth.authenticate(request, false), id, body);
-    }
-    @PostMapping("/orders/{id}/inspection/submit")
-    public Map<String, Object> submitInspection(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
-        return orderFlow.submitInspection(auth.authenticate(request, false), id, body);
-    }
-    @PostMapping("/orders/{id}/meeting-proposals")
-    public Map<String, Object> proposeMeeting(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
-        return orderFlow.propose(auth.authenticate(request, false), id, body);
-    }
-    @PostMapping("/orders/{id}/meeting-proposals/{proposalId}/accept")
-    public Map<String, Object> acceptMeeting(HttpServletRequest request, @PathVariable String id, @PathVariable String proposalId) {
-        return orderFlow.accept(auth.authenticate(request, false), id, proposalId);
-    }
-    @PostMapping("/orders/{id}/meeting-proposals/{proposalId}/reject")
-    public Map<String, Object> rejectMeeting(HttpServletRequest request, @PathVariable String id, @PathVariable String proposalId) {
-        return orderFlow.reject(auth.authenticate(request, false), id, proposalId);
-    }
-    @PostMapping("/orders/{id}/meeting-proposals/{proposalId}/withdraw")
-    public Map<String, Object> withdrawMeeting(HttpServletRequest request, @PathVariable String id, @PathVariable String proposalId) {
-        return orderFlow.withdraw(auth.authenticate(request, false), id, proposalId);
-    }
-    @PutMapping("/orders/{id}/presence")
-    public Map<String, Object> updatePresence(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
-        return orderFlow.updatePresence(auth.authenticate(request, false), id, body);
-    }
-    @GetMapping("/me/trade-history")
-    public Map<String, Object> ownTradeHistory(HttpServletRequest request) {
-        return tradeHistory.own(auth.authenticate(request, false));
-    }
     // ---------------- 课程教材图谱（模块 4） ----------------
     // 全部需要登录：学校只由登录用户的校区推导，匿名请求没有「当前学校」。
 
@@ -221,17 +167,6 @@ public class CampusMarketController {
     public Map<String, Object> withdrawTextbookSuggestion(HttpServletRequest request, @PathVariable String id) {
         return suggestions.withdraw(auth.authenticate(request, false), id);
     }
-
-    /** 6.1A：公共履历只对同校登录用户可见（聚合数字）；他校与不存在同为 404。 */
-    @GetMapping("/users/{id}/trade-summary")
-    public Map<String, Object> publicTradeSummary(@PathVariable String id, HttpServletRequest request) {
-        String viewer = auth.authenticate(request, false);
-        market.publicUser(viewer, id);
-        return tradeHistory.publicSummary(id);
-    }
-
-    @PostMapping("/orders/{id}/reviews")
-    public Map<String, Object> review(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) { return orders.review(auth.authenticate(request, false), id, body); }
 
     @GetMapping("/products/{id}/comments")
     public List<Map<String, Object>> comments(@PathVariable String id, HttpServletRequest request) { return market.comments(id, auth.authenticate(request, false)); }

@@ -53,7 +53,9 @@ public class DomainMapper {
         result.put("condition", text(row.get("condition")));
         result.put("campus", text(row.get("campus")));
         result.put("images", jsonArray(row.get("images")));
-        result.put("contact", owner ? text(row.get("contact")) : "");
+        boolean contactPublic = Boolean.TRUE.equals(row.get("contact_public"));
+        result.put("contactPublic", contactPublic);
+        result.put("contact", owner || contactPublic ? text(row.get("contact")) : "");
         result.put("status", text(row.get("status")));
         result.put("views", number(row.get("views")));
         result.put("createdAt", epoch(row.get("created_at")));
@@ -185,6 +187,7 @@ public class DomainMapper {
         String status = text(row.get("status"));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", text(row.get("id")));
+        result.put("conversationId", nullableText(row.get("conversation_id")));
         result.put("productId", text(row.get("product_id")));
         result.put("buyerId", text(row.get("buyer_id")));
         result.put("sellerId", text(row.get("seller_id")));

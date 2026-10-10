@@ -115,7 +115,7 @@ public class ListingDraftService {
                     throw ApiException.forbidden("协助人只能整理标题、描述、分类、价格建议、打包明细与取货楼栋建议");
                 }
             }
-            if (current.containsKey("contact")) payload.put("contact", current.get("contact"));
+            for (String key : ListingPayload.OWNER_ONLY_FIELDS) { if (current.containsKey(key)) payload.put(key, current.get(key)); }
         }
         String nextStatus = body.containsKey("status") ? String.valueOf(body.get("status")) : "DRAFT";
         if (!Set.of("DRAFT", "READY").contains(nextStatus)) throw ApiException.badRequest("草稿状态只能是 DRAFT 或 READY");
@@ -163,7 +163,7 @@ public class ListingDraftService {
     /** 草稿投影。协助人看不到所有者的联系方式；任何人都看不到所有者 id 与编辑人 id。 */
     Map<String, Object> project(Map<String, Object> row, Access access) {
         Map<String, Object> payload = read(row.get("payload"));
-        if (access == Access.ASSISTANT) payload.remove("contact");
+        if (access == Access.ASSISTANT) { payload.remove("contact"); payload.remove("contactPublic"); }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", DomainMapper.text(row.get("id")));
         result.put("draftType", DomainMapper.text(row.get("draft_type")));

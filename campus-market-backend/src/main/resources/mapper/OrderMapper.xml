@@ -11,6 +11,7 @@
     -->
     <sql id="orderWithSummaryColumns">
         o.*,
+        c.id AS conversation_id,
         i.status AS summary_inspection_status,
         mp.status AS summary_my_presence,
         cp.status AS summary_counterpart_presence,
@@ -20,6 +21,8 @@
                 WHERE sa.order_id = o.id AND sa.meeting_revision = o.meeting_revision) AS summary_slot_agreed
     </sql>
     <sql id="orderWithSummaryJoins">
+        LEFT JOIN conversations c ON c.product_id = o.product_id
+             AND c.buyer_id = o.buyer_id AND c.seller_id = o.seller_id
         LEFT JOIN order_inspections i ON i.order_id = o.id
         LEFT JOIN order_presence mp ON mp.order_id = o.id AND mp.meeting_revision = o.meeting_revision
              AND mp.user_id = #{uid,javaType=java.util.UUID,jdbcType=OTHER}

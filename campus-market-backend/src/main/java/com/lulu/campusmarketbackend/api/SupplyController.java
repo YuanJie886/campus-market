@@ -110,8 +110,5 @@ public class SupplyController {
     }
 
     // ---------------- 价格参考 ----------------
-    @GetMapping("/price-guidance")
-    public Map<String, Object> priceGuidance(HttpServletRequest request, @RequestParam Map<String, String> query) {
-        return priceGuidance.guidance(auth.authenticate(request, false), query);
-    }
+
 }

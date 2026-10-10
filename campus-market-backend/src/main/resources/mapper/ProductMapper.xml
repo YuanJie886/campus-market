@@ -70,7 +70,7 @@
     -->
     <select id="selectRowForViewer" resultType="map">
         SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>, <include refid="circleColumns"/>,
-               product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid,javaType=java.util.UUID,jdbcType=OTHER}) AS readable
+               product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid,javaType=java.util.UUID,jdbcType=OTHER}) AS readable
         FROM products p
         LEFT JOIN buildings b ON b.id = p.building_id
         WHERE p.id = #{id,javaType=java.util.UUID,jdbcType=OTHER}

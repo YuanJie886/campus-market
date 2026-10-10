@@ -18,11 +18,11 @@ public final class ListingPayload {
 
     public static final Set<String> FIELDS = Set.of(
             "title", "description", "price", "originalPrice", "category", "condition", "campus",
-            "images", "contact", "buildingId", "inspection", "textbookEditionId", "bundleItems",
+            "images", "contact", "contactPublic", "buildingId", "inspection", "textbookEditionId", "bundleItems",
             // 模块 6：可见范围。不在协助人可整理的字段里——协助人不能替所有者选择圈子
             "visibility", "circleIds");
     /** 协助人不能写的字段：联系方式只属于所有者本人 */
-    public static final Set<String> OWNER_ONLY_FIELDS = Set.of("contact");
+    public static final Set<String> OWNER_ONLY_FIELDS = Set.of("contact", "contactPublic");
     /** 协助人可以整理的字段（5.5）：标题、描述、分类、价格建议、打包明细、取货楼栋建议。其余字段只能原样保留 */
     public static final Set<String> ASSISTANT_FIELDS = Set.of("title", "description", "category", "price", "bundleItems", "buildingId");
     private static final Set<String> INSPECTION_KEYS = Set.of("itemCode", "condition", "note");
@@ -43,6 +43,7 @@ public final class ListingPayload {
             switch (key) {
                 case "title" -> result.put(key, string(value, 100, "标题"));
                 case "description" -> result.put(key, string(value, 4000, "描述"));
+                case "contactPublic" -> { if (!(value instanceof Boolean)) throw ApiException.badRequest("contactPublic 必须是布尔值"); result.put(key, value); }
                 case "contact" -> result.put(key, string(value, 100, "联系方式"));
                 case "category", "condition", "campus" -> result.put(key, string(value, 20, key));
                 case "buildingId", "textbookEditionId" -> result.put(key, string(value, 64, key));

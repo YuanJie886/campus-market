@@ -26,6 +26,7 @@ public class ProductEntity {
     private String buildingId;
     @TableField(typeHandler = JsonbTypeHandler.class) private List<String> images;
     private String contact;
+    private Boolean contactPublic;
     private BigDecimal originalPrice;
     private String status;
     private Integer views;

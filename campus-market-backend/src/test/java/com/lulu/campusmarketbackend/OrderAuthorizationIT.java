@@ -273,6 +273,47 @@ class OrderAuthorizationIT {
         assertThat(createEventCount(orderId)).as("不得重复生成创建事件").isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("订单返回同一商品和买卖双方的会话；尚无会话时仍返回订单")
+    void orderResponseIncludesOnlyItsParticipantsConversation() throws Exception {
+        Actor seller = register("seller");
+        Actor buyer = register("buyer");
+        Actor otherBuyer = register("otherBuyer");
+        String productId = publishProduct(seller);
+        Map<String, Object> body = orderBody(productId, pickMeetingPointFor(CAMPUS, buyer));
+
+        MvcResult result = mockMvc.perform(authorized(post("/v1/orders"), buyer)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andReturn();
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        JsonNode order = objectMapper.readTree(result.getResponse().getContentAsString()).path("data");
+        assertThat(order.has("conversationId")).isTrue();
+        assertThat(order.path("conversationId").isNull()).isTrue();
+
+        jdbc.update("INSERT INTO conversations(id, product_id, buyer_id, seller_id) VALUES (?, ?::uuid, ?::uuid, ?::uuid)",
+                UUID.randomUUID(), productId, otherBuyer.id(), seller.id());
+        assertThat(orderList(buyer, "buyer")).singleElement()
+                .satisfies(item -> assertThat(item.path("conversationId").isNull()).isTrue());
+
+        UUID conversationId = UUID.randomUUID();
+        jdbc.update("INSERT INTO conversations(id, product_id, buyer_id, seller_id) VALUES (?, ?::uuid, ?::uuid, ?::uuid)",
+                conversationId, productId, buyer.id(), seller.id());
+        for (Actor actor : List.of(buyer, seller)) {
+            assertThat(orderList(actor, "all")).singleElement()
+                    .satisfies(item -> assertThat(item.path("conversationId").asText()).isEqualTo(conversationId.toString()));
+        }
+        MvcResult repeat = mockMvc.perform(authorized(post("/v1/orders"), buyer)
+                        .header("Idempotency-Key", result.getRequest().getHeader("Idempotency-Key"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andReturn();
+        assertThat(repeat.getResponse().getStatus()).isEqualTo(200);
+        assertThat(objectMapper.readTree(repeat.getResponse().getContentAsString()).path("data").path("conversationId").asText())
+                .isEqualTo(conversationId.toString());
+    }
+
     // ==================================================================
     // HTTP 辅助：全部走真实接口，字段以当前源码要求为准
     // ==================================================================

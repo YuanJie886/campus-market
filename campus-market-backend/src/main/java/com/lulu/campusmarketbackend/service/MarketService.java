@@ -34,12 +34,17 @@ public class MarketService {
     private static final java.util.Set<String> PRODUCT_STATUS_FIELDS = java.util.Set.of("status");
     /** 商品创建/编辑允许的字段。sellerId / status / views / soldAt 等一律拒绝。 */
     private static final java.util.Set<String> PRODUCT_FIELDS = java.util.Set.of(
-            "title", "description", "price", "originalPrice", "category", "condition", "campus", "images", "contact",
+            "title", "description", "price", "originalPrice", "category", "condition", "campus", "images", "contact", "contactPublic",
             "buildingId", "inspection", "textbookEditionId",
             // 模块 5：单件 / 整套打包；打包明细
             "listingKind", "bundleItems",
             // 模块 6：全校公开 / 圈子可见；目标圈子
             "visibility", "circleIds");
+    private static boolean contactPublic(Map<String, Object> body) {
+        if (!body.containsKey("contactPublic")) return false;
+        if (!(body.get("contactPublic") instanceof Boolean value)) throw ApiException.badRequest("contactPublic 必须是布尔值");
+        return value;
+    }
     public static final List<String> LISTING_KINDS = List.of("SINGLE", "BUNDLE");
     /** 模块 4：只有这个分类的商品可以关联教材版本。 */
     public static final String TEXTBOOK_CATEGORY = "教材书籍";
@@ -201,8 +206,11 @@ public class MarketService {
         // 模块 6：私密商品对无权查看的人与不存在完全一样（同一个 404、同一句话），不透露它是否存在
         if (!Boolean.TRUE.equals(row.get("readable"))) throw ApiException.notFound("商品不存在或已下架");
         String seller = text(row.get("seller_id"));
-        if ("已下架".equals(row.get("status")) && !seller.equals(uid) && (uid == null || products.selectRelatedOrderIds(pid, uuid(uid)).isEmpty())) throw ApiException.notFound("商品不存在或已下架");
+        if ("已下架".equals(row.get("status")) && !seller.equals(uid)) throw ApiException.notFound("商品不存在或已下架");
         Map<String, Object> result = new java.util.LinkedHashMap<>(mapper.product(row, seller.equals(uid)));
+        if (!seller.equals(uid) && viewer != null && products.contactApproved(pid, viewer)) {
+            result.put("contact", text(row.get("contact")));
+        }
         // 卖家对每个验货条目的当前声明；没有声明的旧商品为 null，前端如实提示
         result.put("inspection", inspections.productDisclosure(pid));
         // 模块 5：整套打包的全部明细（一条 SQL，与明细数量无关）；单件商品为 null
@@ -263,7 +271,7 @@ public class MarketService {
             edition = body.containsKey("textbookEditionId")
                     ? resolveTextbook(body.get("textbookEditionId"), input.category, input.campus) : null;
         }
-        ProductEntity entity = new ProductEntity(); entity.setId(UUID.randomUUID()); entity.setSellerId(sellerId); entity.setTitle(input.title); entity.setDescription(input.description); entity.setPrice(input.price); entity.setOriginalPrice(input.originalPrice); entity.setCategory(input.category); entity.setCondition(input.condition); entity.setCampus(input.campus); entity.setBuildingId(input.buildingId); entity.setImages(input.images); entity.setContact(input.contact); entity.setStatus("在售"); entity.setViews(0);
+        ProductEntity entity = new ProductEntity(); entity.setId(UUID.randomUUID()); entity.setSellerId(sellerId); entity.setTitle(input.title); entity.setDescription(input.description); entity.setPrice(input.price); entity.setOriginalPrice(input.originalPrice); entity.setCategory(input.category); entity.setCondition(input.condition); entity.setCampus(input.campus); entity.setBuildingId(input.buildingId); entity.setImages(input.images); entity.setContact(input.contact); entity.setContactPublic(contactPublic(body)); entity.setStatus("在售"); entity.setViews(0);
         entity.setListingKind(kind); entity.setPublishedBy(publishedBy); entity.setAssistedBy(assistedBy);
         entity.setVisibility(choice.visibility());
         products.insert(entity);
@@ -278,7 +286,7 @@ public class MarketService {
 
     @Transactional
     public Map<String, Object> updateProduct(String uid, String id, Map<String, Object> body, String status) {
-        UUID pid = uuid(id); Map<String, Object> old = products.selectForUpdate(pid); if (old == null) throw ApiException.notFound("商品不存在"); if (!uid.equals(text(old.get("seller_id")))) throw ApiException.forbidden("只能修改自己的商品"); if ("预约中".equals(old.get("status"))) throw ApiException.conflict("请先处理当前预约，再修改商品");
+        UUID pid = uuid(id); Map<String, Object> old = products.selectForUpdate(pid); if (old == null) throw ApiException.notFound("商品不存在"); if (!uid.equals(text(old.get("seller_id")))) throw ApiException.forbidden("只能修改自己的商品");
         boolean statusSet = status != null; if (statusSet) JsonFieldPolicy.rejectUnknown(body, PRODUCT_STATUS_FIELDS);
         if (statusSet && !List.of("在售", "已售出", "已下架").contains(status)) throw ApiException.badRequest("商品状态无效");
         if (!statusSet) JsonFieldPolicy.rejectUnknown(body, PRODUCT_FIELDS);
@@ -349,8 +357,12 @@ public class MarketService {
             ProductEntity v = new ProductEntity(); v.setId(pid); v.setVisibility(choice.visibility()); products.updateById(v);
             visibility.replaceLinks(pid, choice);
         }
+        if (body.containsKey("contactPublic")) {
+            ProductEntity setting = new ProductEntity(); setting.setId(pid); setting.setContactPublic(contactPublic(body));
+            products.updateById(setting);
+        }
         boolean columnsChanged = statusSet || body.keySet().stream()
-                .anyMatch(key -> !Set.of("inspection", "textbookEditionId", "bundleItems", "listingKind", "visibility", "circleIds").contains(key));
+                .anyMatch(key -> !Set.of("inspection", "textbookEditionId", "bundleItems", "listingKind", "visibility", "circleIds", "contactPublic").contains(key));
         if (columnsChanged) products.updateProductFields(pid, title, body.containsKey("title"), description, body.containsKey("description"), price, body.containsKey("price"), originalPrice, body.containsKey("originalPrice"), category, body.containsKey("category"), condition, body.containsKey("condition"), campus, body.containsKey("campus"), images, body.containsKey("images"), contact, body.containsKey("contact"), status, statusSet, buildingId, body.containsKey("buildingId"), statusSet && "已售出".equals(status) ? java.sql.Timestamp.from(Instant.now()) : null);
         if (replaceDisclosure) inspections.replaceDisclosure(pid, disclosure);
         // 后关联：商品分类已经是教材书籍之后才写关联（触发器按商品当前分类校验）
