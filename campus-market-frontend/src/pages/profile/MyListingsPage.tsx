@@ -34,7 +34,6 @@ import type { ProductDisclosure, ProductTextbook } from '../../api/contracts';
 const STATUS_TABS: (ProductStatus | "全部")[] = [
   "全部",
   "在售",
-  "预约中",
   "已售出",
   "已下架",
 ];
@@ -110,6 +109,7 @@ export default function MyListingsPage() {
         // 显式提交让后端不必走「只改校区」的 400 分支
         buildingId: data.buildingId ?? null,
         contact: data.contact,
+        contactPublic: data.contactPublic,
         images: data.images,
         // 表单只在需要替换声明时才给出 inspection；缺省即「声明不变」
         ...(data.inspection ? { inspection: data.inspection } : {}),
@@ -138,6 +138,7 @@ export default function MyListingsPage() {
         // 编辑时保留原有的合法楼栋；BuildingSelect 会在校区变化时清掉不兼容的值
         buildingId: editing.buildingId ?? null,
         contact: editing.contact,
+        contactPublic: editing.contactPublic === true,
         images: editing.images,
         visibility: editing.visibility ?? "PUBLIC",
         circleIds: (editing.circles ?? []).map((c) => c.id),

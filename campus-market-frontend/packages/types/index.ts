@@ -123,6 +123,7 @@ export interface Product {
   campus: Campus;
   images: string[];
   contact: string;
+  contactPublic?: boolean;
   sellerId: string;
   status: ProductStatus;
   views: number;
@@ -294,6 +295,7 @@ export interface ProductInput {
   circleIds?: string[];
   images: string[];
   contact: string;
+  contactPublic?: boolean;
   sellerId: string;
 }
 

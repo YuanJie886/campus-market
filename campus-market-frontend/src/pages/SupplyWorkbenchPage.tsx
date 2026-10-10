@@ -310,7 +310,7 @@ export default function SupplyWorkbenchPage() {
         <DialogContent className="space-y-2">
           <p className="text-sm">全部成功或全部不发布：任何一件失败，这个批次都不会发布任何商品。</p>
           {batch?.assisted && <p className="text-sm font-semibold text-amber-900">{ASSISTED_PUBLISH_TEXT}</p>}
-          <p className="text-xs text-slate-600">发布后，买家的订单、确认码与联系方式只有你本人能看到。</p>
+          <p className="text-xs text-slate-600">发布后，联系方式按每件商品的展示选项公开，或经你同意联系申请后向对应买家展示。</p>
         </DialogContent>
         <DialogActions>
           <Button color="inherit" onClick={() => setConfirmOpen(false)}>再检查一下</Button>

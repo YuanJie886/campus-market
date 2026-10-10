@@ -21,7 +21,7 @@ interface Props {
   value: DeclarationValue;
   errors: Record<string, string>;
   onChange: (code: string, draft: DeclarationDraft) => void;
-  /** 编辑已有商品时提示：修改只影响之后生成的订单 */
+  /** 编辑已有商品时提示：商品声明由卖家自行维护 */
   editing?: boolean;
 }
 
@@ -37,12 +37,12 @@ export default function InspectionDeclarationFields({ template, value, errors, o
           {template.title}（第 {template.version} 版）
         </h2>
         <p className="mt-1 text-xs text-slate-600">
-          逐项说明商品现状，买家会在面交时对照检查。这是双方的过程记录，不是平台鉴定或担保。
+          逐项说明商品现状，供买家了解。内容由卖家提供，具体沟通以双方实际联系方式为准。
         </p>
       </div>
       {editing && (
         <Alert severity="info" role="note" sx={{ py: 0 }}>
-          修改声明只影响之后生成的订单；已有订单保存的是下单时的验货快照，不会随之改变。
+          修改后将展示最新的商品现状说明，具体情况请双方通过实际联系方式沟通确认。
         </Alert>
       )}
       {template.items.map((item) => {

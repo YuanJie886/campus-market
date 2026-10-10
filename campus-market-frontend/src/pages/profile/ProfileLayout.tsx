@@ -9,8 +9,7 @@ const TAB_ROUTES: { label: string; path: string }[] = [
   { label: '个人资料', path: '/profile' },
   { label: '我的发布', path: '/profile/listings' },
   { label: '我的收藏', path: '/profile/favorites' },
-  { label: '我的订单', path: '/profile/orders' },
-  { label: '交易履历', path: '/profile/history' },
+  { label: '联系申请', path: '/profile/contact-requests' },
   { label: '教材建议', path: '/profile/textbook-suggestions' },
   { label: '我的举报', path: '/profile/reports' },
   { label: '我的限制', path: '/profile/restrictions' },
@@ -20,7 +19,7 @@ const TAB_ROUTES: { label: string; path: string }[] = [
 export default function ProfileLayout() {
   const location = useLocation();
   const { currentUser } = useAuth();
-  const { getSellerProducts, getFavoriteProducts, getBuyOrders, getSellOrders } =
+  const { getSellerProducts, getFavoriteProducts } =
     useMarket();
 
   if (!currentUser) {
@@ -28,10 +27,7 @@ export default function ProfileLayout() {
   }
 
   const listings = getSellerProducts(currentUser.id);
-  const soldCount = listings.filter((p) => p.status === '已售出').length;
   const favoriteCount = getFavoriteProducts(currentUser.id).length;
-  const orderCount =
-    getBuyOrders(currentUser.id).length + getSellOrders(currentUser.id).length;
 
   const currentIndex = Math.max(
     0,
@@ -44,9 +40,7 @@ export default function ProfileLayout() {
 
   const stats = [
     { label: '发布', value: listings.length },
-    { label: '已售出', value: soldCount },
     { label: '收藏', value: favoriteCount },
-    { label: '订单', value: orderCount },
   ];
 
   return (
@@ -72,7 +66,7 @@ export default function ProfileLayout() {
           </div>
         </div>
 
-        <div className="relative mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-white/12 py-3 backdrop-blur">
+        <div className="relative mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-white/12 py-3 backdrop-blur">
           {stats.map((item) => (
             <div key={item.label} className="text-center">
               <p className="text-lg font-extrabold leading-none">{item.value}</p>

@@ -35,8 +35,11 @@ const DB_KEY = 'mock_database_v1';
 
 /** 全新的演示数据。始终按当前 schema 版本生成。 */
 function buildSeedDatabase(): MockDatabase {
+  const market = buildSeedMarketState();
+  market.products = market.products.map((p) => ({ ...p, contactPublic: false, status: p.status === '预约中' ? '在售' : p.status }));
   return {
     schemaVersion: MOCK_SCHEMA_VERSION,
+    contactRequests: [],
     users: seedUsers.map((user) => ({ ...user, dormBuildingId: user.dormBuildingId ?? null })),
     buildings: seedBuildings.map((building) => ({ ...building })),
     demandSubscriptions: [],
@@ -76,7 +79,7 @@ function buildSeedDatabase(): MockDatabase {
     userRestrictions: [],
     slotAgreements: [],
     restrictionCorrections: [],
-    market: buildSeedMarketState(),
+    market,
     idempotency: {},
     currentUserId: null,
   };
@@ -155,6 +158,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
   /** 与后端一致的 12 个稳定面交点，含 V3 的演示坐标。 */
   async listMeetingPoints() {
+    this.retiredTradeFeature();
     const names: Array<[string, string]> = [['library', '图书馆门口'], ['canteen', '食堂入口'], ['express', '快递站']];
     return (['东校区', '西校区', '南校区', '北校区'] as User['campus'][]).flatMap((campus) =>
       names.map(([suffix, name]) => {
@@ -220,10 +224,48 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
   async logout(): Promise<void> { this.db.currentUserId = null; this.persist() }
   async listProducts(query: ProductQuery): Promise<ProductPage> { const me = this.currentUser(); MockCampusMarketApi.rejectSchoolOverride(query); if (query.campus) this.requireCampusInSchool(query.campus, this.schoolOf(me.campus)); const viewer = me.id; const keyword = query.keyword?.trim().toLowerCase() ?? ''; let items = this.db.market.products.filter((p) => this.visibleTo(p, viewer) && (!keyword || `${p.title} ${p.description}`.toLowerCase().includes(keyword)) && (!query.category || p.category === query.category) && (!query.campus || p.campus === query.campus) && (!query.condition || p.condition === query.condition) && (query.minPrice === undefined || p.price >= query.minPrice) && (query.maxPrice === undefined || p.price <= query.maxPrice)); items = [...items].sort((a, b) => query.sort === 'priceAsc' ? a.price - b.price : query.sort === 'priceDesc' ? b.price - a.price : query.sort === 'views' ? b.views - a.views : b.createdAt - a.createdAt); const page = Math.max(1, query.page); const pageSize = Math.max(1, query.pageSize); return { items: items.slice((page - 1) * pageSize, page * pageSize).map((p) => this.withBuilding(p)), page, pageSize, total: items.length } }
+  private retiredTradeFeature(): void { throw ApiError.mock({ code: 410, message: '平台只展示商品与联系方式，交易和预约功能已移除' }); }
+  private validateContactPublic(input: { contactPublic?: boolean }): void {
+    if ('contactPublic' in input && typeof input.contactPublic !== 'boolean') throw ApiError.mock({ code: 400, message: 'contactPublic 必须是布尔值' });
+  }
+  async getContactRequest(productId: string) {
+    this.syncFromStorage();
+    const me = this.currentUser(); this.readableProduct(productId);
+    const request = this.db.contactRequests?.find((r) => r.productId === productId && r.buyerId === me.id);
+    return request ? { ...request } : null;
+  }
+  async requestContact(productId: string) {
+    this.syncFromStorage();
+    const me = this.currentUser(); const product = this.readableProduct(productId);
+    if (product.sellerId === me.id) throw ApiError.mock({ code: 400, message: '不能申请自己的联系方式' });
+    if (product.status !== '在售') throw ApiError.mock({ code: 409, message: '该商品当前不可申请联系' });
+    if (product.contactPublic) throw ApiError.mock({ code: 409, message: '卖家已公开联系方式，请直接查看' });
+    const existing = this.db.contactRequests?.find((r) => r.productId === productId && r.buyerId === me.id);
+    if (existing) return { ...existing };
+    const request: import('./contracts').ContactRequest = { id: uid('contact'), productId, buyerId: me.id, sellerId: product.sellerId, status: 'PENDING', createdAt: Date.now(), updatedAt: Date.now() };
+    (this.db.contactRequests ??= []).unshift(request); this.persist(); return { ...request };
+  }
+  async listContactRequests() {
+    this.syncFromStorage(); const me = this.currentUser();
+    return (this.db.contactRequests ?? []).filter((r) => (r.buyerId === me.id || r.sellerId === me.id) && this.db.market.products.some((p) => p.id === r.productId && this.visibleTo(p, me.id)))
+      .map((r) => ({ ...r, productTitle: this.db.market.products.find((p) => p.id === r.productId)?.title ?? '', buyerNickname: this.db.users.find((u) => u.id === r.buyerId)?.nickname ?? '' }));
+  }
+  async decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED') {
+    this.syncFromStorage(); const me = this.currentUser();
+    if (status !== 'APPROVED' && status !== 'REJECTED') throw ApiError.mock({ code: 400, message: '请选择同意或拒绝' });
+    const request = this.db.contactRequests?.find((r) => r.id === id && r.sellerId === me.id);
+    if (!request) throw ApiError.mock({ code: 404, message: '联系申请不存在' });
+    this.readableProduct(request.productId);
+    if (request.status !== 'PENDING' && request.status !== status) throw ApiError.mock({ code: 409, message: '该申请已处理' });
+    if (request.status === 'PENDING') { request.status = status; request.updatedAt = Date.now(); this.persist(); }
+    return { ...request };
+  }
   async getProduct(id: string): Promise<Product> {
+    this.syncFromStorage();
     this.currentUser();
     const product = this.readableProduct(id);
     const view: Product = { ...this.withBuilding(product), inspection: this.productDisclosureView(product.id) };
+    if (this.db.contactRequests?.some((r) => r.productId === id && r.buyerId === this.viewerId() && r.status === 'APPROVED')) view.contact = product.contact;
     if ((product.listingKind ?? 'SINGLE') === 'BUNDLE') view.bundleItems = (this.db.bundleItems[product.id] ?? []).map((i) => ({ ...i }));
     return view;
   }
@@ -238,6 +280,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
    * assistedBy 只记录协助整理的人，不授予任何发布后的权限。校验全部在写入之前完成。
    */
   private createProductAs(user: User, input: ProductCreateInput, assistedBy: string | null): Product {
+    this.validateContactPublic(input);
     rejectUnknownKeys(input, MockCampusMarketApi.PRODUCT_FIELDS, '商品');
     // 模块 7：单件、打包、批量、草稿最终发布都经过这里
     this.requireUnrestricted(user.id, 'PUBLISHING');
@@ -283,6 +326,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     if (!product) throw ApiError.mock({ code: 404, message: '商品不存在' });
     if (product.sellerId !== user.id) throw ApiError.mock({ code: 403, message: '无权修改该商品' });
 
+    this.validateContactPublic(patch);
     rejectUnknownKeys(patch, MockCampusMarketApi.PRODUCT_FIELDS, '商品');
     const { buildingId, inspection, textbookEditionId, bundleItems: rawItems, visibility: rawVisibility, circleIds: rawCircleIds, ...rest } = patch;
     const kind = product.listingKind ?? 'SINGLE';
@@ -396,7 +440,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   /** 不可读与不存在一样：同一个 404、同一句话。 */
   private readableProduct(id: string): Product {
     const product = this.db.market.products.find((item) => item.id === id);
-    if (!product || !this.readableBy(product, this.viewerId())) throw ApiError.mock({ code: 404, message: '商品不存在或已下架' });
+    if (!product || !this.visibleTo(product, this.viewerId()) || (product.status === '已下架' && product.sellerId !== this.viewerId())) throw ApiError.mock({ code: 404, message: '商品不存在或已下架' });
     return product;
   }
 
@@ -442,6 +486,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const own = product.sellerId === this.viewerId();
     return {
       ...rest,
+      contactPublic: product.contactPublic === true,
+      contact: own || product.contactPublic === true ? product.contact : '',
       // 模块 7：被治理隐藏只告诉卖家本人（与 REST 的 moderationHidden 一致）；Mock 内部字段不外泄
       ...(own ? { moderationHidden: !!moderationHiddenAt } : {}),
       buildingId: product.buildingId ?? null,
@@ -461,7 +507,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     if (!items) return null;
     return { itemCount: items.length, totalQuantity: items.reduce((n, i) => n + i.quantity, 0), categoryCount: new Set(items.map((i) => i.category)).size };
   }
-  async setProductStatus(id: string, status: ProductStatus): Promise<Product> { const user=this.currentUser(); const p=this.db.market.products.find(p=>p.id===id && p.sellerId===user.id); if(!p) throw new Error('无权修改'); p.status=status; this.evaluateDemand(p); this.persist(); return {...p} }
+  async setProductStatus(id: string, status: ProductStatus): Promise<Product> { if (!['在售', '已售出', '已下架'].includes(status)) throw ApiError.mock({ code: 400, message: '商品状态无效' }); const user=this.currentUser(); const p=this.db.market.products.find(p=>p.id===id && p.sellerId===user.id); if(!p) throw new Error('无权修改'); p.status=status; this.evaluateDemand(p); this.persist(); return {...p} }
   async incrementProductViews(id: string): Promise<void> { const product = await this.getProduct(id); product.views += 1; const target = this.db.market.products.find((item) => item.id === id); if (target) target.views = product.views; this.persist() }
 
   /**
@@ -579,7 +625,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   private static readonly DEMAND_PATCH_FIELDS = DEMAND_PATCH_FIELDS;
   /** 与 REST 的 MarketService.PRODUCT_FIELDS 一致：sellerId / schoolId / 快照字段等一律拒绝。 */
   private static readonly PRODUCT_FIELDS = ['title', 'description', 'price', 'originalPrice', 'category', 'condition', 'campus',
-    'images', 'contact', 'buildingId', 'inspection', 'textbookEditionId', 'listingKind', 'bundleItems', 'visibility', 'circleIds'];
+    'images', 'contact', 'contactPublic', 'buildingId', 'inspection', 'textbookEditionId', 'listingKind', 'bundleItems', 'visibility', 'circleIds'];
 
   /** 6.1A：与后端 campuses 表一致——校区归属以数据登记为准（演示种子是试点学校的四个校区）。 */
   private schoolOf(campus: string | null | undefined): string | null {
@@ -897,7 +943,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
         invalidReason: m.invalidatedAt !== null ? 'NO_LONGER_MATCHES' as const : onSale ? null : 'NOT_ON_SALE' as const,
         createdAt: m.createdAt,
         // 买家视角：卖家联系方式不出现在收件箱里
-        product: { ...this.withBuilding(product), contact: '' },
+        product: this.withBuilding(product),
         subscription: sub,
       }];
     });
@@ -1084,6 +1130,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async getOrderFlow(orderId: string): Promise<import('./contracts').OrderFlow> {
+    this.retiredTradeFeature();
     const { order, me, buyer } = this.participant(orderId);
     const status = canonicalOf(order);
     const counterpart = buyer ? order.sellerId : order.buyerId;
@@ -1226,14 +1273,17 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async saveInspectionDraft(orderId: string, items: import('./contracts').InspectionResultInput[]) {
+    this.retiredTradeFeature();
     return this.writeInspection(orderId, items, false);
   }
 
   async submitInspection(orderId: string, items: import('./contracts').InspectionResultInput[]) {
+    this.retiredTradeFeature();
     return this.writeInspection(orderId, items, true);
   }
 
   async proposeMeeting(orderId: string, input: import('./contracts').MeetingProposalInput) {
+    this.retiredTradeFeature();
     rejectUnknownKeys(input, ['meetingPointId', 'startsAtIso', 'endsAtIso', 'note']);
     const { order, me } = this.participant(orderId);
     this.requireSchedulable(order);
@@ -1276,6 +1326,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async acceptMeeting(orderId: string, proposalId: string) {
+    this.retiredTradeFeature();
     const { order, me } = this.participant(orderId);
     const p = this.proposalOf(orderId, proposalId);
     if (p.proposerId === me.id) throw ApiError.mock({ code: 403, message: '不能接受自己提出的档期' });
@@ -1308,6 +1359,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async rejectMeeting(orderId: string, proposalId: string) {
+    this.retiredTradeFeature();
     const { order, me } = this.participant(orderId);
     const p = this.proposalOf(orderId, proposalId);
     if (p.proposerId === me.id) throw ApiError.mock({ code: 403, message: '不能拒绝自己提出的档期，请改为撤回' });
@@ -1321,6 +1373,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async withdrawMeeting(orderId: string, proposalId: string) {
+    this.retiredTradeFeature();
     const { order, me } = this.participant(orderId);
     const p = this.proposalOf(orderId, proposalId);
     if (p.proposerId !== me.id) throw ApiError.mock({ code: 403, message: '只能撤回自己提出的档期' });
@@ -1334,6 +1387,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async updatePresence(orderId: string, action: 'DEPART' | 'ARRIVE') {
+    this.retiredTradeFeature();
     if (action !== 'DEPART' && action !== 'ARRIVE') throw ApiError.mock({ code: 400, message: '动作无效' });
     const { order, me } = this.participant(orderId);
     const status = canonicalOf(order);
@@ -1365,6 +1419,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async getOwnTradeHistory(): Promise<import('./contracts').OwnTradeHistory> {
+    this.retiredTradeFeature();
     const me = this.currentUser();
     const mine = this.db.market.orders.filter((o) => o.buyerId === me.id || o.sellerId === me.id);
     const by = (s: string) => mine.filter((o) => canonicalOf(o) === s);
@@ -1391,6 +1446,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
   /** 公共履历白名单：与后端 TradeHistoryService.publicSummary 相同，评价少于 3 条不给均分。 */
   async getPublicTradeSummary(userId: string): Promise<import('./contracts').PublicTradeSummary> {
+    this.retiredTradeFeature();
     const me = this.currentUser();
     const user = this.db.users.find((u) => u.id === userId);
     if (!user || this.schoolOf(user.campus) !== this.schoolOf(me.campus)) throw ApiError.mock({ code: 404, message: '用户不存在' });
@@ -1762,7 +1818,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   /** 草稿投影：协助人看不到联系方式；任何人都看不到所有者与编辑人的 id。 */
   private draftView(d: MockListingDraft, access: 'OWNER' | 'ASSISTANT'): ListingDraft {
     const payload: ListingPayload = JSON.parse(JSON.stringify(d.payload));
-    if (access === 'ASSISTANT') delete payload.contact;
+    if (access === 'ASSISTANT') { delete payload.contact; delete payload.contactPublic; }
     return {
       id: d.id, draftType: d.draftType, status: d.status, version: d.version, payload, access,
       editedByAssistant: d.editorId !== d.ownerId, batchId: this.activeBatchOf(d.id)?.id ?? null,
@@ -1834,12 +1890,13 @@ export class MockCampusMarketApi implements CampusMarketApi {
       const before = draft.payload as Record<string, unknown>;
       const after = payload as Record<string, unknown>;
       for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-        if (ASSISTANT_FIELDS.includes(key) || key === 'contact') continue;
+        if (ASSISTANT_FIELDS.includes(key) || key === 'contact' || key === 'contactPublic') continue;
         if (JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null)) {
           throw ApiError.mock({ code: 403, message: '协助人只能整理标题、描述、分类、价格建议、打包明细与取货楼栋建议' });
         }
       }
       if (draft.payload.contact !== undefined) payload.contact = draft.payload.contact;
+      if (draft.payload.contactPublic !== undefined) payload.contactPublic = draft.payload.contactPublic;
     }
     const nextStatus = input.status ?? 'DRAFT';
     if (nextStatus !== 'DRAFT' && nextStatus !== 'READY') throw ApiError.mock({ code: 400, message: '草稿状态只能是 DRAFT 或 READY' });
@@ -2185,6 +2242,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
   /** 历史成交价格参考：与 PriceGuidanceService 同一口径、同一取整与防差分规则。 */
   async getPriceGuidance(query: PriceGuidanceQuery): Promise<PriceGuidance> {
+    this.retiredTradeFeature();
     const user = this.currentUser();
     rejectUnknownKeys(query, ['category', 'condition', 'textbookEditionId'], '统计维度');
     const { category } = query;
@@ -2591,6 +2649,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     };
   }
   async createOrder(input: CreateOrderInput): Promise<Order> {
+    this.retiredTradeFeature();
     const user = this.currentUser();
     const duplicate = this.db.idempotency[input.idempotencyKey];
     if (duplicate) return this.orderView(this.db.market.orders.find((o) => o.id === duplicate.id) ?? duplicate);
@@ -2658,6 +2717,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return this.orderView(order);
   }
   async transitionOrder(id: string, input: OrderTransitionInput): Promise<Order> {
+    this.retiredTradeFeature();
     this.syncFromStorage();
     const user = this.currentUser();
     rejectUnknownKeys(input, ['to', 'reason', 'confirmationCode', 'reasonCode', 'note'], '订单操作');
@@ -2743,6 +2803,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
    * 与 REST 只返回本人订单的语义不一致，也让任何演示用户都能看到别人的交易。
    */
   async listOrders(role: 'buyer'|'seller'|'all'): Promise<Order[]> {
+    this.retiredTradeFeature();
     const user = this.currentUser();
     this.sweepExpired();
     return this.db.market.orders
@@ -2751,7 +2812,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
         : role === 'buyer' ? o.buyerId === user.id : o.sellerId === user.id)
       .map((o) => this.orderView(o));
   }
-  async addReview(orderId: string, input: ReviewInput): Promise<Review> { rejectUnknownKeys(input, ['rating', 'comment'], '评价'); const user = this.currentUser(); const order = this.db.market.orders.find((o) => o.id === orderId); if (!order || (user.id !== order.buyerId && user.id !== order.sellerId)) throw ApiError.mock({ code: 403, message: '无权评价该订单' }); if (input.rating < 1 || input.rating > 5) throw ApiError.mock({ code: 400, message: '评分应为 1-5 分' }); const review = { rating: input.rating, comment: input.comment.trim(), createdAt: Date.now() }; if (user.id === order.buyerId) order.buyerReview = review; else order.sellerReview = review; this.persist(); return review }
+  async addReview(orderId: string, input: ReviewInput): Promise<Review> {
+    this.retiredTradeFeature(); rejectUnknownKeys(input, ['rating', 'comment'], '评价'); const user = this.currentUser(); const order = this.db.market.orders.find((o) => o.id === orderId); if (!order || (user.id !== order.buyerId && user.id !== order.sellerId)) throw ApiError.mock({ code: 403, message: '无权评价该订单' }); if (input.rating < 1 || input.rating > 5) throw ApiError.mock({ code: 400, message: '评分应为 1-5 分' }); const review = { rating: input.rating, comment: input.comment.trim(), createdAt: Date.now() }; if (user.id === order.buyerId) order.buyerReview = review; else order.sellerReview = review; this.persist(); return review }
   /** 7.1E：被隐藏的评论对任何人都不返回正文（作者额外看到可申诉的提示）；原文仍在库里 */
   private commentView(c: Comment, viewerId: string): Comment {
     const { moderationHiddenAt, moderationHiddenActionId: _a, ...rest } = c;
@@ -3004,6 +3066,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async getOrderNoShow(orderId: string): Promise<import('./contracts').OrderNoShowView> {
+    this.retiredTradeFeature();
     const { order, me } = this.participant(orderId);
     return {
       reports: this.db.noShowReports.filter((r) => r.orderId === orderId).sort((a, b) => a.createdAt - b.createdAt).map((r) => this.noShowView(r, me.id)),
@@ -3012,6 +3075,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async reportNoShow(orderId: string, input: { reasonCode: import('./contracts').NoShowReason; note?: string }): Promise<import('./contracts').NoShowReport> {
+    this.retiredTradeFeature();
     rejectUnknownKeys(input, ['reasonCode', 'note'], '爽约报告');
     const reason = this.govCode<import('./contracts').NoShowReason>(input.reasonCode, MockCampusMarketApi.NO_SHOW_REASONS, '爽约原因');
     const note = this.govNote(input.note, 200);
@@ -3039,6 +3103,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async acknowledgeNoShow(reportId: string, note?: string): Promise<import('./contracts').NoShowReport> {
+    this.retiredTradeFeature();
     const clean = this.govNote(note, 200);
     const { r, me } = this.noShowForResponse(reportId);
     if (!this.slotOf(r.orderId, r.meetingRevision)) throw ApiError.mock({ code: 409, message: NO_EXPLICIT_SLOT_MESSAGE, details: { code: 'NO_EXPLICIT_SLOT' } });
@@ -3052,6 +3117,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   async disputeNoShow(reportId: string, note: string): Promise<import('./contracts').NoShowReport> {
+    this.retiredTradeFeature();
     const clean = this.govNote(note, 200);
     if (!clean) throw ApiError.mock({ code: 400, message: '请写一句说明，方便工作人员复核' });
     const { r, me } = this.noShowForResponse(reportId);

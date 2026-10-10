@@ -23,7 +23,7 @@ export type ProductCreateInput = Omit<Product, 'id'|'sellerId'|'status'|'views'|
   /** 受支持分类必须逐项声明；不支持的分类不提交 */
   inspection?: DisclosureInput[];
 }
-export type ProductPatch = Partial<Pick<Product, 'title'|'description'|'price'|'originalPrice'|'category'|'condition'|'campus'|'images'|'contact'>> & {
+export type ProductPatch = Partial<Pick<Product, 'title'|'description'|'price'|'originalPrice'|'category'|'condition'|'campus'|'images'|'contact'|'contactPublic'>> & {
   buildingId?: string | null;
   /** 验货声明。切换到受支持分类时必须提供；分类不变时提供则整体替换 */
   inspection?: DisclosureInput[];
@@ -79,7 +79,7 @@ export interface ListingPayload {
   title?: string; description?: string; price?: number | string; originalPrice?: number | string | null;
   category?: Category | string; condition?: Condition | string; campus?: Campus | string; images?: string[];
   /** 只有所有者能填写与读取 */
-  contact?: string; buildingId?: string | null; inspection?: DisclosureInput[]; textbookEditionId?: string | null;
+  contact?: string; contactPublic?: boolean; buildingId?: string | null; inspection?: DisclosureInput[]; textbookEditionId?: string | null;
   bundleItems?: BundleItemInput[];
   /** 模块 6：可见范围。协助人不能修改 */
   visibility?: ProductVisibility | string; circleIds?: string[];
@@ -548,7 +548,18 @@ export interface MeetingPoint {
   /** V5：停用的面交点仍会返回（历史订单要显示名称），但不能用于新的预约或提议 */
   active?: boolean;
 }
+export type ContactRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export interface ContactRequest {
+  id: string; productId: string; buyerId: string; sellerId: string;
+  status: ContactRequestStatus; createdAt: number; updatedAt: number;
+  productTitle?: string; buyerNickname?: string;
+}
+
 export interface CampusMarketApi {
+  getContactRequest(productId: string): Promise<ContactRequest | null>;
+  requestContact(productId: string): Promise<ContactRequest>;
+  listContactRequests(): Promise<ContactRequest[]>;
+  decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED'): Promise<ContactRequest>;
   getUser(id: string): Promise<import('../types').PublicUser>;
   listMeetingPoints(): Promise<MeetingPoint[]>;
   /** 某校区的可选楼栋。公共参考数据，未登录也可读。 */

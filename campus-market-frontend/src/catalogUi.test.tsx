@@ -263,7 +263,7 @@ describe('发布教材商品（端到端）', () => {
     fireEvent.change(screen.getByLabelText(/商品标题/), { target: { value: '微积分教程第八版九成新' } });
     fireEvent.change(screen.getByLabelText(/商品描述/), { target: { value: '上学期用过，笔记很少，没有缺页。' } });
     fireEvent.change(screen.getByLabelText(/出售价格/), { target: { value: '25' } });
-    fireEvent.change(screen.getByLabelText(/联系方式/), { target: { value: '13800000000' } });
+    fireEvent.change(screen.getByRole("textbox", { name: /联系方式/ }), { target: { value: '13800000000' } });
     fireEvent.click(screen.getByRole('button', { name: '选择图片 1' }));
     for (const group of screen.getAllByRole('radiogroup')) fireEvent.click(within(group).getAllByRole('radio')[0]);
 

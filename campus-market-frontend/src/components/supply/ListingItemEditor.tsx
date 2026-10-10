@@ -1,4 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
@@ -12,7 +14,6 @@ import { VALIDATION_LABEL, missingText, priceValue, versionConflict } from '../.
 import BuildingSelect from '../BuildingSelect';
 import InspectionDeclarationFields, { type DeclarationValue } from '../trust/InspectionDeclarationFields';
 import BundleEditor, { itemsFromRows, rowsFromItems, type BundleRow } from './BundleEditor';
-import PriceGuidanceCard from './PriceGuidanceCard';
 import VisibilityPicker from '../circle/VisibilityPicker';
 import type { ProductVisibility } from '../../api/contracts';
 
@@ -33,7 +34,7 @@ interface Props {
 
 interface FormState {
   title: string; description: string; price: string; category: string; condition: string; campus: string;
-  buildingId: string | null; images: string[]; contact: string; declarations: DeclarationValue; bundleRows: BundleRow[];
+  buildingId: string | null; images: string[]; contact: string; contactPublic: boolean; declarations: DeclarationValue; bundleRows: BundleRow[];
   visibility: ProductVisibility; circleIds: string[];
 }
 
@@ -44,7 +45,7 @@ function formFrom(payload: ListingPayload): FormState {
     title: payload.title ?? '', description: payload.description ?? '',
     price: payload.price === undefined || payload.price === null ? '' : String(payload.price),
     category: String(payload.category ?? ''), condition: String(payload.condition ?? ''), campus: String(payload.campus ?? ''),
-    buildingId: payload.buildingId ?? null, images: [...(payload.images ?? [])], contact: payload.contact ?? '',
+    buildingId: payload.buildingId ?? null, images: [...(payload.images ?? [])], contact: payload.contact ?? '', contactPublic: payload.contactPublic === true,
     declarations, bundleRows: rowsFromItems(payload.bundleItems),
     visibility: payload.visibility === 'CIRCLE_ONLY' ? 'CIRCLE_ONLY' : 'PUBLIC', circleIds: [...(payload.circleIds ?? [])],
   };
@@ -102,6 +103,7 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
       set('campus', form.campus || undefined);
       set('images', form.images);
       set('contact', form.contact.trim() || undefined);
+      set('contactPublic', form.contactPublic);
       // 可见范围只有所有者能选；协助人保存时沿用所有者的原值（服务端也会拒绝协助人改动这两个字段）
       set('visibility', form.visibility === 'CIRCLE_ONLY' ? 'CIRCLE_ONLY' : undefined);
       set('circleIds', form.visibility === 'CIRCLE_ONLY' ? form.circleIds : undefined);
@@ -171,7 +173,7 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
           </TextField>
         )}
       </div>
-      <PriceGuidanceCard category={form.category} condition={bundle ? undefined : form.condition} />
+
       {!assistant && (
         <TextField select label="校区" value={form.campus} size="small" onChange={(e) => patch({ campus: e.target.value, buildingId: null })}>
           {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
@@ -204,6 +206,10 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
         <TextField label="联系方式（只有你自己能看到草稿里的联系方式）" value={form.contact} size="small" fullWidth inputProps={{ maxLength: 100 }}
           onChange={(e) => patch({ contact: e.target.value })} />
       )}
+      {!assistant && <div>
+        <FormControlLabel control={<Checkbox checked={form.contactPublic} onChange={(e) => patch({ contactPublic: e.target.checked })} />} label="公开展示联系方式" />
+        <p className="text-xs text-slate-500">未勾选时，买家需点击“我想要”，经你同意后才能查看联系方式。</p>
+      </div>}
       {bundle && (
         <BundleEditor rows={form.bundleRows} onChange={(bundleRows) => patch({ bundleRows })} idPrefix={`${idPrefix}-bundle`}
           error={problem?.code === 'INVALID_BUNDLE' ? problem.message : null} />

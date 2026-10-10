@@ -13,7 +13,7 @@ import { BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS } from '../contracts';
 // ---------------------------------------------------------------------------
 
 export const PAYLOAD_FIELDS: readonly string[] = ['title', 'description', 'price', 'originalPrice', 'category', 'condition', 'campus',
-  'images', 'contact', 'buildingId', 'inspection', 'textbookEditionId', 'bundleItems', 'visibility', 'circleIds'];
+  'images', 'contact', 'contactPublic', 'buildingId', 'inspection', 'textbookEditionId', 'bundleItems', 'visibility', 'circleIds'];
 /** 协助人可以整理的字段（5.5），与后端 ListingPayload.ASSISTANT_FIELDS 一致 */
 export const ASSISTANT_FIELDS: readonly string[] = ['title', 'description', 'category', 'price', 'bundleItems', 'buildingId'];
 const INSPECTION_KEYS: readonly string[] = ['itemCode', 'condition', 'note'];
@@ -53,11 +53,12 @@ export function sanitizePayload(raw: unknown, assistant: boolean): ListingPayloa
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!PAYLOAD_FIELDS.includes(key)) throw bad(`草稿包含不支持的字段：${key}`);
-    if (assistant && key === 'contact') throw ApiError.mock({ code: 403, message: '协助人不能填写联系方式' });
+    if (assistant && (key === 'contact' || key === 'contactPublic')) throw ApiError.mock({ code: 403, message: '协助人不能填写联系方式' });
     if (value === null || value === undefined) { result[key] = null; continue; }
     switch (key) {
       case 'title': result[key] = str(value, 100, '标题'); break;
       case 'description': result[key] = str(value, 4000, '描述'); break;
+      case 'contactPublic': if (typeof value !== 'boolean') throw ApiError.mock({ code: 400, message: 'contactPublic 必须是布尔值' }); result[key] = value; break;
       case 'contact': result[key] = str(value, 100, '联系方式'); break;
       case 'category': case 'condition': case 'campus': result[key] = str(value, 20, key); break;
       case 'buildingId': case 'textbookEditionId': result[key] = str(value, 64, key); break;

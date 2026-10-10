@@ -76,7 +76,7 @@ export default function BundleEditor({ rows, onChange, error, idPrefix = 'bundle
     <section aria-labelledby={`${idPrefix}-title`} aria-describedby={error ? `${countId} ${errorId}` : countId} className="space-y-3 rounded-2xl border border-slate-200 p-4">
       <div>
         <h3 id={`${idPrefix}-title`} className="text-sm font-bold text-slate-800">打包明细</h3>
-        <p className="mt-1 text-xs text-slate-600">整套出售，不支持单独下单。每一行都会在面交验货时逐条核对。</p>
+        <p className="mt-1 text-xs text-slate-600">整套展示，请逐项填写内容，方便买家了解商品。</p>
         <p id={countId} role="status" className="mt-1 text-xs text-slate-700">
           共 {rows.length} 行（需要 {BUNDLE_MIN_ITEMS}～{BUNDLE_MAX_ITEMS} 行）· 包含 {categories} 类 / {quantity} 件
         </p>

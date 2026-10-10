@@ -4,6 +4,12 @@ import { HttpTransport } from './httpTransport';
 import { authTokenStore } from '../utils/authTokenStore';
 export class RestCampusMarketApi implements CampusMarketApi {
   constructor(private readonly transport: HttpTransport) {}
+  getContactRequest(id: string) { return this.transport.get<import('./contracts').ContactRequest | null>(`/v1/products/${encodeURIComponent(id)}/contact-request`) }
+  requestContact(id: string) { return this.transport.post<import('./contracts').ContactRequest>(`/v1/products/${encodeURIComponent(id)}/contact-request`) }
+  listContactRequests() { return this.transport.get<import('./contracts').ContactRequest[]>('/v1/contact-requests') }
+  decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED') {
+    return this.transport.post<import('./contracts').ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/decision`, { status });
+  }
   getUser(id: string): Promise<import('../types').PublicUser> { return this.transport.get(`/v1/users/${encodeURIComponent(id)}`) }
   listMeetingPoints(): Promise<import('./contracts').MeetingPoint[]> { return this.transport.get('/v1/meeting-points') }
   listBuildings(campus: import('../types').Campus, zone?: string): Promise<import('../types').Building[]> {

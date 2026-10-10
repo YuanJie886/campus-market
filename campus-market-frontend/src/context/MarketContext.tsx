@@ -55,10 +55,10 @@ function useMarketState() {
     }
     const [orders, favorites, conversations, points, count] = await Promise.all(
       [
-        currentUser ? api.listOrders("all") : [],
+        [] as import("../types").Order[],
         currentUser ? api.listFavorites() : [],
         currentUser ? api.listConversations() : [],
-        api.listMeetingPoints(),
+        [] as MeetingPoint[],
         currentUser ? api.getUnreadCount() : 0,
       ],
     );

@@ -16,7 +16,7 @@ import { seedBuildings, type MockBuilding } from '../data/buildings';
  */
 
 /** 当前 schema 版本。每次改变持久化形状都要 +1 并补一条迁移。 */
-export const MOCK_SCHEMA_VERSION = 11;
+export const MOCK_SCHEMA_VERSION = 12;
 
 /** 需求订阅（v4 起）。字段与后端 demand_subscriptions 一一对应。 */
 export interface MockDemandSubscription {
@@ -220,6 +220,7 @@ export interface MockCatalog {
 }
 
 export interface MockDatabase {
+  contactRequests?: import('./contracts').ContactRequest[];
   schemaVersion: number;
   /** v10：校区 → 学校（6.1A 学校隔离；多校演示与测试可以登记新的校区） */
   campusSchools: Record<string, string>;
@@ -877,6 +878,7 @@ const STEPS: Record<number, { name: string; run: (db: MockDatabase, ambiguous: s
   7: { name: 'v7→v8 冻结成交统计维度（旧订单为 null，不回填）', run: migrateV7ToV8 },
   8: { name: 'v8→v9 圈子集市（旧商品全部公开，不创建圈子、不替任何人入圈）', run: migrateV8ToV9 },
   9: { name: 'v9→v10 交易承诺与可信治理（不伪造工作人员、举报、处罚或爽约；旧取消订单不猜原因）', run: migrateV9ToV10 },
+  11: { name: 'v11→v12 联系方式申请（默认不公开，释放旧预约）', run: (db) => { db.contactRequests = []; for (const p of db.market.products) { p.contactPublic = false; if (p.status === '预约中') p.status = '在售'; } return 0; } },
   10: { name: 'v10→v11 治理规则收口（只为真实改约回填档期快照，旧原始预约不补结束时间；NO_SHOW_RULE 改名 SYSTEM_RULE 并补依据）', run: migrateV10ToV11 },
 };
 
@@ -919,6 +921,7 @@ export function migrateMockDatabase(raw: unknown, buildSeed: () => MockDatabase)
   let skipped = 0;
   try {
     db = clone(raw) as unknown as MockDatabase;
+    db.contactRequests ??= [];
     db.buildings ??= [];
     db.demandSubscriptions ??= [];
     db.demandMatches ??= [];

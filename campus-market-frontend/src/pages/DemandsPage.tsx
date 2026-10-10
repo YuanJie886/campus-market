@@ -19,12 +19,12 @@ import { formatPrice, formatRelativeTime } from '../utils/format';
 /**
  * 需求匹配收件箱与订阅管理（2.4 / 2.5）。
  *
- * <p>这里只展示<b>本人订阅</b>产生的匹配。「去预约面交」只是打开现有的预约流程：
+ * <p>这里只展示<b>本人订阅</b>产生的匹配。「申请联系卖家」只是打开现有的预约流程：
  * 在售检查、不能买自己的商品、活跃订单唯一、面交点确认，一项都不绕过。
  */
 type TabKey = 'matches' | 'subscriptions';
 
-const INVALID_LABEL = { NO_LONGER_MATCHES: '已不再符合你的条件', NOT_ON_SALE: '已被预约或售出，暂不可购买' } as const;
+const INVALID_LABEL = { NO_LONGER_MATCHES: '已不再符合你的条件', NOT_ON_SALE: '已售出或下架，暂不可联系' } as const;
 
 export default function DemandsPage() {
   const [params, setParams] = useSearchParams();
@@ -142,9 +142,9 @@ function MatchInbox() {
                   查看商品
                 </Button>
                 {m.valid && (
-                  <Button size="small" variant="contained" component={Link} to={`/product/${m.product.id}?book=1`}
+                  <Button size="small" variant="contained" component={Link} to={`/product/${m.product.id}`}
                     onClick={() => { if (!m.read) void act(() => getApiClient().markDemandMatchRead(m.id)) }}>
-                    去预约面交
+                    申请联系卖家
                   </Button>
                 )}
                 {!m.read && (

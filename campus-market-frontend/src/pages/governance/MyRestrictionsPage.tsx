@@ -89,15 +89,9 @@ export default function MyRestrictionsPage() {
   return (
     <section aria-labelledby="my-restrictions-title" className="space-y-4">
       <h2 id="my-restrictions-title" className="text-lg font-bold text-slate-800">我的限制</h2>
-      <p className="text-sm text-slate-700">这里的内容只有你自己看得到，不会出现在公开资料或交易履历里。限制都有期限，到期自动解除。</p>
+      <p className="text-sm text-slate-700">这里的内容只有你自己看得到，不会出现在公开资料里。限制都有期限，到期自动解除。</p>
       <div role="status" aria-live="polite" className="text-sm text-emerald-800">{status}</div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {data.noShowWarning && (
-        <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note">
-          提醒：最近 {data.noShowWarning.windowDays} 天内有 {data.noShowWarning.confirmedCount} 次已确认的爽约。
-          30 天内第 2 次会限制预约新订单 24 小时，第 3 次起 72 小时。
-        </p>
-      )}
       <div className="space-y-2">
         <h3 className="text-base font-semibold text-slate-800">生效中的限制</h3>
         {active.length === 0 ? <p className="text-sm text-slate-600">目前没有生效中的限制。</p> : (

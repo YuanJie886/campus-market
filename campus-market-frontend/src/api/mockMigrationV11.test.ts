@@ -63,7 +63,7 @@ describe('7.1 Mock schema v11', () => {
     const first = migrateMockDatabase(v10(), seed);
     expect(first.applied.filter((n) => /^v10→v11/.test(n))).toHaveLength(1);
     const db = first.db;
-    expect(db.schemaVersion).toBe(11);
+    expect(db.schemaVersion).toBe(MOCK_SCHEMA_VERSION);
     expect(db.market.orders.find((o) => o.id === 'legacy')!.meetingEndsAtIso).toBeNull();
     expect(db.slotAgreements.filter((a) => a.orderId === 'legacy')).toEqual([]);
     expect(db.slotAgreements).toEqual([{ orderId: 'agreed', revision: 1, meetingPointId: '东校区-library', startsAt: NOW - 5 * 3_600_000,

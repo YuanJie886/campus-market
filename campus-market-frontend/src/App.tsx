@@ -17,11 +17,9 @@ const MessagesPage = lazy(() => import('./pages/MessagesPage'));
 const ProfileLayout = lazy(() => import('./pages/profile/ProfileLayout'));
 const ProfileInfoPage = lazy(() => import('./pages/profile/ProfileInfoPage'));
 const MyListingsPage = lazy(() => import('./pages/profile/MyListingsPage'));
+const ContactRequestsPage = lazy(() => import('./pages/profile/ContactRequestsPage'));
 const FavoritesPage = lazy(() => import('./pages/profile/FavoritesPage'));
-const OrdersPage = lazy(() => import('./pages/profile/OrdersPage'));
 const DemandsPage = lazy(() => import('./pages/DemandsPage'));
-const OrderFlowPage = lazy(() => import('./pages/OrderFlowPage'));
-const TradeHistoryPage = lazy(() => import('./pages/profile/TradeHistoryPage'));
 // 模块 4：课程教材图谱各页按路由拆包，目录与教材页不进入口 chunk
 const CoursesPage = lazy(() => import('./pages/CoursesPage'));
 const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
@@ -100,14 +98,6 @@ export default function App() {
         <Route path="moderation/cases/:id" element={<RequireAuth><ModerationCasePage /></RequireAuth>} />
         <Route path="moderation/appeals" element={<RequireAuth><ModerationAppealsPage /></RequireAuth>} />
         <Route
-          path="orders/:orderId"
-          element={
-            <RequireAuth>
-              <OrderFlowPage />
-            </RequireAuth>
-          }
-        />
-        <Route
           path="messages"
           element={
             <RequireAuth>
@@ -133,9 +123,8 @@ export default function App() {
         >
           <Route index element={<ProfileInfoPage />} />
           <Route path="listings" element={<MyListingsPage />} />
+          <Route path="contact-requests" element={<ContactRequestsPage />} />
           <Route path="favorites" element={<FavoritesPage />} />
-          <Route path="orders" element={<OrdersPage />} />
-          <Route path="history" element={<TradeHistoryPage />} />
           <Route path="textbook-suggestions" element={<TextbookSuggestionsPage />} />
           <Route path="reports" element={<MyReportsPage />} />
           <Route path="restrictions" element={<MyRestrictionsPage />} />

@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
@@ -34,6 +36,7 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
   const [buildingId, setBuildingId] = useState<string | null>(initial.buildingId);
   const [contact, setContact] = useState(initial.contact);
   const [images, setImages] = useState<string[]>([]);
+  const [contactPublic, setContactPublic] = useState(false);
   const [rows, setRows] = useState<BundleRow[]>(() => [emptyBundleRow(), emptyBundleRow()]);
   const [visibility, setVisibility] = useState<ProductVisibility>('PUBLIC');
   const [circleIds, setCircleIds] = useState<string[]>([]);
@@ -71,7 +74,7 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
       await onSubmit({
         listingKind: 'BUNDLE', bundleItems: itemsFromRows(rows),
         title: title.trim(), description: description.trim(), price: Number(price), category: category as Category,
-        condition: condition as Condition, campus, buildingId, images, contact: contact.trim(),
+        condition: condition as Condition, campus, buildingId, images, contact: contact.trim(), contactPublic,
         visibility, ...(visibility === 'CIRCLE_ONLY' ? { circleIds } : {}),
       });
     } finally {
@@ -81,7 +84,7 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
 
   return (
     <div className="space-y-3">
-      <Alert severity="info" role="note">整套出售，不支持单独下单。买家一次买下整套，面交时逐条核对明细。</Alert>
+      <Alert severity="info" role="note">整套展示，感兴趣的买家可申请查看联系方式，具体沟通由双方自行联系。</Alert>
       <ErrorSummary ref={summaryRef} title="还有内容需要补充" items={summary} />
       <TextField id="bundle-title" label="整套标题" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth size="small" inputProps={{ maxLength: 100 }} />
       <TextField id="bundle-description" label="描述" value={description} onChange={(e) => setDescription(e.target.value)} fullWidth size="small" multiline minRows={2} inputProps={{ maxLength: 4000 }} />
@@ -116,6 +119,8 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
           })}
         </div>
       </fieldset>
+      <FormControlLabel control={<Checkbox checked={contactPublic} onChange={(e) => setContactPublic(e.target.checked)} />} label="公开展示联系方式" />
+      <p className="text-xs text-slate-500">未勾选时，买家需点击“我想要”，经你同意后才能查看联系方式。</p>
       <TextField label="联系方式" value={contact} onChange={(e) => setContact(e.target.value)} size="small" fullWidth inputProps={{ maxLength: 100 }} />
       <BundleEditor rows={rows} onChange={setRows} idPrefix="bundle-form-bundle" />
       <div id="bundle-visibility" tabIndex={-1}>
