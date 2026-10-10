@@ -14,7 +14,6 @@ import {
   CATEGORY_EMOJI,
   CATEGORY_GRADIENT,
 } from "../utils/constants";
-import { isValidPhone, isValidStudentId } from "../utils/format";
 import { useNotify } from "../context/NotificationContext";
 import ImageWithFallback from "./ImageWithFallback";
 import BuildingSelect from "./BuildingSelect";
@@ -22,7 +21,6 @@ import { getApiClient } from "../api/client";
 import { toUserMessage } from "../api/errors";
 import type { DisclosureInput, InspectionTemplate, ProductDisclosure, ProductTextbook } from "../api/contracts";
 import TextbookIsbnField, { describeLinked, type LinkedTextbook } from "./textbook/TextbookIsbnField";
-import PriceGuidanceCard from "./supply/PriceGuidanceCard";
 import InspectionDeclarationFields, {
   DECLARATION_NOTE_MAX,
   declarationFieldName,
@@ -44,6 +42,7 @@ export interface ProductFormValue {
   /** 取货楼栋。null 表示卖家明确选择了「不指定楼栋」。 */
   buildingId: string | null;
   contact: string;
+  contactPublic: boolean;
   images: string[];
   /** 模块 6：可见范围。默认全校公开；圈子可见必须由卖家主动选择圈子 */
   visibility: ProductVisibility;
@@ -60,6 +59,7 @@ export const emptyProductForm: ProductFormValue = {
   campus: "东校区",
   buildingId: null,
   contact: "",
+  contactPublic: false,
   images: [],
   visibility: "PUBLIC",
   circleIds: [],
@@ -73,7 +73,7 @@ interface ProductFormProps {
   onCancel?: () => void;
   /** 紧凑模式：用于弹窗内 */
   compact?: boolean;
-  /** 编辑模式：会提示「修改只影响之后的订单」，旧商品未声明时允许保持未声明 */
+  /** 编辑模式：会提示「商品声明以当前展示内容为准」，旧商品未声明时允许保持未声明 */
   mode?: "create" | "edit";
   /** 编辑时商品当前的声明（来自商品详情）；null 表示该商品从未提供声明 */
   initialInspection?: ProductDisclosure | null;
@@ -237,12 +237,7 @@ export default function ProductForm({
     else if (priceNum > 1000000) next.price = "价格过于离谱啦";
 
     if (!value.contact.trim()) next.contact = "请输入联系方式";
-    else if (
-      !isValidPhone(value.contact.trim()) &&
-      !isValidStudentId(value.contact.trim())
-    ) {
-      next.contact = "请输入有效的手机号或学号";
-    }
+    else if (value.contact.trim().length > 100) next.contact = "联系方式最多 100 个字";
 
     if (value.images.length === 0) next.images = "请至少选择一张商品图片";
     if (value.visibility === "CIRCLE_ONLY" && value.circleIds.length === 0)
@@ -346,6 +341,7 @@ export default function ProductForm({
         buildingId: value.buildingId,
         images: value.images,
         contact: value.contact.trim(),
+        contactPublic: value.contactPublic,
         // 只在需要时带上该键：缺省表示「不改动声明」，与显式提交空声明语义不同
         ...(inspection ? { inspection } : {}),
         ...(textbookEditionId !== undefined ? { textbookEditionId } : {}),
@@ -374,7 +370,7 @@ export default function ProductForm({
       <TextField
         id={FIELD_IDS.description}
         label="商品描述"
-        placeholder="成色、入手时间、使用情况、配件是否齐全、可面交地点…"
+        placeholder="成色、入手时间、使用情况、配件是否齐全、其他补充信息…"
         value={value.description}
         onChange={(e) => patch({ description: e.target.value })}
         error={Boolean(errors.description)}
@@ -409,7 +405,7 @@ export default function ProductForm({
         />
       </div>
       {/* 模块 5.6：校内历史成交参考（只是统计，不是估价；价格由卖家自己决定） */}
-      <PriceGuidanceCard category={value.category} condition={value.condition} textbookEditionId={linkedTextbook?.editionId ?? null} />
+
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <TextField
@@ -523,15 +519,19 @@ export default function ProductForm({
       <TextField
         id={FIELD_IDS.contact}
         label="联系方式"
-        placeholder="手机号或学号，方便买家联系你"
+        placeholder="手机号、微信号或其他联系方式"
+        inputProps={{ maxLength: 100 }}
         value={value.contact}
         onChange={(e) => patch({ contact: e.target.value })}
         error={Boolean(errors.contact)}
-        helperText={errors.contact ?? "仅登录用户可见，平台不会公开你的隐私"}
+        helperText={errors.contact ?? "由你选择公开展示，或同意买家的联系申请后展示"}
         fullWidth
         required
       />
 
+      <FormControlLabel control={<Checkbox checked={value.contactPublic} onChange={(e) => patch({ contactPublic: e.target.checked })} />}
+        label="公开展示联系方式" />
+      <p className="text-xs text-slate-500">未勾选时，买家需要点击“我想要”，经你同意后才能查看联系方式。平台只展示商品和联系方式，后续沟通与交易由双方自行联系。</p>
       {/* 图片选择器 */}
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -607,7 +607,7 @@ export default function ProductForm({
         />
         {mode === "edit" && (
           <p className="mt-1 text-xs text-slate-600">
-            改成圈子可见后，不在所选圈子里的同学将看不到这件商品（包括已收藏和已发起的会话）；已经成立的订单不受影响。
+            改成圈子可见后，不在所选圈子里的同学将看不到这件商品（包括已收藏和已发起的会话）；联系申请的查看同样受商品可见范围限制。
           </p>
         )}
       </div>

@@ -20,7 +20,7 @@ import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import ContactMailOutlinedIcon from "@mui/icons-material/ContactMailOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 import LoginIcon from "@mui/icons-material/Login";
 import { useAuth } from "../context/AuthContext";
@@ -304,11 +304,11 @@ export default function Navbar() {
                   </ListItemIcon>
                   我的收藏
                 </MenuItem>
-                <MenuItem onClick={() => go("/profile/orders")}>
+                <MenuItem onClick={() => go("/profile/contact-requests")}>
                   <ListItemIcon>
-                    <ReceiptLongOutlinedIcon fontSize="small" />
+                    <ContactMailOutlinedIcon fontSize="small" />
                   </ListItemIcon>
-                  我的订单
+                  联系申请
                 </MenuItem>
                 <Divider />
                 <MenuItem onClick={handleLogout} sx={{ color: "error.main" }}>

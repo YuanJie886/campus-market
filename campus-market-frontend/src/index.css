@@ -166,847 +166,67 @@ a:focus-visible,
   transform: translateY(-1px);
 }
 
-/* ==========================================================================
-   MODULE 1: APPLE KEYNOTE HERO STAGE
-   ========================================================================== */
+/* ----------------------------- Marketplace Home ---------------------------- */
 
-.cm-apple-hero-stage {
-  position: relative;
-  min-height: 180vh;
-  background: #08090b;
-  color: #ffffff;
-  overflow: clip;
+.cm-market-home {
+  padding-top: 24px;
+  background: var(--cm-paper-subtle);
 }
 
-.cm-apple-hero-wash {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(circle at 75% 35%, rgba(211, 225, 203, 0.18), transparent 32rem),
-    radial-gradient(circle at 20% 90%, rgba(25, 78, 65, 0.65), transparent 42rem),
-    linear-gradient(135deg, #08090b 0%, #111417 50%, #0a0c0e 100%);
-  transform-origin: 65% 45%;
-  will-change: transform;
-}
-
-.cm-apple-hero-lattice {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.14;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at center, #000 35%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 75%);
-}
-
-.cm-apple-hero-container {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 60px);
-  max-width: 1240px;
+.cm-market-intro {
+  width: min(1192px, calc(100% - 48px));
   margin: 0 auto;
-  padding: clamp(20px, 3.5vw, 40px) 24px;
-}
-
-.cm-apple-hero-statusbar {
+  padding: 26px 28px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--cm-line-dark);
+  gap: 24px;
+  border-radius: var(--cm-radius-md);
+  background:
+    radial-gradient(ellipse at top right, rgba(91, 137, 111, 0.28), transparent 65%),
+    linear-gradient(110deg, #101c19, #194e41);
+  color: #fff;
 }
 
-.cm-apple-hero-brand-tag {
+.cm-market-intro h1 {
+  margin: 0;
+  font-size: clamp(22px, 2.4vw, 28px);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+}
+
+.cm-market-intro p {
+  margin: 8px 0 0;
+  color: #d3e1cb;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cm-market-intro-badge {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.72);
+  padding: 9px 14px;
+  border: 1px solid rgba(211, 225, 203, 0.24);
+  border-radius: 999px;
+  background: rgba(211, 225, 203, 0.08);
+  color: #e2ebdd;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
-.cm-apple-pulse-dot {
+.cm-market-intro-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--cm-moss-soft);
-  box-shadow: 0 0 0 4px rgba(211, 225, 203, 0.16);
-  animation: cm-pulse 2.2s infinite ease-in-out;
 }
-
-@keyframes cm-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
-}
-
-.cm-apple-hero-stats-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.cm-apple-dot-sep {
-  opacity: 0.35;
-}
-
-.cm-apple-hero-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: clamp(32px, 6vw, 80px);
-  flex: 1;
-  padding: clamp(32px, 6vh, 68px) 0;
-  perspective: 1200px;
-}
-
-.cm-apple-hero-content {
-  max-width: 580px;
-  will-change: transform, opacity;
-}
-
-.cm-apple-eyebrow {
-  margin: 0 0 16px;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  font-weight: 700;
-  color: var(--cm-moss-soft);
-  text-transform: uppercase;
-}
-
-.cm-apple-hero-title {
-  margin: 0;
-  font-size: clamp(3.2rem, 6.4vw, 5.8rem);
-  font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 1.02;
-}
-
-.cm-apple-silver-text {
-  display: block;
-  background: linear-gradient(180deg, #ffffff 15%, rgba(255, 255, 255, 0.58) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.cm-apple-hero-subtext {
-  margin: 28px 0 0;
-  font-size: 16px;
-  line-height: 1.85;
-  color: rgba(255, 255, 255, 0.64);
-  max-width: 480px;
-}
-
-.cm-apple-hero-cta-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
-  margin-top: 36px;
-}
-
-.cm-apple-primary-cta.MuiButton-root {
-  background: var(--cm-moss-soft) !important;
-  color: var(--cm-ink) !important;
-  font-weight: 600 !important;
-  font-size: 14px !important;
-  padding: 11px 24px !important;
-  border-radius: 999px !important;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3) !important;
-  transition: all 300ms var(--cm-ease-spring) !important;
-}
-
-.cm-apple-primary-cta.MuiButton-root:hover {
-  background: #e2ecd9 !important;
-  transform: translateY(-2px);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4) !important;
-}
-
-.cm-apple-secondary-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 250ms ease;
-}
-
-.cm-apple-secondary-cta:hover {
-  color: #fff;
-  transform: translateX(4px);
-}
-
-.cm-apple-hero-spotlight-tabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 36px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
-}
-
-.cm-apple-spotlight-label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.cm-apple-spotlight-pill {
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.65);
-  transition: all 250ms var(--cm-ease-spring);
-}
-
-.cm-apple-spotlight-pill:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.cm-apple-spotlight-pill.is-active {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
-  font-weight: 600;
-}
-
-/* 3D 旗舰产品展台 */
-.cm-apple-hero-showcase {
-  position: relative;
-  justify-self: end;
-  width: min(100%, 520px);
-  will-change: transform;
-}
-
-.cm-apple-showcase-card {
-  position: relative;
-  border-radius: var(--cm-radius-lg);
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(12px);
-  transition: all 500ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.65);
-  transform: translateY(-4px);
-}
-
-.cm-apple-showcase-glare {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, transparent 55%);
-}
-
-.cm-apple-showcase-image-box {
-  position: relative;
-  height: clamp(320px, 44vh, 460px);
-  background: #15181b;
-  overflow: hidden;
-}
-
-.cm-apple-showcase-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 900ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover .cm-apple-showcase-img {
-  transform: scale(1.05);
-}
-
-.cm-apple-showcase-img-alt {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity 700ms var(--cm-ease-smooth), transform 900ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover .cm-apple-showcase-img-alt {
-  opacity: 1;
-  transform: scale(1.05);
-}
-
-.cm-apple-showcase-badge {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 6;
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.cm-apple-showcase-caption {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 18px;
-  padding: 22px 24px;
-  background: rgba(18, 20, 24, 0.85);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.cm-apple-showcase-meta {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 6px;
-}
-
-.cm-apple-showcase-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1.3;
-}
-
-.cm-apple-showcase-price-box {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.cm-apple-showcase-price {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--cm-moss-soft);
-}
-
-.cm-apple-showcase-view-btn {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  transition: all 300ms var(--cm-ease-spring);
-}
-
-.cm-apple-showcase-card:hover .cm-apple-showcase-view-btn {
-  background: var(--cm-moss-soft);
-  color: var(--cm-ink);
-  transform: rotate(45deg);
-}
-
-.cm-apple-showcase-footnote {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.cm-apple-avatar-cluster {
-  display: inline-flex;
-}
-
-.cm-apple-avatar-cluster i {
-  display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid #08090b;
-  margin-left: -6px;
-  background: #738a79;
-}
-.cm-apple-avatar-cluster i:nth-child(2) { background: #b08d79; }
-.cm-apple-avatar-cluster i:nth-child(3) { background: #798cb0; }
-
-.cm-apple-hero-scroll-cue {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.cm-apple-scroll-text {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.cm-apple-scroll-track {
-  width: 140px;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.cm-apple-scroll-thumb {
-  display: block;
-  height: 100%;
-  width: 100%;
-  transform-origin: left;
-  background: var(--cm-moss-soft);
-  will-change: transform;
-}
-
-/* ==========================================================================
-   MODULE 2: SCROLL-DRIVEN STORYTELLING (SCROLLYTELLING SPLIT STAGE)
-   ========================================================================== */
-
-.cm-apple-story-section {
-  position: relative;
-  background: var(--cm-paper);
-  color: var(--cm-ink);
-  padding: clamp(80px, 12vw, 160px) 0;
-}
-
-.cm-apple-story-container {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.cm-apple-story-header {
-  max-width: 680px;
-  margin-bottom: clamp(60px, 8vw, 100px);
-}
-
-.cm-apple-story-header .cm-apple-eyebrow {
-  color: var(--cm-moss);
-}
-
-.cm-apple-story-main-title {
-  margin: 0;
-  font-size: clamp(2.8rem, 5vw, 4.8rem);
-  font-weight: 600;
-  letter-spacing: -0.05em;
-  line-height: 1.05;
-}
-
-.cm-apple-spruce-text {
-  color: var(--cm-moss);
-}
-
-.cm-apple-story-header-desc {
-  margin: 24px 0 0;
-  font-size: 17px;
-  color: var(--cm-ink-muted);
-  line-height: 1.8;
-}
-
-.cm-apple-story-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(40px, 8vw, 100px);
-  align-items: start;
-}
-
-/* 粘性互动展示台 */
-.cm-apple-sticky-exhibit-wrap {
-  position: sticky;
-  top: 96px;
-  align-self: start;
-}
-
-.cm-apple-sticky-exhibit {
-  position: relative;
-  height: 480px;
-  border-radius: var(--cm-radius-lg);
-  background: #ffffff;
-  border: 1px solid var(--cm-line);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-}
-
-.cm-apple-exhibit-scene {
-  position: absolute;
-  inset: 0;
-  padding: 36px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  opacity: 0;
-  transform: translateY(16px) scale(0.97);
-  pointer-events: none;
-  transition: opacity 600ms var(--cm-ease-smooth), transform 600ms var(--cm-ease-smooth);
-}
-
-.cm-apple-exhibit-scene.is-active {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-/* SCENE 01: 校园 15 分钟同心圆雷达 */
-.cm-scene-radar {
-  background: radial-gradient(circle at center, rgba(211, 225, 203, 0.35) 0%, #ffffff 70%);
-}
-
-.cm-radar-circles {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.cm-circle {
-  position: absolute;
-  border-radius: 50%;
-  border: 1px dashed rgba(25, 78, 65, 0.2);
-}
-
-.cm-c1 { width: 140px; height: 140px; }
-.cm-c2 { width: 260px; height: 260px; }
-.cm-c3 { width: 380px; height: 380px; }
-
-.cm-radar-center {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cm-moss);
-}
-
-.cm-radar-pin {
-  position: absolute;
-  z-index: 2;
-  padding: 8px 14px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  border: 1px solid var(--cm-line);
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cm-radar-pin small {
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--cm-ink-muted);
-}
-
-.cm-pin-lib { top: 48px; left: 40px; }
-.cm-pin-canteen { bottom: 84px; right: 42px; }
-.cm-pin-dorm { top: 64px; right: 48px; }
-
-.cm-radar-pill {
-  position: absolute;
-  bottom: 24px;
-  padding: 8px 18px;
-  border-radius: 999px;
-  background: var(--cm-ink);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-/* SCENE 02: 真实学号与成色放大镜 */
-.cm-scene-inspect {
-  background: #fafaf8;
-  align-items: stretch;
-}
-
-.cm-inspect-card {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  width: 100%;
-}
-
-.cm-inspect-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.cm-inspect-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #e9f4eb;
-  color: #17633e;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.cm-inspect-id {
-  font-size: 12px;
-  color: var(--cm-ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.cm-inspect-loupe {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 24px;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid var(--cm-line);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
-}
-
-.cm-loupe-circle {
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  background: #f4f3ed;
-  border: 3px solid var(--cm-moss);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.cm-loupe-circle span {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--cm-moss);
-  line-height: 1;
-}
-
-.cm-loupe-circle small {
-  font-size: 11px;
-  color: var(--cm-ink-muted);
-  margin-top: 4px;
-}
-
-.cm-inspect-check-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--cm-ink);
-  font-weight: 500;
-}
-
-.cm-inspect-footer {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--cm-ink-muted);
-}
-
-/* SCENE 03: 减碳看板 */
-.cm-scene-eco {
-  background: #fbfbf9;
-  align-items: stretch;
-}
-
-.cm-eco-card {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
-}
-
-.cm-eco-icon-wrap {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #eef6ec;
-  display: grid;
-  place-items: center;
-}
-
-.cm-eco-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cm-eco-stat strong {
-  font-size: 34px;
-  font-weight: 700;
-  color: var(--cm-moss);
-  letter-spacing: -0.04em;
-  line-height: 1.1;
-}
-
-.cm-eco-stat span {
-  font-size: 13px;
-  color: var(--cm-ink-muted);
-}
-
-.cm-eco-meter {
-  height: 8px;
-  background: #e8eae5;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.cm-eco-meter-fill {
-  display: block;
-  height: 100%;
-  background: var(--cm-moss);
-  border-radius: 999px;
-  transition: width 800ms var(--cm-ease-smooth);
-}
-
-.cm-eco-tip {
-  margin: 0;
-  font-size: 13px;
-  color: var(--cm-ink-muted);
-  line-height: 1.65;
-}
-
-/* 右侧章节滚动轨道 */
-.cm-apple-story-track {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(60px, 10vh, 120px);
-  padding: 40px 0;
-}
-
-.cm-apple-story-step {
-  display: flex;
-  gap: 28px;
-  cursor: pointer;
-  opacity: 0.38;
-  transform: translateX(0);
-  transition: all 500ms var(--cm-ease-smooth);
-}
-
-.cm-apple-story-step.is-active {
-  opacity: 1;
-  transform: translateX(8px);
-}
-
-.cm-step-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.cm-step-num {
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
-  color: var(--cm-ink);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--cm-line);
-  background: #fff;
-  transition: all 400ms var(--cm-ease-spring);
-}
-
-.cm-apple-story-step.is-active .cm-step-num {
-  background: var(--cm-moss);
-  color: #fff;
-  border-color: var(--cm-moss);
-}
-
-.cm-step-line {
-  width: 2px;
-  flex: 1;
-  min-height: 60px;
-  background: var(--cm-line);
-}
-
-.cm-apple-story-step.is-active .cm-step-line {
-  background: linear-gradient(180deg, var(--cm-moss) 0%, rgba(25, 78, 65, 0.15) 100%);
-}
-
-.cm-step-body {
-  max-width: 440px;
-}
-
-.cm-step-eyebrow {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--cm-moss);
-  margin-bottom: 12px;
-}
-
-.cm-step-title {
-  margin: 0;
-  font-size: clamp(1.8rem, 3.2vw, 2.8rem);
-  font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 1.1;
-  color: var(--cm-ink);
-}
-
-.cm-step-copy {
-  margin: 18px 0 0;
-  font-size: 15px;
-  line-height: 1.85;
-  color: var(--cm-ink-muted);
-}
-
-.cm-step-tag {
-  display: inline-block;
-  margin-top: 20px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: #eef3eb;
-  color: var(--cm-moss);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-/* ==========================================================================
-   MODULE 3: DYNAMIC STICKY ISLAND FILTERBAR (SLIDING PILL INDICATOR)
-   ========================================================================== */
 
 .cm-apple-market-section {
   position: relative;
-  background: var(--cm-paper-subtle);
-  padding: clamp(80px, 10vw, 140px) 0 120px;
-  border-top: 1px solid var(--cm-line);
+  padding: 24px 0 72px;
 }
 
 .cm-apple-market-container {
@@ -1015,45 +235,51 @@ a:focus-visible,
   padding: 0 24px;
 }
 
-.cm-apple-market-header {
+.cm-market-toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  margin-bottom: 40px;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
-.cm-apple-market-title {
+.cm-market-toolbar > div:last-child {
+  margin-bottom: 0;
+  max-width: 440px;
+}
+
+.cm-market-heading {
+  padding-top: 4px;
+  min-width: 0;
+}
+
+.cm-market-heading h2 {
   margin: 0;
-  font-size: clamp(2.6rem, 5.5vw, 4.8rem);
-  font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 1;
-}
-
-.cm-apple-market-stats-group {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-
-.cm-stat-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.cm-stat-item strong {
   font-size: 20px;
-  font-weight: 700;
-  color: var(--cm-ink);
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-.cm-stat-item span {
-  font-size: 11px;
+.cm-market-heading p {
+  margin: 4px 0 0;
   color: var(--cm-ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.cm-market-guest {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  border: 1px solid var(--cm-line);
+  border-radius: var(--cm-radius-md);
+  background: var(--cm-white);
+  text-align: center;
+}
+
+.cm-market-home .cm-apple-filterbar {
+  top: 72px;
 }
 
 /* 吸顶筛选控制台 */
@@ -1210,7 +436,7 @@ a:focus-visible,
    ========================================================================== */
 
 .cm-apple-grid-wrapper {
-  margin-top: 36px;
+  margin-top: 20px;
 }
 
 .cm-apple-card-wrapper {
@@ -1552,70 +778,45 @@ a:focus-visible,
    RESPONSIVE ADJUSTMENTS
    ========================================================================== */
 
-@media (max-width: 960px) {
-  .cm-apple-hero-grid {
-    grid-template-columns: 1fr;
-    gap: 40px;
-  }
-
-  .cm-apple-hero-showcase {
-    justify-self: start;
-    width: 100%;
-  }
-
-  .cm-apple-story-split {
-    grid-template-columns: 1fr;
-    gap: 48px;
-  }
-
-  .cm-apple-sticky-exhibit-wrap {
-    position: static;
-  }
-
-  .cm-apple-sticky-exhibit {
-    height: 380px;
-  }
-}
-
 @media (max-width: 640px) {
-  .cm-apple-hero-stage {
-    min-height: 150vh;
+  .cm-market-home {
+    padding-top: 16px;
   }
 
-  .cm-apple-hero-container {
+  .cm-market-intro {
+    width: calc(100% - 32px);
     padding: 16px;
-  }
-
-  .cm-apple-hero-statusbar {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
 
-  .cm-apple-hero-title {
-    font-size: 3rem;
+  .cm-market-intro-badge {
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
 
-  .cm-apple-hero-cta-group {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
+  .cm-apple-market-container {
+    padding: 0 16px;
   }
 
-  .cm-apple-primary-cta.MuiButton-root {
-    width: 100%;
-    justify-content: center;
+  .cm-market-home .cm-apple-market-section {
+    padding-top: 16px;
   }
 
-  .cm-apple-market-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 18px;
+  .cm-market-toolbar {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-bottom: 12px;
   }
 
-  .cm-apple-market-stats-group {
-    width: 100%;
-    justify-content: space-between;
+  .cm-market-toolbar > div:last-child {
+    max-width: 100%;
+  }
+
+  .cm-market-guest {
+    padding: 24px 20px;
   }
 
   .cm-apple-filterbar {
@@ -1630,6 +831,66 @@ a:focus-visible,
 
   .cm-apple-tabs-track {
     width: 100%;
+  }
+
+  .cm-market-home .cm-apple-filter-actions {
+    justify-content: flex-end;
+  }
+
+  .cm-market-home .cm-apple-filter-top {
+    gap: 8px;
+  }
+
+  .cm-market-home .cm-apple-filter-status {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  .cm-market-home .cm-apple-status-text {
+    flex-wrap: wrap;
+  }
+
+  .cm-market-home .cm-apple-grid-wrapper {
+    margin-top: 16px;
+  }
+}
+
+@media (max-width: 639px) {
+  .cm-market-home .cm-apple-filterbar {
+    top: 128px;
+  }
+
+  .cm-market-home .cm-apple-grid-wrapper > .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .cm-market-home .cm-apple-image-viewport {
+    aspect-ratio: 1;
+  }
+
+  .cm-market-home .cm-apple-card-info {
+    padding: 12px;
+  }
+
+  .cm-market-home .cm-apple-meta-row {
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+
+  .cm-market-home .cm-apple-title {
+    font-size: 13px;
+  }
+
+  .cm-market-home .cm-apple-price-row {
+    margin-top: 8px;
+  }
+
+  .cm-market-home .cm-apple-image-dots {
+    display: none;
   }
 }
 

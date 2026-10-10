@@ -1,13 +1,5 @@
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  MenuItem,
-  Alert,
-} from "@mui/material";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
@@ -21,7 +13,7 @@ import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
-import ShoppingCartCheckoutIcon from "@mui/icons-material/ShoppingCartCheckout";
+import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
 import SendIcon from "@mui/icons-material/Send";
 import EmptyState from "../components/EmptyState";
 import ImageWithFallback from "../components/ImageWithFallback";
@@ -42,35 +34,23 @@ import {
 } from "../utils/format";
 import { toUserMessage } from '../api/errors';
 import { getApiClient } from '../api/client';
-import CampusMap from '../components/CampusMap';
-import type { Building } from '../types';
-import type { ProductDisclosure } from '../api/contracts';
+import type { ProductDisclosure, ContactRequest } from '../api/contracts';
 import SellerDeclarationCard from '../components/trust/SellerDeclarationCard';
-import PublicTradeSummaryCard from '../components/trust/PublicTradeSummaryCard';
 import { averagePerItem } from '../utils/supply';
 import ReportDialog from '../components/governance/ReportDialog';
-import { SLOT_DEFAULT_MINUTES } from '../api/contracts';
-import { SLOT_CHOICES, formatSlotRange } from '../utils/governance';
 
-/** 商品详情页：图片、信息、卖家、下单/收藏/联系、留言板 */
+/** 商品详情页：图片、信息、卖家、联系申请/收藏/留言、留言板 */
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  // 从需求匹配收件箱点「去预约面交」进来时带 ?book=1。
-  // 这只是替用户打开<b>现有</b>的预约弹窗：在售检查、不能买自己的商品、
-  // 活跃订单唯一、面交点确认，全部照常走 handleBuy 与后端校验，绝不自动下单。
-  const [searchParams, setSearchParams] = useSearchParams();
-  const bookRequested = searchParams.get("book") === "1";
   const navigate = useNavigate();
   const { currentUser, getUser } = useAuth();
   const {
     getProduct,
     loadProduct,
-    meetingPoints,
     loading,
     incrementViews,
     isFavorite,
     setFavorite,
-    createOrder,
     getProductComments,
     addComment,
     getOrCreateConversation,
@@ -86,32 +66,14 @@ export default function ProductDetailPage() {
   const [reporting, setReporting] = useState<{ type: 'PRODUCT' | 'COMMENT'; id: string; label: string } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [viewed, setViewed] = useState(false);
-  const [bookingOpen, setBookingOpen] = useState(false);
-  const [meetingPoint, setMeetingPoint] = useState("");
-  // 仅用于示意地图的楼栋坐标，公共参考数据
-  const [campusBuildings, setCampusBuildings] = useState<Building[]>([]);
-  const [meetingAt, setMeetingAt] = useState("");
-  // 7.1A：明确的面交时长（默认 60 分钟），提交时换算成结束时间；卖家接单时看到同一个完整时段
-  const [slotMinutes, setSlotMinutes] = useState(SLOT_DEFAULT_MINUTES);
-  const [bookingContact, setBookingContact] = useState("");
-  const [bookingBusy, setBookingBusy] = useState(false);
-  const [bookingKey, setBookingKey] = useState("");
+  const [contactRequest, setContactRequest] = useState<ContactRequest | null>(null);
+  const [contactBusy, setContactBusy] = useState(false);
+  const [contactLoading, setContactLoading] = useState(true);
+  const [contactError, setContactError] = useState('');
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState("");
   // 卖家声明只在商品详情里有；undefined 表示尚未读到
   const [disclosure, setDisclosure] = useState<ProductDisclosure | null | undefined>(undefined);
-  // 示意地图所需的楼栋坐标：只在商品校区变化时拉一次
-  const productCampus = product?.campus;
-  useEffect(() => {
-    if (!productCampus) return;
-    let active = true;
-    getApiClient()
-      .listBuildings(productCampus)
-      .then((list) => { if (active) setCampusBuildings(list) })
-      .catch(() => { if (active) setCampusBuildings([]) });   // 地图降级为列表，不影响下单
-    return () => { active = false };
-  }, [productCampus]);
-
   useEffect(() => {
     let active = true;
     setDetailLoading(true);
@@ -132,6 +94,22 @@ export default function ProductDetailPage() {
       active = false;
     };
   }, [id, loadProduct, currentUser?.id, loading]);
+
+  useEffect(() => {
+    let active = true;
+    setContactRequest(null); setContactLoading(true); setContactError('');
+    const refresh = async () => {
+      if (!id || !currentUser) return;
+      try {
+        const request = await getApiClient().getContactRequest(id);
+        if (active) { setContactRequest(request); setContactError(''); }
+        if (request?.status === 'APPROVED') await loadProduct(id);
+      } catch (e) { if (active) setContactError(toUserMessage(e)); }
+      finally { if (active) setContactLoading(false); }
+    };
+    void refresh(); window.addEventListener('focus', refresh);
+    return () => { active = false; window.removeEventListener('focus', refresh); };
+  }, [id, currentUser?.id, loadProduct]);
 
   // 浏览量 +1（每次进入详情页仅一次）
   useEffect(() => {
@@ -172,19 +150,6 @@ export default function ProductDetailPage() {
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4);
   }, [product, products]);
-
-  // 必须位于所有提前 return 之前（Hooks 规则）。handleBuy 定义在其后，经 ref 调用。
-  // 之前这组 Hook 排在「加载中」的提前 return 之后：商品不在列表缓存里、首帧走了加载分支时，
-  // 下一帧 Hook 数量变化会直接让页面崩溃。
-  const buyRef = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    if (!bookRequested || !product) return;
-    const next = new URLSearchParams(searchParams);
-    next.delete("book");
-    setSearchParams(next, { replace: true });   // 只触发一次，刷新页面不会再弹
-    buyRef.current?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookRequested, product?.id]);
 
   if (!product && (loading || detailLoading))
     return <p className="p-8 text-slate-500">正在加载商品…</p>;
@@ -228,52 +193,20 @@ export default function ProductDetailPage() {
     }
   };
 
-  const handleBuy = async () => {
-    try {
-      if (requireLogin()) return;
-      if (isOwner) {
-        error("不能购买自己发布的商品哦");
-        return;
-      }
-      if (soldOut) {
-        error("该商品当前不可购买");
-        return;
-      }
-      // 不替用户预选面交点：地图会标出推荐项，但最终地点必须由用户自己点选确认
-      setMeetingPoint("");
-      setBookingContact(currentUser!.contact ?? "");
-      setBookingKey(crypto.randomUUID());
-      setBookingOpen(true);
-    } catch (e) {
-      error(toUserMessage(e));
+  const handleWant = async () => {
+    if (requireLogin() || isOwner || soldOut || contactBusy) return;
+    if (product.contact || product.contactPublic || contactRequest?.status === 'APPROVED') {
+      info(product.contact ? '卖家联系方式已展示，请通过该方式联系卖家' : '卖家尚未填写联系方式，可通过站内留言提醒卖家补充');
+      return;
     }
-  };
-
-  buyRef.current = () => void handleBuy();
-
-  const submitBooking = async () => {
-    if (bookingBusy) return;
-    setBookingBusy(true);
+    setContactBusy(true);
     try {
-      const order = await createOrder(product.id, currentUser!.id, {
-        meetingPointId: meetingPoint,
-        meetingAtIso: new Date(meetingAt).toISOString(),
-        meetingEndsAtIso: new Date(new Date(meetingAt).getTime() + slotMinutes * 60_000).toISOString(),
-        contact: bookingContact,
-        idempotencyKey: bookingKey,
-      });
-      if (!order) {
-        error("下单失败，商品可能已被抢购");
-        return;
-      }
-      setBookingOpen(false);
-      success("预约成功，等待卖家确认");
-      navigate("/profile/orders");
-    } catch (e) {
-      error(toUserMessage(e));
-    } finally {
-      setBookingBusy(false);
-    }
+      const request = await getApiClient().requestContact(product.id);
+      setContactRequest(request); setContactError('');
+      if (request.status === 'APPROVED') await loadProduct(product.id);
+      success(request.status === 'PENDING' ? '联系申请已发送，等待卖家同意' : '卖家已处理该申请');
+    } catch (e) { error(toUserMessage(e)); }
+    finally { setContactBusy(false); }
   };
 
   const handleContact = async () => {
@@ -313,110 +246,6 @@ export default function ProductDetailPage() {
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
-      <Dialog
-        open={bookingOpen}
-        onClose={() => !bookingBusy && setBookingOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>预约校园面交</DialogTitle>
-        <DialogContent className="space-y-4">
-          <Alert severity="info">
-            请选择公共交易点。面交验货后自行付款，平台不代收商品款。
-          </Alert>
-          <CampusMap
-            buildings={campusBuildings}
-            meetingPoints={meetingPoints.filter((p) => p.campus === product.campus)}
-            productBuildingId={product.buildingId ?? null}
-            viewerBuildingId={
-              // 只有同校区时才用本人宿舍楼参与计算，跨校区的距离没有意义
-              currentUser?.campus === product.campus ? currentUser?.dormBuildingId ?? null : null
-            }
-            selectedMeetingPointId={meetingPoint || null}
-            onPick={(id) => {
-              setMeetingPoint(id);
-              setBookingKey(crypto.randomUUID());
-            }}
-          />
-          <TextField
-            select
-            fullWidth
-            label="面交地点"
-            value={meetingPoint}
-            onChange={(e) => {
-              setMeetingPoint(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          >
-            {meetingPoints
-              .filter((p) => p.campus === product.campus)
-              .map((p) => (
-                <MenuItem key={p.id} value={p.id}>
-                  {product.campus} · {p.name}
-                </MenuItem>
-              ))}
-          </TextField>
-          <TextField
-            fullWidth
-            label="面交时间"
-            type="datetime-local"
-            value={meetingAt}
-            InputLabelProps={{ shrink: true }}
-            onChange={(e) => {
-              setMeetingAt(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          />
-          <TextField
-            select
-            fullWidth
-            label="面交时长"
-            value={slotMinutes}
-            onChange={(e) => {
-              setSlotMinutes(Number(e.target.value));
-              setBookingKey(crypto.randomUUID());
-            }}
-            helperText="卖家接单即确认这个完整时段；之后要改时间，需要双方通过改约确认。"
-          >
-            {SLOT_CHOICES.map((m) => (
-              <MenuItem key={m} value={m}>
-                {m} 分钟{m === SLOT_DEFAULT_MINUTES ? "（默认）" : ""}
-              </MenuItem>
-            ))}
-          </TextField>
-          {meetingAt && !Number.isNaN(new Date(meetingAt).getTime()) && (
-            <p className="text-sm text-slate-700" aria-live="polite" data-testid="booking-slot">
-              面交时段：{formatSlotRange(new Date(meetingAt).getTime(), new Date(meetingAt).getTime() + slotMinutes * 60_000)}
-            </p>
-          )}
-          <TextField
-            fullWidth
-            label="联系方式（仅交易双方可见）"
-            value={bookingContact}
-            onChange={(e) => {
-              setBookingContact(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={bookingBusy} onClick={() => setBookingOpen(false)}>
-            取消
-          </Button>
-          <Button
-            variant="contained"
-            disabled={
-              bookingBusy ||
-              !meetingPoint ||
-              !meetingAt ||
-              !bookingContact.trim()
-            }
-            onClick={submitBooking}
-          >
-            {bookingBusy ? "提交中…" : "确认预约"}
-          </Button>
-        </DialogActions>
-      </Dialog>
       <button
         type="button"
         onClick={() => navigate(-1)}
@@ -548,12 +377,12 @@ export default function ProductDetailPage() {
                 variant="contained"
                 size="large"
                 fullWidth
-                disabled={soldOut || isOwner}
-                startIcon={<ShoppingCartCheckoutIcon />}
-                onClick={handleBuy}
+                disabled={soldOut || isOwner || contactBusy || contactLoading || contactRequest?.status === "PENDING" || contactRequest?.status === "REJECTED"}
+                startIcon={<TouchAppOutlinedIcon />}
+                onClick={handleWant}
                 sx={{ py: 1.2 }}
               >
-                {isOwner ? "这是我发布的" : soldOut ? "已售出" : "我想要"}
+                {isOwner ? "这是我发布的" : soldOut ? "暂不可联系" : contactBusy ? "发送中…" : contactRequest?.status === "PENDING" ? "等待卖家同意" : contactRequest?.status === "REJECTED" ? "卖家已拒绝" : product.contact || product.contactPublic || contactRequest?.status === "APPROVED" ? "查看联系方式" : "我想要"}
               </Button>
               <Button
                 variant="outlined"
@@ -564,7 +393,7 @@ export default function ProductDetailPage() {
                 onClick={handleContact}
                 sx={{ py: 1.2 }}
               >
-                联系卖家
+                站内留言
               </Button>
             </div>
           </div>
@@ -586,9 +415,12 @@ export default function ProductDetailPage() {
                 </p>
               </div>
             </div>
-            <PublicTradeSummaryCard userId={product.sellerId} />
             <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              {isOwner ? `本人联系方式：${product.contact || '未填写'}` : '请使用站内消息联系卖家，面交信息仅交易双方可见。'}
+              {product.contact ? <p className="break-all text-sm text-slate-800">{isOwner ? '本人联系方式' : '卖家联系方式'}：{product.contact}</p> : isOwner ? <p>本人联系方式：未填写</p> : product.contactPublic || contactRequest?.status === 'APPROVED' ? <p>卖家尚未填写联系方式，可通过站内留言联系卖家。</p> : <p>{contactRequest?.status === 'REJECTED' ? '卖家未同意展示联系方式。' : contactRequest?.status === 'PENDING' ? '已发送联系申请，等待卖家同意后即可查看联系方式。' : '卖家未公开联系方式，点击“我想要”申请，经卖家同意后展示。'}</p>}
+              {isOwner && <p className="mt-1">{product.contactPublic ? '已公开展示联系方式' : '需经你同意后向申请的买家展示联系方式'} · <Link to="/profile/contact-requests" className="text-brand-700">管理联系申请</Link></p>}
+              {!isOwner && !product.contact && <Button size="small" onClick={async () => { try { setContactRequest(await getApiClient().getContactRequest(product.id)); await loadProduct(product.id); setContactError(''); } catch (e) { setContactError(toUserMessage(e)); } }}>刷新申请状态</Button>}
+              {contactError && <p role="alert" className="mt-1 text-red-600">{contactError}</p>}
+              <p className="mt-2">平台仅展示商品与卖家提供的联系方式，不提供交易、预约或履约服务。后续沟通及交易以双方通过实际联系方式约定为准。</p>
             </div>
             {isOwner && product.moderationHidden && (
               <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note">

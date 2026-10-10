@@ -322,7 +322,7 @@ export default function ProductCard({ product, index = 0 }: ProductCardProps) {
           <div className="cm-apple-progressive-footer">
             <div className="cm-apple-meetup-cue">
               <span className="cm-apple-meetup-pin" />
-              <span>{product.meetupPoint ?? `${product.campus}面交`}</span>
+              <span>{product.campus}商品</span>
             </div>
             <div className="cm-apple-stats-cue">
               <span className="cm-apple-verified-tag">

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="dufXasP88rfQ1lfL1kaYAa">
+<head data-page-node-id="76afRPCw9Gt5bhWKNZHi7t">
+<meta charset="UTF-8" data-page-node-id="hIQdh2Agc4Y4DRNNfKslVj" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="gObHjUkn18xytCxDFoufsM" />
+<title>校园集市 · 首页 Hero 滚动叙事原型 v2</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --cm-ink:#0c0e10; --cm-ink-muted:#575e58;
+  --cm-paper:#faf9f5; --cm-paper-subtle:#f2f0ea;
+  --cm-line:rgba(12,14,16,.08);
+  --cm-moss:#194e41; --cm-moss-light:#256b5b; --cm-moss-soft:#d3e1cb;
+  --ease-spring:cubic-bezier(.16,1,.3,1);
+  --ease-smooth:cubic-bezier(.22,1,.36,1);
+  --nav-h:60px;
+}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--cm-paper); color:var(--cm-ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+}
+img{display:block}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--cm-moss-soft);outline-offset:3px;border-radius:6px}
+
+/* ============================== 顶部导航（还原真实外壳） ============================== */
+.nav{
+  position:sticky; top:0; z-index:60; height:var(--nav-h);
+  display:flex; align-items:center; gap:18px; padding:0 clamp(16px,3vw,28px);
+  background:rgba(250,249,245,.86);
+  -webkit-backdrop-filter:blur(24px) saturate(180%); backdrop-filter:blur(24px) saturate(180%);
+  border-bottom:1px solid rgba(12,14,16,.07);
+}
+.nav__brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;letter-spacing:-.02em;white-space:nowrap}
+.nav__mark{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--cm-ink);color:#fff;font-size:13px;font-weight:700}
+.nav__search{
+  flex:1; max-width:520px; height:36px; display:flex; align-items:center; gap:9px;
+  padding:0 15px; border-radius:999px; background:#fff;
+  border:1px solid rgba(12,14,16,.1); color:#8c938e; font-size:13px;
+}
+.nav__actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.nav__btn{height:34px;padding:0 16px;border-radius:999px;background:var(--cm-ink);color:#fff;font-size:13px;font-weight:500;white-space:nowrap}
+.nav__btn--ghost{background:transparent;color:var(--cm-ink);border:1px solid rgba(12,14,16,.14)}
+.nav__icon{width:34px;height:34px;display:grid;place-items:center;border-radius:999px;border:1px solid rgba(12,14,16,.14)}
+@media (max-width:720px){ .nav__search{display:none} }
+
+/* ==================================== HERO ==================================== */
+.hero{position:relative;height:300vh;background:#08090b}
+.hero__viewport{
+  position:sticky; top:var(--nav-h); height:calc(100vh - var(--nav-h));
+  overflow:hidden; display:flex; flex-direction:column;
+  padding:clamp(16px,2.6vw,32px) max(clamp(20px,4vw,44px),calc((100% - 1240px) / 2)) 0;
+  color:#fff;
+  --p:0; --a1:1; --a2:0; --y2:54px; --a3:0; --fan:0; --collapse:0; --grid:1;
+  --glow-x:74%; --glow-y:32%;
+}
+.hero__bg{
+  position:absolute; inset:-12%; z-index:0; pointer-events:none; will-change:transform;
+  transform:translate3d(0,calc(var(--p) * 22px),0) scale(calc(1 + var(--p) * .1));
+  background:
+    radial-gradient(circle at var(--glow-x) var(--glow-y), rgba(211,225,203,.20), transparent 30rem),
+    radial-gradient(circle at 16% 94%, rgba(25,78,65,.6), transparent 42rem),
+    linear-gradient(150deg,#08090b 0%,#111519 52%,#0a0c0e 100%);
+}
+.hero__lattice{
+  position:absolute; inset:0; z-index:1; pointer-events:none;
+  opacity:calc(.1 + var(--fan) * .1);
+  background-image:
+    linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.07) 1px,transparent 1px);
+  background-size:52px 52px;
+  -webkit-mask-image:radial-gradient(ellipse at 50% 46%,#000 28%,transparent 72%);
+  mask-image:radial-gradient(ellipse at 50% 46%,#000 28%,transparent 72%);
+}
+.hero__vignette{position:absolute;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at 50% 40%,transparent 45%,rgba(0,0,0,.45) 100%)}
+
+/* ---------------------------- 顶部规格状态栏 ---------------------------- */
+.hero__topbar{
+  position:relative; z-index:6; display:flex; justify-content:space-between; align-items:center;
+  gap:18px; padding-bottom:14px; border-bottom:1px solid rgba(255,255,255,.1);
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:rgba(255,255,255,.62);
+}
+.brand-tag{display:inline-flex;align-items:center;gap:9px;font-weight:600;white-space:nowrap}
+.brand-tag i{width:6px;height:6px;border-radius:50%;background:var(--cm-moss-soft);box-shadow:0 0 0 4px rgba(211,225,203,.16);animation:cm-pulse 2.4s infinite ease-in-out}
+@keyframes cm-pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.45);opacity:.55}}
+.hero__stats{display:inline-flex;align-items:center;gap:9px;letter-spacing:.06em;color:rgba(255,255,255,.5);text-transform:none;font-size:12px}
+.hero__stats b{color:rgba(255,255,255,.85);font-weight:600;font-variant-numeric:tabular-nums}
+.hero__stats .sep{opacity:.35}
+@media (max-width:900px){ .hero__stats{display:none} }
+
+/* ------------------------------- 主版面网格 ------------------------------- */
+.hero__grid{
+  position:relative; z-index:5; flex:1; min-height:0;
+  display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+  align-items:center; gap:clamp(24px,5vw,76px);
+  opacity:var(--grid);
+}
+
+/* ------------------------------- 左侧：幕面板 ------------------------------ */
+.acts{position:relative;min-height:clamp(300px,46vh,420px)}
+.act{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;will-change:transform,opacity}
+.act--1{opacity:var(--a1);transform:translate3d(0,calc((1 - var(--a1)) * -48px),0)}
+.act--2{opacity:var(--a2);transform:translate3d(0,var(--y2),0)}
+.act__eyebrow{margin:0 0 14px;font-size:11px;font-weight:700;letter-spacing:.19em;color:var(--cm-moss-soft);text-transform:uppercase}
+.act__title{margin:0;font-size:clamp(2.1rem,4.1vw,3.6rem);font-weight:600;letter-spacing:-.045em;line-height:1.08;text-wrap:balance}
+.act__title em{
+  display:block;font-style:normal;
+  background:linear-gradient(180deg,#fff 14%,rgba(255,255,255,.56) 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.act__copy{margin:20px 0 0;max-width:42ch;font-size:14.5px;line-height:1.85;color:rgba(255,255,255,.62)}
+.act__tag{align-self:flex-start;margin-top:18px;padding:6px 13px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);font-size:11.5px;color:rgba(255,255,255,.7)}
+.act__cta{display:flex;align-items:center;flex-wrap:wrap;gap:18px;margin-top:26px}
+.btn-primary{
+  display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 24px;border-radius:999px;
+  background:var(--cm-moss-soft);color:var(--cm-ink);font-size:14px;font-weight:600;
+  box-shadow:0 14px 34px rgba(0,0,0,.4);
+  transition:transform .35s var(--ease-spring),background .25s,box-shadow .35s;
+}
+.btn-primary:hover{background:#e6efe0;transform:translateY(-2px);box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.btn-primary svg{transition:transform .35s var(--ease-spring)}
+.btn-primary:hover svg{transform:translateY(3px)}
+.btn-ghost{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:rgba(255,255,255,.78);transition:color .25s,transform .25s}
+.btn-ghost:hover{color:#fff;transform:translateX(4px)}
+
+/* ------------------------------- 右侧：展台 ------------------------------- */
+.deck{position:relative;justify-self:center;width:min(100%,360px)}
+.radar{position:absolute;left:50%;top:46%;width:min(150%,620px);aspect-ratio:1;transform:translate(-50%,-50%);pointer-events:none;opacity:calc(var(--fan) * .55)}
+.radar span{position:absolute;border-radius:50%;border:1px solid rgba(211,225,203,.24)}
+.radar span:nth-child(1){inset:34%}
+.radar span:nth-child(2){inset:19%}
+.radar span:nth-child(3){inset:4%}
+.deck__inner{
+  position:relative; height:clamp(300px,44vh,400px);
+  transform:translate3d(0,calc(var(--collapse) * -38px),0) scale(calc(1 - var(--collapse) * .14));
+  opacity:calc(1 - var(--collapse) * .9);
+}
+.card{
+  position:absolute; inset:0; border-radius:24px; overflow:hidden;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 30px 70px rgba(0,0,0,.55);
+  will-change:transform,opacity; backface-visibility:hidden;
+}
+.card--a{transform:translate3d(calc(-8% + var(--fan) * -32%),calc(-5% + var(--fan) * 9%),0) rotate(calc(-7deg - var(--fan) * 7deg)) scale(calc(.8 - var(--fan) * .12));opacity:calc(.55 + var(--fan) * .45);z-index:1}
+.card--b{transform:translate3d(calc(8% + var(--fan) * 32%),calc(5% - var(--fan) * 1%),0) rotate(calc(6deg + var(--fan) * 8deg)) scale(calc(.79 - var(--fan) * .11));opacity:calc(.55 + var(--fan) * .45);z-index:2}
+.card--c{transform:translate3d(0,calc(var(--fan) * -5%),0) scale(calc(.93 + var(--fan) * .07));z-index:3}
+.card__media{position:relative;height:calc(100% - 88px);overflow:hidden;background:#15181b}
+.card__media img{width:100%;height:100%;object-fit:cover}
+.card__glare{position:absolute;inset:0;pointer-events:none;background:linear-gradient(135deg,rgba(255,255,255,.13),transparent 55%)}
+.card__badge{
+  position:absolute;top:16px;left:16px;display:inline-flex;align-items:center;gap:5px;
+  padding:5px 11px;border-radius:999px;background:rgba(0,0,0,.62);
+  border:1px solid rgba(255,255,255,.2);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  font-size:11px;font-weight:500;
+}
+.card__foot{height:88px;display:flex;justify-content:space-between;align-items:flex-end;gap:14px;padding:14px 20px;background:#121418;border-top:1px solid rgba(255,255,255,.08)}
+.card__meta{display:block;font-size:10.5px;letter-spacing:.09em;color:rgba(255,255,255,.5)}
+.card__name{margin:5px 0 0;font-size:15px;font-weight:600;line-height:1.3}
+.card__price{font-size:19px;font-weight:600;color:var(--cm-moss-soft);font-variant-numeric:tabular-nums}
+.deck__note{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11.5px;color:rgba(255,255,255,.5);opacity:calc(1 - var(--collapse))}
+.deck__avatars{display:inline-flex}
+.deck__avatars i{width:20px;height:20px;border-radius:50%;border:2px solid #08090b;margin-left:-6px;background:#738a79}
+.deck__avatars i:nth-child(2){background:#b08d79}
+.deck__avatars i:nth-child(3){background:#798cb0}
+
+/* ------------------------------ 第三幕：入场 ------------------------------ */
+.finale{
+  position:absolute; inset:78px 0 52px; z-index:7;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:0 max(clamp(20px,4vw,44px),calc((100% - 1240px) / 2)); text-align:center;
+  opacity:var(--a3); transform:translate3d(0,calc((1 - var(--a3)) * 46px),0);
+  pointer-events:none;
+}
+.finale.is-live{pointer-events:auto}
+.finale__wash{position:absolute;inset:0;pointer-events:none;opacity:var(--a3);background:radial-gradient(circle at 50% 48%,rgba(211,225,203,.14),transparent 34rem)}
+.finale__eyebrow{position:relative;margin:0 0 16px;font-size:11px;font-weight:700;letter-spacing:.19em;color:var(--cm-moss-soft);text-transform:uppercase}
+.finale__title{position:relative;margin:0;font-size:clamp(2.2rem,4.2vw,3.6rem);font-weight:600;letter-spacing:-.05em;line-height:1.05}
+.finale__title em{display:block;font-style:normal;background:linear-gradient(180deg,#fff 14%,rgba(255,255,255,.56) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.finale__copy{position:relative;margin:22px 0 0;font-size:14px;color:rgba(255,255,255,.6)}
+.finale__cta{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:center;margin-top:30px}
+.finale__pillars{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:min(720px,100%);margin-top:28px}
+.pillar{padding:14px 18px;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.045);text-align:left}
+.pillar b{display:block;font-size:13.5px;font-weight:600}
+.pillar span{display:block;margin-top:5px;font-size:11.5px;color:rgba(255,255,255,.55);line-height:1.5}
+@media (max-width:720px){ .finale__pillars{grid-template-columns:1fr} }
+@media (max-height:780px){
+  .finale__title{font-size:clamp(1.9rem,3.6vw,3rem)}
+  .finale__copy{margin-top:16px}
+  .finale__cta{margin-top:24px}
+  .finale__pillars{margin-top:22px}
+  .pillar{padding:12px 16px}
+}
+
+/* ------------------------------ 底部进度轨道 ------------------------------ */
+.hero__rail{position:relative;z-index:8;padding:12px 0 clamp(14px,2.4vh,22px);border-top:1px solid rgba(255,255,255,.08)}
+.rail__track{height:2px;border-radius:999px;background:rgba(255,255,255,.14);overflow:hidden;margin-bottom:13px}
+.rail__fill{display:block;height:100%;background:var(--cm-moss-soft);transform-origin:left;transform:scaleX(var(--p))}
+.rail__row{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.rail__acts{display:flex;gap:clamp(12px,3vw,26px)}
+.rail__act{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:rgba(255,255,255,.42);transition:color .3s}
+.rail__act i{font-style:normal;font-size:10.5px;letter-spacing:.1em;padding:2px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.16);transition:all .3s}
+.rail__act:hover{color:rgba(255,255,255,.8)}
+.rail__act.is-active{color:#fff}
+.rail__act.is-active i{background:var(--cm-moss-soft);border-color:transparent;color:var(--cm-ink);font-weight:700}
+.rail__skip{font-size:11.5px;color:rgba(255,255,255,.5);transition:color .25s;white-space:nowrap}
+.rail__skip:hover{color:#fff}
+@media (max-width:640px){ .rail__act span{display:none} .rail__skip{font-size:11px} }
+
+/* --------------------------- 移动端：单列重排 --------------------------- */
+@media (max-width:900px){
+  .hero{height:320vh}
+  .hero__viewport{padding-top:14px}
+  .hero__topbar{padding-bottom:12px}
+  .hero__grid{grid-template-columns:1fr;align-content:center;gap:22px}
+  .acts{min-height:250px}
+  .deck{justify-self:center;width:min(100%,320px)}
+  .deck__inner{height:clamp(240px,34vh,320px)}
+  .act__title{font-size:clamp(1.75rem,7vw,2.4rem)}
+  .act__copy{font-size:13.5px;line-height:1.7;margin-top:16px}
+  .act__cta{margin-top:20px;gap:14px}
+  .act__tag{display:none}
+  .deck__note{display:none}
+}
+
+@media (max-width:720px){
+  .proto{font-size:11px;padding:7px 12px;gap:10px;bottom:10px}
+  .proto > span{display:none}
+}
+
+/* ============================ 集市首屏（验证交接） ============================ */
+.market{padding:clamp(44px,6vw,80px) 0 96px;background:var(--cm-paper)}
+.market__inner{width:min(1180px,calc(100% - 40px));margin:0 auto}
+.market__head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px}
+.market__eyebrow{margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.19em;color:var(--cm-moss);text-transform:uppercase}
+.market__title{margin:0;font-size:clamp(1.8rem,3.2vw,2.5rem);font-weight:600;letter-spacing:-.035em}
+.market__stats{display:flex;gap:26px}
+.market__stat strong{display:block;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.market__stat span{font-size:11.5px;color:var(--cm-ink-muted)}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px}
+.pcard{border-radius:18px;overflow:hidden;background:#fff;border:1px solid var(--cm-line);box-shadow:0 8px 24px rgba(15,23,42,.055);transition:transform .4s var(--ease-spring),box-shadow .4s}
+.pcard:hover{transform:translateY(-4px);box-shadow:0 18px 38px rgba(15,23,42,.12)}
+.pcard__media{aspect-ratio:4/3;overflow:hidden;background:var(--cm-paper-subtle)}
+.pcard__media img{width:100%;height:100%;object-fit:cover;transition:transform .7s var(--ease-smooth)}
+.pcard:hover .pcard__media img{transform:scale(1.05)}
+.pcard__body{padding:12px 14px 16px}
+.pcard__name{margin:0;font-size:14px;font-weight:600;line-height:1.35}
+.pcard__price{margin-top:7px;font-size:16px;font-weight:700;color:var(--cm-moss)}
+.pcard__meta{margin-top:6px;font-size:11.5px;color:var(--cm-ink-muted)}
+
+/* ================================ 原型控制条 ================================ */
+.proto{
+  position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99;
+  display:flex;align-items:center;gap:14px;padding:8px 16px;border-radius:999px;
+  background:rgba(250,249,245,.9);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+  border:1px solid rgba(12,14,16,.12);box-shadow:0 10px 30px rgba(15,23,42,.14);
+  font-size:12px;color:var(--cm-ink-muted);white-space:nowrap;
+}
+.proto b{color:var(--cm-ink);font-weight:600}
+.proto label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.proto input{accent-color:var(--cm-moss);margin:0}
+
+/* ============================ 减少动效（无障碍） ============================ */
+.is-reduced .hero{height:auto}
+.is-reduced .hero__viewport{
+  position:static;height:auto;--fan:1!important;--a1:1!important;--a2:1!important;
+  --y2:0px!important;--a3:1!important;--grid:1!important;--collapse:0!important;--p:0!important;
+}
+.is-reduced .acts{min-height:0}
+.is-reduced .act{position:static;opacity:1!important;transform:none!important;margin-bottom:40px}
+.is-reduced .finale{position:static;opacity:1!important;transform:none!important;pointer-events:auto;padding:56px 0 0}
+.is-reduced .hero__rail{display:none}
+.is-reduced .hero__bg,.is-reduced .card{transition:none}
+</style>
+</head>
+<body data-page-node-id="uw4eTZHPWmrhXSJ3GdUbEJ">
+
+<header class="nav" data-page-node-id="DTzUDogmgzavEiS8QsuCwv">
+  <div class="nav__brand" data-page-node-id="02oSR2KuLJmhTib2X4LbFA"><span class="nav__mark" data-page-node-id="6NTMshZlAlbr8njuhWjEKO">校</span>campus market</div>
+  <div class="nav__search" data-page-node-id="Lo3TLJux7qzSUu9rgwn1WW">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" data-page-node-id="zBmYeXei8hhE5zQ4QoDZYw"><circle cx="11" cy="11" r="7" data-page-node-id="pwxAMwGSQQLzDnYfwqiTYR"/><path d="M20 20l-3.5-3.5" data-page-node-id="2qHMhpghGhr0GUCckIxWZy"/></svg>
+    搜索你想要的闲置好物…
+  </div>
+  <div class="nav__actions" data-page-node-id="8kmXG5tMvC1ZaDGjo236Cc">
+    <button class="nav__btn" data-page-node-id="7SVxEJ8eF8ic8FkWFBKWha">发布闲置</button>
+    <span class="nav__icon" data-page-node-id="qOGoUWGjfxp1Hj1KVLrfbo">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" data-page-node-id="sPEiRokwGOwMYwPmvKQDyk"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" data-page-node-id="ZUv8bNKK38QQSTOndeHmdD"/></svg>
+    </span>
+    <button class="nav__btn nav__btn--ghost" data-page-node-id="tbIggWtEu87xwVHJHRPIo9">登录</button>
+  </div>
+</header>
+
+<section class="hero" id="hero" data-page-node-id="tlR3MmhtochYObWvEVdodr">
+  <div class="hero__viewport" id="heroViewport" data-page-node-id="6FrpzToGzlT78KSyCmwIuv">
+    <div class="hero__bg" data-page-node-id="jKB6KXuvM9reD7OvHSgNCn"></div>
+    <div class="hero__lattice" data-page-node-id="BW3BzbYmPOWm4vaucxHoD1"></div>
+    <div class="hero__vignette" data-page-node-id="uMkVJ14AHw3vqOzLZ3LwM8"></div>
+
+    <div class="hero__topbar" data-page-node-id="SXCfgjXiZAWnaXUdKsxlBs">
+      <div class="brand-tag" data-page-node-id="CyXFMMLktISNO4fSAZbYAy"><i data-page-node-id="0MxH61UVcuOW4HXmL3AXwj"></i><span data-page-node-id="XxHK3g1Es2wKVGGrnK3Kau">CAMPUS / MARKET · KEYNOTE 2026</span></div>
+      <div class="hero__stats" data-page-node-id="yCp0X5mzrZxhIYydGjecg5">
+        <span data-page-node-id="mikU4NUReKm7XFBA5vmIU0"><b id="statCount" data-page-node-id="4U9zIomGIPlIy2Yx4OHu6u">0</b> 件好物在线</span>
+        <span class="sep" data-page-node-id="HOWstAAXC7QulMhLB1B3AT">·</span><span data-page-node-id="XaXLjNOFWQHXlX4f3aAQWy">4 个校区极速面交</span>
+        <span class="sep" data-page-node-id="wRxb8U9yLBtfRXYGdNQY9X">·</span><span data-page-node-id="QIdqAQMmUuUVWieBxQ7TX2">学子实名认证</span>
+      </div>
+    </div>
+
+    <div class="hero__grid" data-page-node-id="NPJqBEiTvM8DeSwlXo469i">
+      <div class="acts" data-page-node-id="FEiWpgJ0YAHDtktnhe0oY3">
+        <!-- 第一幕 · 宣言 -->
+        <div class="act act--1" data-page-node-id="BeEXyqF2BKms5NiYQPE4nU">
+          <p class="act__eyebrow" data-page-node-id="mnAd8eiIyNMepGNITE2auF">A new rhythm for your dorm &amp; desk</p>
+          <h1 class="act__title" data-page-node-id="uBb6BOeFYN0gfQHXF33EfC">把闲置，<em data-page-node-id="GtwBgwPFWFKJqTuIl6VhMx">交给下一段生活。</em></h1>
+          <p class="act__copy" data-page-node-id="AM8CSOYgL4MRgkkvxUipHZ">无需跨越城市，好东西就在隔壁宿舍与图书馆。当面验货、即刻交接，用克制的优雅重新定义校园二手循环。</p>
+          <div class="act__cta" data-page-node-id="ju4YNeMKsVQRmjEA09CbBe">
+            <button class="btn-primary" data-scroll="market" data-page-node-id="88aN7Wj9nmGfCiMsXeGhNr">
+              探索校园好物
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Iz7wKjtuz4KxOOFjXwy2SG"><path d="M12 5v14M5 12l7 7 7-7" data-page-node-id="Y6mOSQhoSdPgvyj08QqLS5"/></svg>
+            </button>
+            <button class="btn-ghost" data-page-node-id="pZ0BkCi2e1JPNOXC5Y3j2P">
+              发布一件闲置
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="CcxAx4nMTJ40IxpHMBwN0P"><path d="M7 17L17 7M8 7h9v9" data-page-node-id="paI0MtDV3emOCeE9Eonz9t"/></svg>
+            </button>
+          </div>
+          <span class="act__tag" data-page-node-id="AldhkbO4i8jH8TuIFcOBJC">校内 15 分钟步行圈 · 0 快递包装</span>
+        </div>
+
+        <!-- 第二幕 · 展台 -->
+        <div class="act act--2" data-page-node-id="tobLnQ2neevqNzWwgqWyVb">
+          <p class="act__eyebrow" data-page-node-id="9R42mCtixWSRGVD2PmBZHr">Today's showcase · 今日展台</p>
+          <h2 class="act__title" data-page-node-id="TX9oQCjfDsOhIe0YOiwU4Z">三件好物，<em data-page-node-id="Gafe0nLepSzOkl7ir5HKYk">正在等人带走。</em></h2>
+          <p class="act__copy" data-page-node-id="KaaHqpjokyUidKnUpPoXzb">每一件都来自同校同学的实名发布。成色、划痕、电池健康度如实披露，告别网络交易的信息不对称。</p>
+          <span class="act__tag" data-page-node-id="cgc6c1qjj3hwNDaG2UQepM">实名学子 · 原图实拍 · 当面验货</span>
+        </div>
+      </div>
+
+      <div class="deck" data-page-node-id="I5Tp34NQW9O6v1OmHCF7Zw">
+        <div class="radar" aria-hidden="true" data-page-node-id="3ahZURMbO7Upjg0g25ZYfp"><span data-page-node-id="ZaBwlGlWTdBisN5X4k00eQ"></span><span data-page-node-id="I0QJF4tcHYRAIHtetpY6rU"></span><span data-page-node-id="QgFq9TQfhO0Lh9ZY7bmPqw"></span></div>
+        <div class="deck__inner" data-page-node-id="RMtKY5HjcZoPkZdWj7BJHg">
+          <article class="card card--a" data-page-node-id="5soo4k0LyXrpNBAuTP340k">
+            <div class="card__media" data-page-node-id="se8aMU1OSLNqiPVeeGhkOI">
+              <img src="https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?auto=format&fit=crop&w=900&q=80" alt="公路自行车" data-page-node-id="mCRY4IfY3pKEdvEwQRDEvN" />
+              <span class="card__glare" data-page-node-id="ShMDJltHCK5lEONrnnfD3D"></span>
+              <span class="card__badge" data-page-node-id="COICEgGRAWuQiRpaCvqYut">九成新</span>
+            </div>
+            <div class="card__foot" data-page-node-id="DLcxyXT4SVwOu3aKL9NeFX">
+              <div data-page-node-id="zH9UgRn2jE5RJavpiCvdvw"><span class="card__meta" data-page-node-id="LsiK4DKEI9sUF4mMO1wWPE">运动户外 · 西校区</span><p class="card__name" data-page-node-id="LUXd2PFQdkMt4clb2WPDnK">捷安特公路车</p></div>
+              <span class="card__price" data-page-node-id="ENyy3Ua5m3dAOEukDKP6ub">¥1280</span>
+            </div>
+          </article>
+          <article class="card card--b" data-page-node-id="lhC2ynUfbLJVjwsWAfWwxD">
+            <div class="card__media" data-page-node-id="cwuGZwMHfjBnX5CXIsysfG">
+              <img src="https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80" alt="考研教材" data-page-node-id="zlsLIELbEZ3iwQXUd4CEg6" />
+              <span class="card__glare" data-page-node-id="mlDw9w50NDg3GJmygbBY3a"></span>
+              <span class="card__badge" data-page-node-id="3tEMmRhqvyhNA9T7Lx2N4o">八成新</span>
+            </div>
+            <div class="card__foot" data-page-node-id="azq2TfzXBBJRVQ2tI1GTtR">
+              <div data-page-node-id="6swHCfeTGmB0CNxBNhv7wB"><span class="card__meta" data-page-node-id="KRdtrWNj304OafClQdzgVs">教材书籍 · 南校区</span><p class="card__name" data-page-node-id="18GMubt2L3kTZlK4OHG7oX">考研数学全套</p></div>
+              <span class="card__price" data-page-node-id="aXFVnNXP0JUC6mUClj7amG">¥86</span>
+            </div>
+          </article>
+          <article class="card card--c" data-page-node-id="NJZTc2SCRW6eSadWScrYet">
+            <div class="card__media" data-page-node-id="ksJ0cLsjVtp3igyDeKnxvX">
+              <img src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80" alt="iPhone 13 Pro Max" data-page-node-id="EUcdWG1isBE15oIYIzRZ6a" />
+              <span class="card__glare" data-page-node-id="TlgEXwlAI6xCi1Ty6yhgui"></span>
+              <span class="card__badge" data-page-node-id="EZ8SOsASFf6lcaWH8xuAOn">几乎全新</span>
+            </div>
+            <div class="card__foot" data-page-node-id="BnAYzysgdubiBPhfJKrShW">
+              <div data-page-node-id="5RIsRRUZFqo0DdXudiMIUN"><span class="card__meta" data-page-node-id="O4HQJU4yLdH7PPAdplQiml">数码电子 · 东校区</span><p class="card__name" data-page-node-id="Sc73a4RV9LAoyvp17uDICY">iPhone 13 ProMax 512G</p></div>
+              <span class="card__price" data-page-node-id="NjS4xBiTBnfVy2osTPHs6c">¥9999</span>
+            </div>
+          </article>
+        </div>
+        <div class="deck__note" data-page-node-id="KeUV9zac5WHnVD5RnEDEzI">
+          <span class="deck__avatars" data-page-node-id="TyW6iIeKMxqwS4R37eUdk8"><i data-page-node-id="HV2MDFQDrPDBT2i499bM0o"></i><i data-page-node-id="11PC0LM7fEzYg7QWvWPI7W"></i><i data-page-node-id="94SEpc2yN6UfS66HDoRrVJ"></i></span>
+          <span data-page-node-id="H5E2leqh8ypEPX6t7cVKhh">全校 2,300+ 名认证同学已在此完成面对面流转</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第三幕 · 入场 -->
+    <div class="finale" id="finale" data-page-node-id="mdbQoPGEOB3VnsAkQ2RXm5">
+      <div class="finale__wash" data-page-node-id="0e0tMzZiK7EgRk4ZK2gF9O"></div>
+      <p class="finale__eyebrow" data-page-node-id="Oo2mDicFFcV3dmrkFAod4A">The marketplace · 2026</p>
+      <h2 class="finale__title" data-page-node-id="W86nTDR8fmFYYbvXpD1xoQ">现在，<em data-page-node-id="EwmaBRy8zcbsjBiHmdUrRC">去遇见。</em></h2>
+      <p class="finale__copy" data-page-node-id="IAQNboAapNo0lmWUh1q7TX">1,400+ 件在售好物 · 4 个校区极速面交 · 全部实名学子发布</p>
+      <div class="finale__cta" data-page-node-id="qZslFCAffaDxdt3PWpGKUW">
+        <button class="btn-primary" data-scroll="market" data-page-node-id="BTRzuTb0hjgeP9vnV7jcGa">
+          进入校园集市
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HkqRARwE6NHEfOoa37UMy4"><path d="M12 5v14M5 12l7 7 7-7" data-page-node-id="6qgMAmFU7UpnCjXISWULmH"/></svg>
+        </button>
+        <button class="btn-ghost" data-page-node-id="mJbVENz18SFANEnD0dXANl">
+          发布一件闲置
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="KFTWZpAJAdHAVmIMIdxT2o"><path d="M7 17L17 7M8 7h9v9" data-page-node-id="pSKeS2mAqJ9Dc3a7wWBdhG"/></svg>
+        </button>
+      </div>
+      <div class="finale__pillars" data-page-node-id="hwtdAkhvsWo9xdzAljZ3C3">
+        <div class="pillar" data-page-node-id="JGbblSGefHDCjGh0ZzSErV"><b data-page-node-id="c104bz9ByG0do6sOcTZ8wf">实名认证</b><span data-page-node-id="tReLVLbtxVsEt6gHoARkYs">学号与邮箱双重核验</span></div>
+        <div class="pillar" data-page-node-id="t7XuCZgAW2iNIlC19t8z34"><b data-page-node-id="2cKASrcZ9uWU86bn5RT2TT">当面验货</b><span data-page-node-id="ZdHQl6LaqvoEK1f5HC4bEA">15 分钟步行圈交接</span></div>
+        <div class="pillar" data-page-node-id="O8rKMvDZRfgqWYpvCjy3Ta"><b data-page-node-id="EqUOLzZuJaqZrwv2ywMACt">绿色循环</b><span data-page-node-id="ZNTKUjUqQafWXEsEs2O8XG">每件平均减碳 1.8kg</span></div>
+      </div>
+    </div>
+
+    <div class="hero__rail" data-page-node-id="ClMN7EbvHEytqHNbafVqMx">
+      <div class="rail__track" data-page-node-id="n8HPVvkYMxlMGMBMRf4Jd0"><span class="rail__fill" data-page-node-id="DtREXadvZuUTRzSRkMwsbg"></span></div>
+      <div class="rail__row" data-page-node-id="wGxfGik4HECG2Wv9cfZDYF">
+        <div class="rail__acts" data-page-node-id="46MdUegNYEStUSvWjZZyzz">
+          <button class="rail__act" data-act="0" data-page-node-id="zCSnZ5fPAteoEePHET8hzL"><i data-page-node-id="2QNf43NGLFa45XeauzwoxQ">01</i><span data-page-node-id="Gx2a0FK4hdyQVJUhYXndeE">宣言</span></button>
+          <button class="rail__act" data-act="1" data-page-node-id="ySf9FSnbeGfDhybNVtw2ER"><i data-page-node-id="eZdjQvREHpkqLiUfblhm2B">02</i><span data-page-node-id="aVAVuClDYyGlBnyLbafyVl">展台</span></button>
+          <button class="rail__act" data-act="2" data-page-node-id="bGSD9SsSfV6JECaA9sPCbF"><i data-page-node-id="sE5t0xt1y7cysZWdi5Lz4X">03</i><span data-page-node-id="wxksxM2WoyyC3oTBrX0EX0">入场</span></button>
+        </div>
+        <button class="rail__skip" data-scroll="market" data-page-node-id="73FtiFiHBPwC6BJadsa4gl">跳过 · 直达集市 ↓</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="market" id="market" data-page-node-id="0W1LQwNINbCMnGNiJ0k70K">
+  <div class="market__inner" data-page-node-id="JQKimJI6rH6cgfKhFaDWCF">
+    <div class="market__head" data-page-node-id="0flFHWXEZAg9LzkEzuRRL6">
+      <div data-page-node-id="A3nQrtIicNtwCdqbvv48LO">
+        <p class="market__eyebrow" data-page-node-id="cmAGePI4xaq5PIA3FLL6SC">The marketplace · 2026</p>
+        <h2 class="market__title" data-page-node-id="STiesGZ5KezQ2ZwXmEcZmq">现在，去遇见。</h2>
+      </div>
+      <div class="market__stats" data-page-node-id="N21rtymCbhHqy2DAdyYZxd">
+        <div class="market__stat" data-page-node-id="ARWAie3bjL6ExUsuI1QsXT"><strong data-page-node-id="0wJM2BoJiXDXGSgfhhB3Ma">1,400+</strong><span data-page-node-id="qDn1PZkvEsJWsNtuZtWAL3">件在售好物</span></div>
+        <div class="market__stat" data-page-node-id="Ap05MHQ5VcLMJ06jtUwHpp"><strong data-page-node-id="l5WFRRwIA4fq8DmtshU1SL">4</strong><span data-page-node-id="4X9r44dHBD4Tc9fzOVM6OY">大校区同校</span></div>
+        <div class="market__stat" data-page-node-id="o7c5MIKBq0bAcQsoGwmNiY"><strong data-page-node-id="wtb25dHZSYrhMO9gnKJBRA">100%</strong><span data-page-node-id="VngMT86gwOxFUJhPNP0iSo">学子实名</span></div>
+      </div>
+    </div>
+    <div class="pgrid" data-page-node-id="UNBBxxJO4Z1XP1r0yZkGAs">
+      <article class="pcard" data-page-node-id="5FmRKGrDQEL4919Zz2yR13"><div class="pcard__media" data-page-node-id="rJfHDUnVnolbQT54vWPig5"><img src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=700&q=80" alt="iPhone" data-page-node-id="kT1pE2y3JvyPFQNJSY61Lk"></div><div class="pcard__body" data-page-node-id="UZCPbaeMbUlCDQg3JscAU5"><p class="pcard__name" data-page-node-id="yCHGKHgMiGu9OObIyHmzR2">iPhone 13 ProMax 512G</p><p class="pcard__price" data-page-node-id="s3w7L5uGvlIWUJaUDpw0fF">¥9999</p><p class="pcard__meta" data-page-node-id="TJrxCmnA1tqC4Da9ld87fs">数码电子 · 东校区 · 几乎全新</p></div></article>
+      <article class="pcard" data-page-node-id="kJTK7orcjCqfPHEb2KQ428"><div class="pcard__media" data-page-node-id="nwKHt9kujgehGKmQYFtHC1"><img src="https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=700&q=80" alt="笔记本" data-page-node-id="yjOv8AnwSlyqQqY2PsvO9u"></div><div class="pcard__body" data-page-node-id="3UIEWBuDZfcyOzS6XEnNyO"><p class="pcard__name" data-page-node-id="Fn8Ldwv3ySAylCCrXHBqTd">MacBook Air M2 8+256</p><p class="pcard__price" data-page-node-id="TwIZmYWOOCGewspJ05pLp5">¥5200</p><p class="pcard__meta" data-page-node-id="1pl1Zxlm1WbACfxepLQfbu">数码电子 · 北校区 · 九成新</p></div></article>
+      <article class="pcard" data-page-node-id="d8HKmG1vrsf3C0f9jVSwbQ"><div class="pcard__media" data-page-node-id="6DBDAivhY4YSFYwH6x3zvL"><img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=700&q=80" alt="耳机" data-page-node-id="cwNA7DAGBFNj7fPnk6R7IF"></div><div class="pcard__body" data-page-node-id="aE1rl6GgEDdXoO5BQ5avVP"><p class="pcard__name" data-page-node-id="D4B6nkpC2pt9GFovlX6CFg">索尼 WH-1000XM4</p><p class="pcard__price" data-page-node-id="IWpFY6S8H2lLExLFHNFgs4">¥1080</p><p class="pcard__meta" data-page-node-id="CpT9cUFY7SNaSuJQzHgKou">数码电子 · 东校区 · 八成新</p></div></article>
+      <article class="pcard" data-page-node-id="w7oGwFVSY5cNs5DeXT7v2s"><div class="pcard__media" data-page-node-id="OmE2KftTAvT4TqqspNPUiv"><img src="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=700&q=80" alt="球鞋" data-page-node-id="uT4upM8t81MwxHCGv6astw"></div><div class="pcard__body" data-page-node-id="LEnTiimtynHDtXUygIHgoi"><p class="pcard__name" data-page-node-id="ZTbFo4b8infkX0ZYct6T9D">Nike Air Zoom 42码</p><p class="pcard__price" data-page-node-id="iNE5MHDHfMFcRnsTmPbPvW">¥320</p><p class="pcard__meta" data-page-node-id="dF6zmhWy2WQPN5TmX2W77O">服饰鞋包 · 西校区 · 九成新</p></div></article>
+      <article class="pcard" data-page-node-id="UlykctKaFTptkqdlKRM2pO"><div class="pcard__media" data-page-node-id="eH52PfaoPljptDennHbPqC"><img src="https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?auto=format&fit=crop&w=700&q=80" alt="自行车" data-page-node-id="l7fSEls9f59b5cNffodawG"></div><div class="pcard__body" data-page-node-id="jiUqTZvudqHylhPWXZLeJ7"><p class="pcard__name" data-page-node-id="y0MYTJA9OOiLRDIAUsFUuq">捷安特公路车</p><p class="pcard__price" data-page-node-id="uq4sjC8zCMMFDKG9Pc7dFj">¥1280</p><p class="pcard__meta" data-page-node-id="ptO2LAL79cM6tG2UNLTrUE">运动户外 · 西校区 · 九成新</p></div></article>
+      <article class="pcard" data-page-node-id="rbuAUnFMn8rloj26Wmk05C"><div class="pcard__media" data-page-node-id="BtXY5MgMwphPZMrdhPdnmI"><img src="https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=700&q=80" alt="书籍" data-page-node-id="5cwPT27ZiRJH0gkXfVHMJo"></div><div class="pcard__body" data-page-node-id="vqWfyQsTkpKGUabIEHrsFU"><p class="pcard__name" data-page-node-id="E0Daatq0T7pgu36vyfVLca">考研数学全套</p><p class="pcard__price" data-page-node-id="vuIQIDtv4YR2ncq7bMgH2B">¥86</p><p class="pcard__meta" data-page-node-id="HLf5w2HnSq1BCQHmUVScKl">教材书籍 · 南校区 · 八成新</p></div></article>
+    </div>
+  </div>
+</section>
+
+<div class="proto" data-page-node-id="W8uflGOyaZDkibO0TWMCb6">
+  <span data-page-node-id="d9jKSpHvwa21Ma19q2AH3n"><b data-page-node-id="LJcEUf4CqANlEeFjEWO6GC">Hero 滚动叙事</b> · 高保真原型</span>
+  <label data-page-node-id="X3PbSpQS0ljuKMHRJ3lAAJ"><input type="checkbox" id="reduceToggle" data-page-node-id="AXkxD0ievk0C0I5C7C9W33" /> 减少动效</label>
+</div>
+
+<script>
+(function () {
+  var hero = document.getElementById('hero');
+  var viewport = document.getElementById('heroViewport');
+  var finale = document.getElementById('finale');
+  var statCount = document.getElementById('statCount');
+  var railActs = Array.prototype.slice.call(document.querySelectorAll('.rail__act'));
+  var reduceToggle = document.getElementById('reduceToggle');
+
+  var motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var reduce = motionQuery.matches;
+  var target = 0;
+  var rendered = 0;
+  var frame = null;
+  var activeAct = -1;
+
+  var ACT_ANCHORS = [0.02, 0.42, 0.92];
+
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function smoothstep(x, a, b) {
+    var t = clamp01((x - a) / (b - a));
+    return t * t * (3 - 2 * t);
+  }
+
+  function travel() {
+    return Math.max(hero.offsetHeight - viewport.offsetHeight, 1);
+  }
+  function heroDocTop() {
+    return hero.getBoundingClientRect().top + window.scrollY;
+  }
+
+  function paint(p) {
+    var a1 = 1 - smoothstep(p, 0.20, 0.33);
+    var in2 = smoothstep(p, 0.24, 0.37);
+    var out2 = 1 - smoothstep(p, 0.56, 0.68);
+    var a2 = in2 * out2;
+    var y2 = (1 - in2) * 54 + (out2 - 1) * 54;
+    var a3 = smoothstep(p, 0.62, 0.78);
+    var fan = smoothstep(p, 0.28, 0.50);
+    var collapse = smoothstep(p, 0.58, 0.78);
+    var grid = 1 - smoothstep(p, 0.58, 0.74);
+
+    var s = viewport.style;
+    s.setProperty('--p', p.toFixed(4));
+    s.setProperty('--a1', a1.toFixed(4));
+    s.setProperty('--a2', a2.toFixed(4));
+    s.setProperty('--y2', y2.toFixed(2) + 'px');
+    s.setProperty('--a3', a3.toFixed(4));
+    s.setProperty('--fan', fan.toFixed(4));
+    s.setProperty('--collapse', collapse.toFixed(4));
+    s.setProperty('--grid', grid.toFixed(4));
+    s.setProperty('--glow-x', (74 - 24 * smoothstep(p, 0.25, 0.80)).toFixed(2) + '%');
+    s.setProperty('--glow-y', (32 + 20 * smoothstep(p, 0.25, 0.80)).toFixed(2) + '%');
+
+    statCount.textContent = Math.round(1200 + 200 * smoothstep(p, 0.02, 0.30)).toLocaleString('zh-CN');
+
+    var idx = p < 0.30 ? 0 : p < 0.60 ? 1 : 2;
+    if (idx !== activeAct) {
+      activeAct = idx;
+      for (var i = 0; i < railActs.length; i++) {
+        railActs[i].classList.toggle('is-active', i === idx);
+      }
+    }
+    finale.classList.toggle('is-live', a3 > 0.5);
+  }
+
+  function tick() {
+    var k = reduce ? 1 : 0.14;
+    var next = rendered + (target - rendered) * k;
+    rendered = Math.abs(target - next) < 0.0004 ? target : next;
+    paint(rendered);
+    frame = Math.abs(target - rendered) >= 0.0004 ? requestAnimationFrame(tick) : null;
+  }
+
+  function schedule() {
+    if (frame === null) frame = requestAnimationFrame(tick);
+  }
+
+  function readTarget() {
+    if (reduce) {
+      target = 0; rendered = 0; paint(0); return;
+    }
+    var rect = hero.getBoundingClientRect();
+    target = clamp01(-rect.top / travel());
+    schedule();
+  }
+
+  function setReduce(value) {
+    reduce = value;
+    document.documentElement.classList.toggle('is-reduced', value);
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+    readTarget();
+  }
+
+  window.addEventListener('scroll', readTarget, { passive: true });
+  window.addEventListener('resize', readTarget);
+  motionQuery.addEventListener('change', function (e) { setReduce(e.matches); });
+
+  reduceToggle.addEventListener('change', function (e) { setReduce(e.target.checked); });
+
+  for (var i = 0; i < railActs.length; i++) {
+    (function (index) {
+      railActs[index].addEventListener('click', function () {
+        var top = heroDocTop() + travel() * ACT_ANCHORS[index];
+        window.scrollTo({ top: top, behavior: 'smooth' });
+      });
+    })(i);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-scroll]'), function (el) {
+    el.addEventListener('click', function () {
+      var section = document.getElementById(el.getAttribute('data-scroll'));
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  reduceToggle.checked = reduce;
+  document.documentElement.classList.toggle('is-reduced', reduce);
+  readTarget();
+})();
+</script>
+</body>
+</html>
