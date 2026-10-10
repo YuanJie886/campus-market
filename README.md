@@ -1,6 +1,6 @@
 # 校园集市 (Campus Market)
 
-以**校园身份认证、同校当面验货、绿色循环交易**为核心的校园二手物品流转平台。界面采用具有 Apple 级别质感的极简设计与沉浸式交互体验，系统采用完整的前后端分离架构。
+以**校园身份认证、同校商品展示、卖家自主选择联系方式展示**为核心的校园闲置展示平台。后续沟通及实际交易以双方通过实际联系方式约定为准；平台不建立交易订单、不预约地点、不提供交易履历。联系方式的公开选择与申请审批见 [商品展示与联系方式](docs/contact-display-model.md)。界面采用具有 Apple 级别质感的极简设计与沉浸式交互体验，系统采用完整的前后端分离架构。
 
 ---
 
@@ -11,6 +11,7 @@
 ```
 campus-market/
 ├── campus-market-frontend/      # 前端工程 (React 18 + TS + Vite + TailwindCSS + MUI)
+├── campus-market-miniapp/       # 微信小程序第一版 (Taro + React + TS，演示与 REST 适配)
 ├── campus-market-admin/         # 复用 react-admin 的运营后台（角色鉴权、工作人员、治理与审计）
 ├── campus-market-backend/       # 后端服务 (Java 17 + Spring Boot 3 + MyBatis-Plus)
 ├── docker-compose.yml           # 仅本机开发用的 PostgreSQL 16（固定开发密码，只绑定 127.0.0.1）
@@ -27,7 +28,7 @@ campus-market/
 - **后端 (Backend)**:
   - 框架：Java 17, Spring Boot 3, MyBatis-Plus
   - 安全鉴权：JJWT (双 Token 无感刷新 + HttpOnly Cookie)
-  - 核心能力：订单状态机、校内推荐交易点、实时未读数、全量 RESTful API (`/v1/*`)
+  - 核心能力：商品可见性、联系方式申请与卖家审批、实时未读数、RESTful API (`/v1/*`)
 - **数据存储 (Database)**:
   - PostgreSQL 16 (基于 Docker 独立部署，支持持久化卷)
 
@@ -50,13 +51,13 @@ cd campus-market-backend
 mvn spring-boot:run
 ```
 > 后端默认监听 `http://localhost:3000`。数据库结构由 **Flyway** 管理：空库启动时自动依次执行
-> `src/main/resources/db/migration/` 下的 V1～V11；非空但未被 Flyway 管理的库会拒绝启动。
-> 可信面交闭环（验货清单、档期握手、出发/到达、交易履历）的设计见 [docs/trusted-meeting-flow.md](docs/trusted-meeting-flow.md)。
+> `src/main/resources/db/migration/` 下的 V1～V15；非空但未被 Flyway 管理的库会拒绝启动。
+> 旧版可信面交闭环已撤下，仅保留历史架构文档： [docs/trusted-meeting-flow.md](docs/trusted-meeting-flow.md)。
 > 课程教材图谱（课程 → 指定教材版本 → 本校在售 → 精确版本订阅）的设计见 [docs/course-textbook-graph.md](docs/course-textbook-graph.md)。
 > **当前课程目录是虚构的演示数据**，不来自任何学校的教务系统；演示教材一律「无 ISBN」，不占用任何真实书号。
-> 毕业季通用供给引擎（服务端草稿、最多 20 件的批量发布、整套打包、协助整理发布、历史成交价格参考）的设计见 [docs/graduation-supply-engine.md](docs/graduation-supply-engine.md)。
+> 毕业季通用供给引擎（服务端草稿、最多 20 件的批量发布、整套打包、协助整理发布）的设计见 [docs/graduation-supply-engine.md](docs/graduation-supply-engine.md)。
 > 圈子集市（班级 / 社团 / 兴趣圈子、仅圈子可见的商品、邀请码加入、圈子订阅）的设计见 [docs/circle-market.md](docs/circle-market.md)。
-> 交易承诺与可信治理（结构化取消原因、爽约报告与公开的保守限制规则、举报与治理案件、用户限制与申诉、平台工作人员）的设计见
+> 内容举报与治理案件、用户限制与申诉、平台工作人员的历史设计见
 > [docs/commitment-and-moderation.md](docs/commitment-and-moderation.md)。平台不托管资金、不做仲裁或赔付，没有公开的信用分。
 > **商品只在同一所学校内公开，浏览与搜索都需要登录**；未登录只能看到落地页与登录注册。
 > 系统没有默认管理员：首个平台工作人员按 [工作人员运维手册](campus-market-backend/docs/staff-runbook.md) 用受控 SQL 配置。

@@ -91,6 +91,29 @@ jobs:
       - run: npm run build:mock
       - run: npm run check:deterministic
 
+  admin:
+    name: 复用后台（类型检查、适配测试、生产构建）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-admin/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: 后台入口浏览器回归（开发与生产构建）
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
   e2e:
     name: 真实浏览器 E2E（Chromium + 后端 jar + 一次性 PostgreSQL 16）
     needs: backend
