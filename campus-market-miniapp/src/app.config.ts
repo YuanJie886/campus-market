@@ -11,9 +11,11 @@ export default defineAppConfig({
     backgroundTextStyle: 'dark',
   },
   tabBar: {
+    custom: true,
     color: '#7d857f', selectedColor: '#194e41', backgroundColor: '#ffffff', borderStyle: 'white',
     list: [
       { pagePath: 'pages/market/index', text: '集市', iconPath: 'assets/market.png', selectedIconPath: 'assets/market-active.png' },
+      { pagePath: 'pages/listings/index', text: '闲置', iconPath: 'assets/bell.png', selectedIconPath: 'assets/bell-active.png' },
       { pagePath: 'pages/publish/index', text: '发布', iconPath: 'assets/publish.png', selectedIconPath: 'assets/publish-active.png' },
       { pagePath: 'pages/notifications/index', text: '通知', iconPath: 'assets/bell.png', selectedIconPath: 'assets/bell-active.png' },
       { pagePath: 'pages/profile/index', text: '我的', iconPath: 'assets/profile.png', selectedIconPath: 'assets/profile-active.png' },

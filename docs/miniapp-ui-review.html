@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>校园集市小程序 · UI 评审与优化方案</title>
+<style>
+  *{box-sizing:border-box}
+  :root{
+    --ink:#14201B; --ink2:#3D4A43; --ink3:#5E6B63; --ink4:#8A948C;
+    --line:#E7E6DF; --line2:#F0EFE9;
+    --bg:#FAFAF7; --card:#fff;
+    --brand:#194E41; --brand-2:#25624E; --brand-1:#E1E9DD; --brand-0:#EFF4EA;
+    --warn:#A56A12; --warn-bg:#FBF0DC;
+    --danger:#B0453A; --danger-bg:#FBE9E6;
+    --ok:#2F6B4F; --ok-bg:#E8F0E6;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  html{-webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.7}
+  .wrap{max-width:1240px;margin:0 auto;padding:72px 40px 140px}
+
+  /* ---------- header ---------- */
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brand);margin-bottom:22px}
+  h1{font-size:46px;line-height:1.18;letter-spacing:-1.6px;font-weight:600;margin:0 0 24px;max-width:760px}
+  .lead{font-size:16px;line-height:1.85;color:var(--ink2);max-width:720px;margin:0 0 34px}
+  .hd-meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:12px;color:var(--ink3)}
+  .chip b{font-weight:600;color:var(--ink)}
+  .rule{height:1px;background:var(--line);margin:56px 0}
+
+  /* ---------- sections ---------- */
+  section{margin:88px 0 0}
+  .sec-h{display:flex;align-items:baseline;gap:16px;margin-bottom:12px}
+  .sec-n{font-family:var(--mono);font-size:11px;color:var(--brand);letter-spacing:.1em;padding-top:6px}
+  h2{font-size:29px;line-height:1.3;letter-spacing:-.7px;font-weight:600;margin:0}
+  .sec-d{color:var(--ink3);font-size:14px;max-width:760px;margin:10px 0 40px;padding-left:34px}
+
+  /* ---------- score ---------- */
+  .scores{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px}
+  .score{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 16px 16px}
+  .score .k{font-size:12px;color:var(--ink3);margin-bottom:10px}
+  .score .v{font-size:30px;font-weight:600;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+  .score .v small{font-size:13px;font-weight:400;color:var(--ink4);letter-spacing:0}
+  .score .bar{height:3px;border-radius:2px;background:var(--line2);margin:14px 0 10px;overflow:hidden}
+  .score .bar i{display:block;height:100%;background:var(--brand);border-radius:2px}
+  .score p{margin:0;font-size:11.5px;line-height:1.6;color:var(--ink4)}
+  .verdict{background:var(--brand);color:#fff;border-radius:18px;padding:26px 30px;display:flex;gap:26px;align-items:center}
+  .verdict .big{font-size:44px;font-weight:600;letter-spacing:-2px;line-height:1;font-variant-numeric:tabular-nums;flex-shrink:0}
+  .verdict .big span{font-size:14px;font-weight:400;opacity:.55;letter-spacing:0}
+  .verdict p{margin:0;font-size:14px;line-height:1.75;color:#D6E4DC}
+  .verdict b{color:#fff;font-weight:600}
+
+  /* ---------- issues ---------- */
+  .grp{margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .grp .lv{font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;letter-spacing:.06em}
+  .lv-p0{background:var(--danger-bg);color:var(--danger)}
+  .lv-p1{background:var(--warn-bg);color:var(--warn)}
+  .lv-p2{background:#EDEEE8;color:#5A6459}
+  .grp h3{font-size:15px;font-weight:600;margin:0}
+  .grp .cnt{font-size:12px;color:var(--ink4)}
+  .issues{display:grid;gap:10px;margin-bottom:44px}
+  .issue{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 22px;display:grid;grid-template-columns:88px 1fr;gap:6px 22px}
+  .issue .id{font-family:var(--mono);font-size:11px;color:var(--ink4);letter-spacing:.04em;padding-top:4px}
+  .issue h4{margin:0 0 7px;font-size:15.5px;font-weight:600;line-height:1.5}
+  .issue p{margin:0 0 7px;font-size:13.5px;line-height:1.7;color:var(--ink2)}
+  .issue p:last-child{margin-bottom:0}
+  .issue .fix{color:var(--ink);background:var(--brand-0);border-radius:8px;padding:8px 12px;font-size:13px;display:inline-block}
+  .issue .fix::before{content:"建议  ";font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--brand);font-weight:700}
+  code{font-family:var(--mono);font-size:11.5px;background:#F4F3ED;border:1px solid var(--line2);border-radius:5px;padding:1px 5px;color:#4A5750;white-space:nowrap}
+  .ev{margin:0 0 9px;display:flex;flex-wrap:wrap;gap:6px}
+
+  /* ---------- tokens ---------- */
+  .tok-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;margin-bottom:18px;align-items:start}
+  .tok{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px}
+  .tok h4{margin:0 0 4px;font-size:14px;font-weight:600}
+  .tok .hint{margin:0 0 18px;font-size:12px;color:var(--ink4)}
+  .sw-row{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+  .sw{border-radius:9px;height:58px;display:flex;flex-direction:column;justify-content:flex-end;padding:6px 7px;font-family:var(--mono);font-size:9px;line-height:1.3;letter-spacing:-.02em}
+  .sw-lbl{font-size:10.5px;color:var(--ink3);margin-top:7px;font-family:var(--mono)}
+  .sw-wrap{margin-bottom:16px}
+  .type-row{display:flex;align-items:baseline;gap:14px;padding:9px 0;border-bottom:1px solid var(--line2)}
+  .type-row:last-child{border:0}
+  .type-row .nm{font-family:var(--mono);font-size:10.5px;color:var(--ink4);width:96px;flex-shrink:0}
+  .type-row .sp{flex:1;color:var(--ink)}
+  .type-row .mt{font-family:var(--mono);font-size:10.5px;color:var(--ink4);white-space:nowrap}
+  .bars{display:grid;gap:9px}
+  .bar-row{display:grid;grid-template-columns:26px 46px 1fr;align-items:center;gap:12px}
+  .bar-row .nm{font-family:var(--mono);font-size:10.5px;color:var(--ink4);width:34px;text-align:right;flex-shrink:0}
+  .bar-row i{height:10px;border-radius:3px;background:var(--brand);opacity:.72;display:block}
+  .radii{display:flex;gap:14px;flex-wrap:wrap}
+  .radii div{width:62px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink4)}
+  .radii div b{display:block;height:52px;background:#DDE8D5;border:1.5px solid #B9CDAF;margin-bottom:6px}
+
+  /* ---------- table ---------- */
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:13px}
+  th{text-align:left;font-size:11px;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);font-weight:500;padding:13px 16px;background:#FCFCF9;border-bottom:1px solid var(--line)}
+  td{padding:12px 16px;border-bottom:1px solid var(--line2);vertical-align:top;line-height:1.6}
+  tr:last-child td{border-bottom:0}
+  td code{font-size:11px}
+
+  /* ---------- phone ---------- */
+  .pair{display:flex;gap:26px;align-items:flex-start;justify-content:center;margin-bottom:20px}
+  .col{display:flex;flex-direction:column;gap:12px}
+  .ptag{align-self:flex-start;font-size:10.5px;font-family:var(--mono);letter-spacing:.1em;padding:3px 10px;border-radius:999px}
+  .pt-b{background:var(--danger-bg);color:var(--danger)}
+  .pt-a{background:var(--brand-1);color:var(--brand)}
+  .ph{width:375px;min-width:375px;flex:none;height:812px;border-radius:38px;background:#F6F5F0;overflow:hidden;position:relative;
+      display:flex;flex-direction:column;
+      box-shadow:0 2px 4px rgba(20,32,27,.05),0 34px 70px -30px rgba(20,32,27,.38),0 0 0 1px rgba(20,32,27,.06)}
+  .sb{height:46px;flex:0 0 46px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 7px;font-size:13px;font-weight:600}
+  .nv{height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;position:relative}
+  .nv .back{position:absolute;left:14px;top:12px}
+  .cap{position:absolute;right:8px;top:6px;width:87px;height:32px;border-radius:16px;border:.5px solid rgba(20,32,27,.1);background:rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;gap:11px}
+  .cap i{width:4px;height:4px;border-radius:50%;background:rgba(20,32,27,.5)}
+  .cap i:nth-child(2){margin-left:1px}
+  .cap u{width:12px;height:12px;border-radius:50%;border:1.2px solid rgba(20,32,27,.45);display:block}
+
+  .notes{width:276px;flex:0 0 276px;padding-top:34px}
+  .notes h4{margin:0 0 14px;font-size:13px;font-weight:600;letter-spacing:.02em}
+  .notes ol{margin:0;padding-left:0;list-style:none;counter-reset:n}
+  .notes li{position:relative;padding-left:24px;margin-bottom:11px;font-size:12.5px;line-height:1.65;color:var(--ink2)}
+  .notes li::before{counter-increment:n;content:counter(n);position:absolute;left:0;top:1px;width:16px;height:16px;border-radius:50%;background:var(--brand-1);color:var(--brand);font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+  .notes li b{color:var(--ink);font-weight:600}
+  .pair-note{font-size:12px;color:var(--ink4);text-align:center;margin:0 0 64px;padding-left:0}
+
+  /* ============ BEFORE · shared ============ */
+  .b-body{flex:1;overflow:hidden;padding:18px 16px 0;position:relative}
+  .b-intro{padding:22px 20px 18px;border-radius:18px;color:#fff;background:linear-gradient(115deg,#14261f,#25624e);margin-bottom:18px}
+  .b-intro-t{font-size:21px;font-weight:600;line-height:1.45;letter-spacing:-.7px}
+  .b-intro-d{color:#d3e1cb;font-size:12px;margin-top:8px}
+  .b-intro-b{margin-top:16px;color:#d3e1cb;font-size:10px}
+  .b-search{display:flex;align-items:center;gap:8px;height:46px;border:1px solid #e1e3da;border-radius:14px;padding:0 6px 0 12px;background:#fff}
+  .b-sym{font-size:24px;color:#849386;line-height:1}
+  .b-ph-txt{flex:1;font-size:12px;color:#9aa39a}
+  .b-sbtn{background:#14261f;color:#fff;width:56px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:10px;font-size:12px;font-weight:500}
+  .b-head{display:flex;align-items:center;justify-content:space-between;margin:24px 0 14px}
+  .b-sect{font-size:16px;font-weight:600;line-height:1.5}
+  .b-sub{font-size:12px;color:#777f78;margin-top:5px}
+  .b-act{color:#194e41;font-size:12px}
+  .b-cats{display:inline-flex;gap:5px;padding:4px;background:#e9e9e2;border-radius:22px}
+  .b-cats span{padding:8px 12px;border-radius:20px;color:#687066;font-size:12px;white-space:nowrap}
+  .b-cats .on{color:#fff;background:#17231e}
+  .b-result{display:flex;justify-content:space-between;font-size:11px;color:#81867b;margin:14px 0;line-height:1.5}
+  .b-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .b-card{background:#fff;border-radius:16px;overflow:hidden}
+  .b-img{position:relative;aspect-ratio:1;background:#e7ece1;overflow:hidden;display:flex;align-items:center;justify-content:center}
+  .b-img img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+  .b-cond{position:absolute;bottom:9px;left:9px;padding:4px 7px;border-radius:20px;background:rgba(255,255,255,.93);color:#495b43;font-size:9px}
+  .b-fav{position:absolute;top:9px;right:9px;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;font-size:22px;color:#687066;line-height:1}
+  .b-cc{padding:11px 11px 13px}
+  .b-meta{display:flex;justify-content:space-between;gap:4px;font-size:9px;color:#78907d;margin-bottom:8px}
+  .b-title{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.5}
+  .b-price{display:flex;align-items:baseline;gap:6px;margin-top:8px;font-size:20px;font-weight:700;letter-spacing:-.7px;color:#14261f;line-height:1}
+  .b-cur{font-size:12px;margin-right:-3px}
+  .b-orig{font-size:10px;color:#a4a89f;text-decoration:line-through;font-weight:400}
+  .b-time{color:#a0a69b;font-size:9px;margin-top:8px}
+  .b-tab{flex:0 0 58px;height:58px;background:#fff;border-top:.5px solid #ecebe4;display:grid;grid-template-columns:repeat(4,1fr);align-items:center;justify-items:center;padding-bottom:6px}
+  .b-tab div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:#7d857f}
+  .b-tab div.on{color:#194e41}
+  .b-tab svg{width:22px;height:22px}
+
+  /* ============ AFTER · shared ============ */
+  .a-body{flex:1;overflow:hidden;position:relative}
+  .a-nav{height:46px;flex:0 0 46px;display:flex;align-items:center;justify-content:space-between;padding:0 18px}
+  .a-nav .t{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .a-nav .r{display:flex;align-items:center;gap:12px}
+  .a-campus{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--ink2);background:#fff;border:1px solid var(--line);padding:4px 8px;border-radius:999px}
+  .a-bell{position:relative;width:22px;height:22px}
+  .a-dot{position:absolute;top:-1px;right:-2px;min-width:15px;height:15px;border-radius:8px;background:#C4453A;color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;border:1.5px solid #F6F5F0}
+
+  .a-search-row{display:flex;gap:10px;padding:2px 16px 12px}
+  .a-search{flex:1;height:44px;background:#fff;border-radius:12px;display:flex;align-items:center;gap:9px;padding:0 13px;box-shadow:0 1px 2px rgba(20,32,27,.04)}
+  .a-search span{font-size:13px;color:#96A09A}
+  .a-filter{width:44px;height:44px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 1px 2px rgba(20,32,27,.04)}
+  .a-filter b{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:#C4453A;border:1.5px solid #fff}
+
+  .a-chips{display:flex;gap:7px;padding:0 16px 12px;overflow:hidden}
+  .a-chip{display:flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:12px;color:var(--ink2);white-space:nowrap;flex-shrink:0}
+  .a-chip.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  .a-chip em{font-style:normal;font-size:11px}
+
+  .a-sort{display:flex;align-items:center;justify-content:space-between;padding:0 16px 10px}
+  .a-sorts{display:flex;gap:16px}
+  .a-sorts span{font-size:12.5px;color:var(--ink3);position:relative;padding-bottom:4px}
+  .a-sorts span.on{color:var(--ink);font-weight:600}
+  .a-sorts span.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:2px;background:var(--brand)}
+  .a-count{font-size:11px;color:var(--ink4)}
+
+  .a-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:0 16px}
+  .a-card{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(20,32,27,.04),0 10px 24px -16px rgba(20,32,27,.22)}
+  .a-img{position:relative;aspect-ratio:1;background:#EDEBE2;overflow:hidden}
+  .a-img img{width:100%;height:100%;object-fit:cover;display:block}
+  .a-cond{position:absolute;top:8px;left:8px;padding:2.5px 7px;border-radius:999px;background:rgba(255,255,255,.94);color:#3D4A43;font-size:10.5px;font-weight:500;backdrop-filter:blur(4px)}
+  .a-fav{position:absolute;top:6px;right:6px;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.86);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .a-cc{padding:9px 10px 11px}
+  .a-title{font-size:13.5px;font-weight:600;line-height:1.42;letter-spacing:-.1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:38px}
+  .a-price{display:flex;align-items:baseline;gap:5px;margin-top:7px;font-variant-numeric:tabular-nums}
+  .a-price b{font-size:17.5px;font-weight:700;letter-spacing:-.5px;color:var(--brand)}
+  .a-price b i{font-size:11.5px;font-style:normal;font-weight:600;margin-right:1px}
+  .a-price s{font-size:10.5px;color:var(--ink4);text-decoration-thickness:.5px}
+  .a-meta{display:flex;align-items:center;gap:5px;margin-top:7px;font-size:10.5px;color:var(--ink3)}
+  .a-meta em{width:2px;height:2px;border-radius:50%;background:var(--ink4);font-style:normal}
+
+  .a-tab{flex:0 0 60px;height:60px;background:#fff;border-top:.5px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);align-items:center;justify-items:center;padding-bottom:8px;position:relative}
+  .a-tab div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:#8A948C;font-weight:500}
+  .a-tab div.on{color:var(--brand);font-weight:600}
+  .a-fab{width:46px;height:46px;border-radius:16px;background:var(--brand);display:flex;align-items:center;justify-content:center;margin-top:-22px;box-shadow:0 8px 18px -6px rgba(25,78,65,.55)}
+  .a-tab .fb{font-size:10px;color:var(--brand);font-weight:600;margin-top:2px}
+
+  /* detail after */
+  .a-gal{position:relative;width:375px;height:340px;background:#EDEBE2;flex:0 0 auto}
+  .a-gal img{width:100%;height:100%;object-fit:cover;display:block}
+  .a-gal .cnt{position:absolute;right:12px;bottom:26px;background:rgba(20,32,27,.55);color:#fff;font-size:10.5px;padding:2px 8px;border-radius:999px;backdrop-filter:blur(4px)}
+  .a-sec{background:#fff;padding:16px 18px}
+  .a-sec+.a-sec{margin-top:8px}
+  .a-price-row{display:flex;align-items:flex-end;gap:8px}
+  .a-big{font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--brand);line-height:1;font-variant-numeric:tabular-nums}
+  .a-big i{font-size:14px;font-style:normal;margin-right:1px}
+  .a-price-row s{font-size:11.5px;color:var(--ink4);padding-bottom:3px}
+  .a-pill{margin-left:auto;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;margin-bottom:2px}
+  .pill-ok{background:var(--ok-bg);color:var(--ok)}
+  .pill-warn{background:var(--warn-bg);color:var(--warn)}
+  .pill-mute{background:#EFF0EB;color:#68736B}
+  .a-dtitle{font-size:17px;font-weight:600;line-height:1.5;letter-spacing:-.3px;margin:11px 0 10px}
+  .a-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .a-tag{font-size:11px;color:var(--ink2);background:#F5F4EF;border-radius:6px;padding:3px 7px}
+  .a-tag.g{background:var(--brand-0);color:var(--brand)}
+  .a-sub{font-size:11px;color:var(--ink4)}
+  .a-seller{display:flex;align-items:center;gap:11px}
+  .a-av{width:40px;height:40px;border-radius:50%;background:var(--brand-1);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600;flex-shrink:0}
+  .a-seller .nm{font-size:14px;font-weight:600;line-height:1.4}
+  .a-seller .mt{font-size:11px;color:var(--ink3);margin-top:2px}
+  .a-seller .go{margin-left:auto;font-size:11.5px;color:var(--brand);font-weight:500}
+  .a-sec-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+  .a-sec-h .t{font-size:14px;font-weight:600}
+  .a-sec-h .x{font-size:11.5px;color:var(--ink4)}
+  .a-drow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #F2F1EB;font-size:12.5px}
+  .a-drow:last-child{border:0;padding-bottom:0}
+  .a-drow .k{color:var(--ink2)}
+  .a-drow .v{color:var(--ink3);display:flex;align-items:center;gap:5px}
+  .a-drow .v b{font-weight:500}
+  .a-drow .v.ok{color:var(--ok)} .a-drow .v.warn{color:var(--warn)}
+  .a-bar{flex:0 0 auto;background:rgba(255,255,255,.96);border-top:.5px solid var(--line);padding:10px 16px 22px;display:flex;gap:10px;align-items:center;backdrop-filter:blur(16px)}
+  .a-bar .fav{display:flex;flex-direction:column;align-items:center;gap:2px;width:52px;font-size:10px;color:var(--ink3)}
+  .a-bar .cta{flex:1;height:46px;border-radius:13px;background:var(--brand);color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;letter-spacing:.02em}
+
+  /* publish after */
+  .a-prog{display:flex;gap:6px;padding:2px 18px 10px}
+  .a-prog i{flex:1;height:3px;border-radius:2px;background:#E4E3DA}
+  .a-prog i.f{background:var(--brand)}
+  .a-step{display:flex;justify-content:space-between;padding:0 18px 14px;font-size:11px;color:var(--ink4)}
+  .a-step b{color:var(--brand);font-weight:600}
+  .a-form{background:#fff;margin:0 14px;border-radius:14px;padding:16px}
+  .a-fl{font-size:12px;font-weight:600;color:var(--ink2);margin:0 0 9px;display:flex;justify-content:space-between}
+  .a-fl span{font-weight:400;color:var(--ink4);font-size:11px}
+  .a-field{height:44px;background:#F7F6F1;border:1px solid #EDECE4;border-radius:10px;display:flex;align-items:center;padding:0 12px;font-size:13.5px;color:var(--ink)}
+  .a-field.a-ph{color:#9AA39C}
+  .a-field .pre{color:var(--ink3);font-size:13px;margin-right:5px}
+  .a-field .suf{margin-left:auto;font-size:12px;color:var(--ink4)}
+  .a-two{display:flex;gap:10px}
+  .a-two>div{flex:1}
+  .a-mb{margin-bottom:18px}
+  .a-chips-wrap{display:flex;flex-wrap:wrap;gap:7px}
+  .a-chip-s{height:32px;padding:0 13px;border-radius:9px;background:#F7F6F1;border:1px solid #EDECE4;font-size:12.5px;color:var(--ink2);display:flex;align-items:center}
+  .a-chip-s.on{background:var(--brand-0);border-color:var(--brand);color:var(--brand);font-weight:600}
+  .a-row{display:flex;align-items:center;justify-content:space-between;height:48px;border-bottom:1px solid #F2F1EB;font-size:13.5px}
+  .a-row:last-child{border:0}
+  .a-row .v{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:13px}
+  .a-thumbs{display:flex;gap:8px}
+  .a-th{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;background:#EDEBE2}
+  .a-th img{width:100%;height:100%;object-fit:cover}
+  .a-th .mn{position:absolute;left:0;bottom:0;right:0;background:rgba(20,32,27,.6);color:#fff;font-size:8.5px;text-align:center;padding:1px 0}
+  .a-th.add{border:1px dashed #C9D3C3;background:#F7F9F3;display:flex;align-items:center;justify-content:center;color:#7B8C71;font-size:20px}
+  .a-pbar{flex:0 0 auto;display:flex;gap:10px;padding:12px 16px 24px;background:#F6F5F0}
+  .a-pbar .back{flex:0 0 96px;height:46px;border-radius:13px;border:1px solid #DCDBD3;background:#fff;color:var(--ink2);font-size:14px;display:flex;align-items:center;justify-content:center}
+  .a-pbar .next{flex:1;height:46px;border-radius:13px;background:var(--brand);color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center}
+
+  /* notifications after */
+  .a-seg{display:flex;background:#EAE9E1;border-radius:11px;padding:3px;margin:2px 16px 14px}
+  .a-seg span{flex:1;text-align:center;font-size:12.5px;padding:8px 0;border-radius:8px;color:var(--ink3);display:flex;align-items:center;justify-content:center;gap:5px}
+  .a-seg span.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(20,32,27,.07)}
+  .a-seg b{font-size:10px;font-weight:700;background:#E3E2D9;color:var(--ink3);border-radius:8px;padding:0 5px;line-height:15px}
+  .a-seg .on b{background:var(--brand);color:#fff}
+  .a-req{background:#fff;border-radius:14px;margin:0 16px 10px;padding:14px}
+  .a-req-h{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+  .a-req-h .av{width:32px;height:32px;border-radius:50%;background:var(--brand-1);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600}
+  .a-req-h .nm{font-size:13px;font-weight:600}
+  .a-req-h .tm{margin-left:auto;font-size:10.5px;color:var(--ink4)}
+  .a-req-p{display:flex;gap:10px;align-items:center;background:#FAFAF6;border-radius:10px;padding:8px}
+  .a-req-p img{width:44px;height:44px;border-radius:8px;object-fit:cover;background:#EDEBE2}
+  .a-req-p .ti{font-size:12.5px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .a-req-p .pr{font-size:12px;font-weight:700;color:var(--brand);margin-top:3px;font-variant-numeric:tabular-nums}
+  .a-req-f{display:flex;align-items:center;gap:10px;margin-top:11px}
+  .a-req-f .ok{height:36px;padding:0 18px;border-radius:10px;background:var(--brand);color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center}
+  .a-req-f .no{font-size:12.5px;color:var(--ink3);padding:0 4px}
+  .a-req-f .st{margin-left:auto;font-size:11px;color:var(--ink4)}
+  .a-hd{padding:2px 18px 12px}
+  .a-hd .t{font-size:22px;font-weight:600;letter-spacing:-.6px;line-height:1.3}
+  .a-hd .s{font-size:12px;color:var(--ink3);margin-top:5px}
+  .a-hd .s b{color:var(--warn);font-weight:600}
+
+  /* roadmap */
+  .road{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:44px}
+  .rc{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px}
+  .rc .tag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:3px 8px;border-radius:5px;display:inline-block;margin-bottom:12px}
+  .rc h4{margin:0 0 6px;font-size:16px;font-weight:600}
+  .rc .dur{font-size:11.5px;color:var(--ink4);margin-bottom:14px}
+  .rc ul{margin:0;padding-left:16px;font-size:13px;line-height:1.75;color:var(--ink2)}
+  .rc li{margin-bottom:5px}
+  .checks{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px 26px}
+  .checks h4{margin:0 0 14px;font-size:14px;font-weight:600}
+  .checks ul{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:8px 26px}
+  .checks li{font-size:13px;color:var(--ink2);padding-left:22px;position:relative;line-height:1.7}
+  .checks li::before{content:"";position:absolute;left:0;top:6px;width:13px;height:13px;border-radius:4px;border:1.4px solid var(--brand);opacity:.5}
+  footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:12px;color:var(--ink4);display:flex;justify-content:space-between}
+  @media(max-width:1120px){.pair{flex-wrap:wrap}.notes{width:375px;flex:0 0 375px;padding-top:0}.scores{grid-template-columns:repeat(2,1fr)}.road{grid-template-columns:1fr}.tok-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">UI Review · campus-market-miniapp · 2026.10.18</div>
+  <h1>校园集市小程序<br>界面评审与优化方案</h1>
+  <p class="lead">评审对象为 Taro 4.3 + React 的微信小程序端，共 7 个页面、1 份全局样式（<code>app.scss</code>，159 行）。评审围绕信息层级、可读性、交互成本、设计系统一致性、可达性五个维度展开，并给出可直接落地的改版稿与样式映射。</p>
+  <div class="hd-meta">
+    <span class="chip"><b>7</b> 个页面</span>
+    <span class="chip"><b>15</b> 项问题</span>
+    <span class="chip"><b>4</b> 组改版对照</span>
+    <span class="chip">目标机型 <b>375 / 390 / 414</b></span>
+  </div>
+</header>
+
+<!-- 0 -->
+<section id="s0">
+  <div class="sec-h"><span class="sec-n">01</span><h2>总体判断</h2></div>
+  <p class="sec-d">视觉方向是对的——松绿 + 米白的克制配色在一众高饱和二手平台里有辨识度，文案也克制、可信。问题集中在「执行层的精细度」：字号与对比度没到真机可读的底线，交互把高频动作藏进了折叠面板，以及缺少 token 层导致同一套界面里出现 14 档字号、9 档圆角。</p>
+
+  <div class="scores">
+    <div class="score"><div class="k">视觉语言</div><div class="v">7.5<small>/10</small></div><div class="bar"><i style="width:75%"></i></div><p>配色与气质统一，但缺 token 层，改主题要全局搜。</p></div>
+    <div class="score"><div class="k">信息层级</div><div class="v">6.0<small>/10</small></div><div class="bar"><i style="width:60%"></i></div><p>首屏被 110px 装饰性 banner 占据，商品后置。</p></div>
+    <div class="score"><div class="k">可读性</div><div class="v">5.0<small>/10</small></div><div class="bar"><i style="width:50%"></i></div><p>辅助文字 9px、对比度 2.5:1，真机几乎看不清。</p></div>
+    <div class="score"><div class="k">交互效率</div><div class="v">6.5<small>/10</small></div><div class="bar"><i style="width:65%"></i></div><p>排序三级跳；发布是 12 字段单页长表单。</p></div>
+    <div class="score"><div class="k">一致性</div><div class="v">6.0<small>/10</small></div><div class="bar"><i style="width:60%"></i></div><p>14 档字号、9 档圆角、字重越界到 550/650。</p></div>
+  </div>
+
+  <div class="verdict">
+    <div class="big">6.2<span>/10</span></div>
+    <p><b>可用，但还不到「能上线」的完成度。</b>核心流程（浏览 → 申请联系 → 卖家审批）是通的，可读性与触控尺寸的问题会让真实用户在第一步就流失；发布页的长表单则直接影响供给侧的商品数量。下面的 P0 全部是纯样式改动，不改结构、不动逻辑，<b>1–2 天可以整体修完</b>。</p>
+  </div>
+</section>
+
+<!-- 1 -->
+<section id="s1">
+  <div class="sec-h"><span class="sec-n">02</span><h2>问题清单</h2></div>
+  <p class="sec-d">按修复优先级排列。P0 是「用户会直接感知到坏」的缺陷，P1 影响转化与效率，P2 是打磨项。</p>
+
+  <div class="grp"><span class="lv lv-p0">P0</span><h3>必须修</h3><span class="cnt">4 项 · 纯样式，不改逻辑</span></div>
+  <div class="issues">
+
+    <div class="issue"><div class="id">P0-01</div><div>
+      <h4>辅助文字只有 9px，对比度 2.5:1，真机上等于不可读</h4>
+      <div class="ev"><code>app.scss:73</code><code>.card-meta{font-size:9px;color:#78907d}</code><code>app.scss:79</code><code>.card-time{font-size:9px;color:#a0a69b}</code></div>
+      <p>#a0a69b 在白底上的对比度仅 <b>2.49:1</b>，#78907d 为 3.46:1，都远低于 WCAG AA 要求的 4.5:1。9px 在 375pt 屏上约等于 9 CSS px，中文笔画会糊成一团——商品卡上的「分类 / 校区 / 发布时间」这行信息实际上被浪费了。</p>
+      <p class="fix">辅助信息统一提到 <b>11px</b>，颜色改为 <code>--ink-500 #5E6B63</code>（对比度 5.1:1）。全局禁用 9px 与 10px。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P0-02</div><div>
+      <h4>字重用了 550 / 650，iOS 上不生效，实际渲染不可控</h4>
+      <div class="ev"><code>app.scss:14</code><code>font-weight:650</code><code>app.scss:74</code><code>550</code><code>app.scss:76</code><code>650</code><code>app.scss:86,146</code><code>550</code></div>
+      <p>PingFang SC 只提供 300 / 400 / 500 / 600 / 700 五档。550、650 会被系统就近吸附或直接忽略，安卓与 iOS 的吸附规则还不一致——同一套设计稿在两台手机上标题粗细不同，视觉层级就散了。</p>
+      <p class="fix">字重收敛为 <b>400 / 500 / 600 / 700</b> 四档。标题 600、价格 700、按钮 600、正文 400。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P0-03</div><div>
+      <h4>多个可点区域的触控尺寸低于 44×44pt</h4>
+      <div class="ev"><code>app.scss:68</code><code>.favorite{width:32px;height:32px}</code><code>app.scss:31</code><code>.text-action{font-size:12px}</code><code>app.scss:102</code><code>.remove-photo{22px}</code></div>
+      <p>商品卡收藏按钮 32px、图片删除按钮 22px、「清空筛选 / 编辑资料」这类纯文字链接没有 padding。微信设计指南要求热区不小于 40×40，Apple 要求 44×44。收藏是首页最高频的轻交互，32px 会明显误触到卡片跳转。</p>
+      <p class="fix">视觉尺寸可保持 32–34px，但用 <code>::after</code> 撑出 44×44 的透明热区；文字链接补 <code>padding:8px</code> 并负 margin 抵消占位。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P0-04</div><div>
+      <h4>语义色缺失：「已同意」和「未同意」是同一个绿色</h4>
+      <div class="ev"><code>app.scss:123</code><code>.status-pill{color:#52714a;background:#eef2e7}</code><code>notifications/index.tsx:37</code></div>
+      <p>申请卡片的 <code>labels</code> 有 PENDING / APPROVED / REJECTED 三种状态，但都套用同一个 <code>.status-pill</code>。用户扫一眼列表，无法区分「等着我处理」和「已经拒绝」，只能逐个读文字。同理「已售出 / 已下架」在详情页也是绿色。</p>
+      <p class="fix">建语义色板：待处理 <b>琥珀 #A56A12</b>、已同意 <b>绿 #2F6B4F</b>、未同意 / 已下架 <b>中性灰 #68736B</b>、已售出 <b>灰</b>。状态色必须与状态文案同时出现，不单靠颜色。</p>
+    </div></div>
+  </div>
+
+  <div class="grp"><span class="lv lv-p1">P1</span><h3>影响转化与效率</h3><span class="cnt">7 项 · 需小改结构</span></div>
+  <div class="issues">
+
+    <div class="issue"><div class="id">P1-01</div><div>
+      <h4>首屏 110px 给了纯装饰的 banner，商品被挤到第二屏</h4>
+      <div class="ev"><code>market/index.tsx:42</code><code>.intro</code> · <code>app.scss:39-42</code></div>
+      <p>深绿渐变卡里有 21px 标题 + 说明 + 演示 badge，但它不承载任何操作，也不随用户状态变化。在 375×667 的机型上，这块占掉首屏近 1/5，结果只露出 1.5 行商品。</p>
+      <p class="fix">删掉 banner，把搜索框提到导航栏下方并做成 <b>sticky</b>；品牌感交给配色和导航栏标题，不用大色块换空间。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-02</div><div>
+      <h4>排序藏在折叠面板里，改一次排序要三步</h4>
+      <div class="ev"><code>market/index.tsx:45,50</code></div>
+      <p>点「筛选与排序 ⌄」→ 展开面板 → 点 Picker → 底部弹窗滚动 → 确定。而分类 tab 与筛选面板里的排序项还重复了一次。列表页排序是高频动作，这个成本不合理。</p>
+      <p class="fix">排序改为结果行上方的常驻 tab（综合 / 最新 / 价格↑↓），筛选收进右侧独立按钮 + 已选条件计数角标。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-03</div><div>
+      <h4>发布页是 12+ 字段的单页长表单</h4>
+      <div class="ev"><code>publish/index.tsx:76-91</code></div>
+      <p>图片、名称、描述、价格、原价、分类、成色、校区、联系方式、公开开关，再加 3–6 项「商品情况」声明，全部堆在一张卡片里，首屏看不到价格，提交按钮在 3–4 屏之外。发布是供给侧的入口，这个长度会直接压掉发布完成率。</p>
+      <p class="fix">拆成 3 步：<b>照片 → 信息（名称/分类/成色/价格）→ 情况与联系方式</b>，顶部三段进度条。每步 1 屏内完成。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-04</div><div>
+      <h4>清单加载失败会让发布按钮永久禁用，且没有重试入口</h4>
+      <div class="ev"><code>publish/index.tsx:71</code><code>if(templateError||templateLoading){notify(...)}</code><code>publish/index.tsx:91</code><code>disabled={...Boolean(templateError)}</code></div>
+      <p>用户把内容全部填完，只因为「商品情况清单」接口失败，就再也点不动发布按钮。提示文案写的是「切换分类后可重试」——让用户用切换分类来触发重试，是一个隐藏技巧，不是可发现的交互。</p>
+      <p class="fix">失败态给明确的「重新加载」按钮；同时允许在清单缺失时提交，后端按「未声明」处理，不要让次要信息阻塞主流程。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-05</div><div>
+      <h4>详情页主 CTA 有 5 种文案，点下去会发生什么无法预期</h4>
+      <div class="ev"><code>detail/index.tsx:48</code></div>
+      <p>同一个按钮会在「复制联系方式 / 等待卖家同意 / 申请未通过 / 已售出 / 我想要·申请联系」之间切换，其中三种是禁用态。用户看到的是「按钮在变」，而不是「商品状态在变」。</p>
+      <p class="fix">主按钮文案固定为「我想要」，状态用按钮上方的副文案或状态 pill 表达；禁用态给出明确原因，而不是把原因塞进按钮里。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-06</div><div>
+      <h4>通知页用营销式长标题占首屏，且没有未读角标</h4>
+      <div class="ev"><code>notifications/index.tsx:33</code><code>title='每一次联系，都由你决定'</code><code>app.config.ts:13</code></div>
+      <p>23px 标题在 375 宽下折成两行，占掉首屏 1/4；而页面真正要传达的是「有几条待处理」。tabBar 也没有 badge，用户不知道有申请进来，只能靠主动点进来看。</p>
+      <p class="fix">标题改「联系申请」+ 副标题「3 条待处理」；segment 上带数量；tabBar 用 <code>Taro.setTabBarBadge</code> 同步未处理数。</p>
+    </div></div>
+
+    <div class="issue"><div class="id">P1-07</div><div>
+      <h4>商品名只显示一行，8–14 字的标题必然被截断</h4>
+      <div class="ev"><code>app.scss:74</code><code>.card-title{white-space:nowrap;text-overflow:ellipsis}</code></div>
+      <p>「高等数学教材，上下册」「捷安特校园通勤自行车」在双列卡里一行只能放下 8 个字左右，关键的后半段（册数、型号）被省略——而二手商品恰恰靠这些信息区分。</p>
+      <p class="fix">允许 2 行（<code>-webkit-line-clamp:2</code>），固定两行高度保证卡片等高对齐。</p>
+    </div></div>
+  </div>
+
+  <div class="grp"><span class="lv lv-p2">P2</span><h3>打磨项</h3><span class="cnt">4 项 · 建议随迭代做</span></div>
+  <div class="issues">
+    <div class="issue"><div class="id">P2-01</div><div>
+      <h4>没有 token 层：主色硬编码 15+ 处，字号 14 档、圆角 9 档</h4>
+      <div class="ev"><code>#194e41</code>×15 <code>#17231e</code>×6 <code>#f6f5f0</code>×5 <code>圆角</code> 10/11/12/13/14/16/18/20/22</div>
+      <p>想换主色、做暗色模式、调整体密度，都只能全局搜索替换。间距也散在 5–24 之间几乎每个整数都有，视觉上「差不多但不一样」的错位就是这么来的。</p>
+      <p class="fix">抽出 CSS 变量层（见下一节），字号 7 档、间距 4 的倍数、圆角 5 档。</p>
+    </div></div>
+    <div class="issue"><div class="id">P2-02</div><div>
+      <h4>图标用文本字符代替，跨机型字形不一致</h4>
+      <div class="ev"><code>⌕</code><code>◇</code><code>▤</code><code>♡ ♥</code><code>⌄</code><code>↗</code><code>＋</code></div>
+      <p>这些字符依赖系统字体，安卓上常出现基线偏移、宽度不同、甚至渲染成方框。全角空格（<code>▤　我的发布</code>）在菜单行里还会导致左右不对齐。</p>
+      <p class="fix">换成 16/20/24 三档 SVG 图标，或统一用一套 iconfont。</p>
+    </div></div>
+    <div class="issue"><div class="id">P2-03</div><div>
+      <h4>加载态与空态不成体系</h4>
+      <div class="ev"><code>app.scss:81</code><code>.skeleton{height:250px}</code><code>components.tsx:13</code><code>◇</code></div>
+      <p>骨架屏固定 250px，但真实卡片高度是「图 1:1 + 4 行文字」≈ 240–270px，加载完成会跳一下；空态只有一枚 ◇ 符号，7 个页面文案风格也不统一（「正在加载好物…」「加载好物中…」）。</p>
+      <p class="fix">骨架高度跟真实卡一致；空态统一为「图标 + 一句结论 + 一句下一步 + 一个动作」四段式。</p>
+    </div></div>
+    <div class="issue"><div class="id">P2-04</div><div>
+      <h4>没有深色模式</h4>
+      <div class="ev"><code>app.config.ts</code> 未声明 <code>darkmode</code> / <code>themeLocation</code></div>
+      <p>#f6f5f0 这种高明度米白在夜间非常刺眼，而小程序原生支持 <code>theme.json</code> + <code>@media (prefers-color-scheme: dark)</code>。</p>
+      <p class="fix">token 化之后，暗色只需要覆盖 12 个变量，不需要改任何组件。</p>
+    </div></div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+  <div class="sec-h"><span class="sec-n">03</span><h2>设计规范：先建 token，再谈改版</h2></div>
+  <p class="sec-d">所有后续改版都建立在这套变量上。放在 <code>app.scss</code> 顶部定义在 <code>page</code> 选择器，小程序端可直接用；如需兼容旧版基础库，用 SCSS 变量编译期替换。</p>
+
+  <div class="tok-grid">
+    <div class="tok">
+      <h4>色彩</h4><p class="hint">保留品牌松绿，补齐语义色与中性阶。文字灰全部满足 4.5:1。</p>
+      <div class="sw-wrap">
+        <div class="sw-row">
+          <div class="sw" style="background:#194E41;color:#fff">#194E41<br>brand-700</div>
+          <div class="sw" style="background:#25624E;color:#fff">#25624E<br>brand-600</div>
+          <div class="sw" style="background:#14261F;color:#fff">#14261F<br>brand-800</div>
+          <div class="sw" style="background:#E1E9DD;color:#194E41">#E1E9DD<br>brand-100</div>
+          <div class="sw" style="background:#EFF4EA;color:#194E41">#EFF4EA<br>brand-0</div>
+          <div class="sw" style="background:#F6F5F0;color:#3D4A43">#F6F5F0<br>bg</div>
+        </div>
+      </div>
+      <div class="sw-wrap">
+        <div class="sw-row">
+          <div class="sw" style="background:#14201B;color:#fff">#14201B<br>ink-900</div>
+          <div class="sw" style="background:#3D4A43;color:#fff">#3D4A43<br>ink-700</div>
+          <div class="sw" style="background:#5E6B63;color:#fff">#5E6B63<br>ink-500 5.1:1</div>
+          <div class="sw" style="background:#8A948C;color:#fff">#8A948C<br>ink-400 装饰</div>
+          <div class="sw" style="background:#E7E6DF;color:#3D4A43">#E7E6DF<br>line</div>
+          <div class="sw" style="background:#FFFFFF;color:#3D4A43;border:1px solid #E7E6DF">#FFFFFF<br>surface</div>
+        </div>
+      </div>
+      <div class="sw-wrap" style="margin-bottom:0">
+        <div class="sw-row">
+          <div class="sw" style="background:#E8F0E6;color:#2F6B4F">#2F6B4F<br>success</div>
+          <div class="sw" style="background:#FBF0DC;color:#A56A12">#A56A12<br>warning</div>
+          <div class="sw" style="background:#FBE9E6;color:#B0453A">#B0453A<br>danger</div>
+          <div class="sw" style="background:#E6F0F5;color:#2F6480">#2F6480<br>info</div>
+          <div class="sw" style="background:#D8694F;color:#fff">#D8694F<br>heart</div>
+          <div class="sw" style="background:#C4453A;color:#fff">#C4453A<br>badge</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:16px;border-top:1px solid var(--line2)">
+        <span class="a-pill pill-ok" style="margin:0">在售</span>
+        <span class="a-pill pill-warn" style="margin:0">待处理</span>
+        <span class="a-pill pill-mute" style="margin:0">未同意</span>
+        <span style="margin-left:auto;font-size:10.5px;color:#8A948C">状态色与文案必须成对出现</span>
+      </div>
+    </div>
+
+    <div class="tok">
+      <h4>字号阶梯</h4><p class="hint">从 14 档收敛到 7 档。正文最小 11px，不再出现 9px / 10px。</p>
+      <div class="type-row"><span class="nm">display</span><span class="sp" style="font-size:28px;font-weight:700;letter-spacing:-1px">¥280</span><span class="mt">28 / 700 / 1.2</span></div>
+      <div class="type-row"><span class="nm">h1</span><span class="sp" style="font-size:22px;font-weight:600;letter-spacing:-.6px">联系申请</span><span class="mt">22 / 600 / 1.3</span></div>
+      <div class="type-row"><span class="nm">h2</span><span class="sp" style="font-size:17px;font-weight:600;letter-spacing:-.3px">索尼无线降噪耳机</span><span class="mt">17 / 600 / 1.4</span></div>
+      <div class="type-row"><span class="nm">body</span><span class="sp" style="font-size:14px">同学自用闲置，成色已如实填写</span><span class="mt">14 / 400 / 1.6</span></div>
+      <div class="type-row"><span class="nm">label</span><span class="sp" style="font-size:13px;font-weight:500">商品名称</span><span class="mt">13 / 500 / 1.5</span></div>
+      <div class="type-row"><span class="nm">caption</span><span class="sp" style="font-size:12px;color:#5E6B63">共 8 件商品</span><span class="mt">12 / 400 / 1.5</span></div>
+      <div class="type-row"><span class="nm">micro</span><span class="sp" style="font-size:11px;color:#5E6B63">东校区 · 2 小时前</span><span class="mt">11 / 400 / 1.4</span></div>
+    </div>
+  </div>
+
+  <div class="tok-grid">
+    <div class="tok">
+      <h4>间距与圆角</h4><p class="hint">间距全部取 4 的倍数；圆角从 9 档收敛到 5 档，按「元素越小圆角越小」原则分配。</p>
+      <div class="bars" style="margin-bottom:22px">
+        <div class="bar-row"><span class="nm">4</span><i style="width:4px"></i><span class="mt" style="font-size:11px;color:#8A948C">图标与文字</span></div>
+        <div class="bar-row"><span class="nm">8</span><i style="width:8px"></i><span class="mt" style="font-size:11px;color:#8A948C">紧密分组</span></div>
+        <div class="bar-row"><span class="nm">12</span><i style="width:12px"></i><span class="mt" style="font-size:11px;color:#8A948C">卡片内元素</span></div>
+        <div class="bar-row"><span class="nm">16</span><i style="width:16px"></i><span class="mt" style="font-size:11px;color:#8A948C">页面左右边距</span></div>
+        <div class="bar-row"><span class="nm">24</span><i style="width:24px"></i><span class="mt" style="font-size:11px;color:#8A948C">区块之间</span></div>
+        <div class="bar-row"><span class="nm">32</span><i style="width:32px"></i><span class="mt" style="font-size:11px;color:#8A948C">大区块 / 空态</span></div>
+      </div>
+      <div class="radii">
+        <div><b style="border-radius:8px"></b>8 标签</div>
+        <div><b style="border-radius:12px"></b>12 输入/按钮</div>
+        <div><b style="border-radius:14px"></b>14 卡片</div>
+        <div><b style="border-radius:24px"></b>24 面板</div>
+        <div><b style="border-radius:999px"></b>999 胶囊</div>
+      </div>
+    </div>
+    <div class="tok">
+      <h4>旧值 → 新值映射</h4><p class="hint">P0 全部是这张表里的替换，可以一次性改完。</p>
+      <table style="border:0">
+        <tr><th style="background:none;padding-left:0">现状</th><th style="background:none">改为</th></tr>
+        <tr><td><code>9px</code> / <code>10px</code> 辅助文字</td><td><b>11px</b> + <code>--ink-500</code></td></tr>
+        <tr><td><code>#a0a69b</code> <code>#78907d</code></td><td><code>#5E6B63</code>（5.1:1）</td></tr>
+        <tr><td><code>550</code> / <code>650</code></td><td><b>500 / 600 / 700</b></td></tr>
+        <tr><td><code>.favorite</code> 32×32</td><td>视觉 34 + 热区 <b>44×44</b></td></tr>
+        <tr><td><code>.card-title</code> 单行</td><td><b>2 行</b> clamp，等高 38px</td></tr>
+        <tr><td>价格 <code>20px/650</code></td><td><b>17.5px/700</b> + tabular-nums</td></tr>
+        <tr><td>圆角 10–22 共 9 档</td><td><b>8 / 12 / 14 / 24 / 999</b></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+  <div class="sec-h"><span class="sec-n">04</span><h2>关键页面改版对照</h2></div>
+  <p class="sec-d">左侧为现状（严格按 <code>app.scss</code> 数值复刻），右侧为改版稿。尺寸均为 375×812，对应 iPhone X / 12 mini / 13 mini 的逻辑分辨率。</p>
+
+  <!-- 集市 -->
+  <div class="grp" id="p-market" style="margin-bottom:20px"><span class="lv lv-p1">集市首页</span><h3>把首屏还给商品</h3></div>
+  <div class="pair">
+    <div class="col">
+      <span class="ptag pt-b">现状</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="nv">校园集市<div class="cap"><i></i><i></i><u></u></div></div>
+        <div class="b-body">
+          <div class="b-intro">
+            <div class="b-intro-t">发现本校同学的闲置好物</div>
+            <div class="b-intro-d">闲置就在身边，当面看看再决定。</div>
+            <div class="b-intro-b">演示版 · 商品图片为示意插画</div>
+          </div>
+          <div class="b-search"><span class="b-sym">⌕</span><span class="b-ph-txt">搜索教材、数码、生活好物</span><span class="b-sbtn">搜索</span></div>
+          <div class="b-head"><div><div class="b-sect">校园集市</div><div class="b-sub">东校区 · 最新发布</div></div><div class="b-act">筛选与排序 ⌄</div></div>
+          <div class="b-cats"><span class="on">全部</span><span>数码电子</span><span>教材书籍</span><span>生活用品</span></div>
+          <div class="b-result"><span>全部好物 · 8 件商品</span></div>
+          <div class="b-grid">
+            <div class="b-card"><div class="b-img"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" alt=""><span class="b-cond">几乎全新</span><span class="b-fav">♡</span></div><div class="b-cc"><div class="b-meta"><span>数码电子</span><span>东校区</span></div><div class="b-title">索尼无线降噪耳机</div><div class="b-price"><span class="b-cur">¥</span>280<span class="b-orig">¥504</span></div><div class="b-time">2 小时前</div></div></div>
+            <div class="b-card"><div class="b-img"><img src="../campus-market-miniapp/src/assets/goods/books.png" alt=""><span class="b-cond">轻微使用痕迹</span><span class="b-fav">♡</span></div><div class="b-cc"><div class="b-meta"><span>教材书籍</span><span>西校区</span></div><div class="b-title">高等数学教材，上下册</div><div class="b-price"><span class="b-cur">¥</span>25<span class="b-orig">¥45</span></div><div class="b-time">3 小时前</div></div></div>
+          </div>
+        </div>
+        <div class="b-tab">
+          <div class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5Z"/></svg>集市</div>
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>发布</div>
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>通知</div>
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>我的</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <span class="ptag pt-a">改版后</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="a-nav"><span class="t">校园集市</span><div class="r"><span class="a-campus">东校区 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="#5E6B63" stroke-width="1.3"><path d="M1.5 3 4 5.5 6.5 3"/></svg></span><span class="a-bell"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.6"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="a-dot">2</span></span></div></div>
+        <div class="a-body">
+          <div class="a-search-row">
+            <div class="a-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#96A09A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>搜索教材、数码、生活好物</span></div>
+            <div class="a-filter"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.7"><path d="M4 6h16M7 12h10M10 18h4"/></svg><b></b></div>
+          </div>
+          <div class="a-chips">
+            <span class="a-chip on">全部</span>
+            <span class="a-chip"><em>🎧</em>数码</span>
+            <span class="a-chip"><em>📚</em>教材</span>
+            <span class="a-chip"><em>💡</em>生活</span>
+            <span class="a-chip"><em>👜</em>服饰</span>
+          </div>
+          <div class="a-sort">
+            <div class="a-sorts"><span>综合</span><span class="on">最新</span><span>价格 ⇅</span></div>
+            <span class="a-count">共 8 件</span>
+          </div>
+          <div class="a-grid">
+            <div class="a-card"><div class="a-img"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" alt=""><span class="a-cond">几乎全新</span><span class="a-fav"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 7a4 4 0 0 1 7 3.7C19 15.6 12 20 12 20Z"/></svg></span></div><div class="a-cc"><div class="a-title">索尼无线降噪耳机 WH-1000XM4</div><div class="a-price"><b><i>¥</i>280</b><s>¥504</s></div><div class="a-meta">东校区<em></em>2 小时前</div></div></div>
+            <div class="a-card"><div class="a-img"><img src="../campus-market-miniapp/src/assets/goods/books.png" alt=""><span class="a-cond">轻微痕迹</span><span class="a-fav"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C4453A" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 7a4 4 0 0 1 7 3.7C19 15.6 12 20 12 20Z" fill="#C4453A"/></svg></span></div><div class="a-cc"><div class="a-title">高等数学教材，上下册</div><div class="a-price"><b><i>¥</i>25</b><s>¥45</s></div><div class="a-meta">西校区<em></em>3 小时前</div></div></div>
+            <div class="a-card"><div class="a-img"><img src="../campus-market-miniapp/src/assets/goods/lamp.png" alt=""><span class="a-cond">几乎全新</span><span class="a-fav"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 7a4 4 0 0 1 7 3.7C19 15.6 12 20 12 20Z"/></svg></span></div><div class="a-cc"><div class="a-title">宿舍护眼台灯</div><div class="a-price"><b><i>¥</i>45</b><s>¥81</s></div><div class="a-meta">东校区<em></em>4 小时前</div></div></div>
+            <div class="a-card"><div class="a-img"><img src="../campus-market-miniapp/src/assets/goods/bike.png" alt=""><span class="a-cond">轻微痕迹</span><span class="a-fav"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.8"><path d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 7a4 4 0 0 1 7 3.7C19 15.6 12 20 12 20Z"/></svg></span></div><div class="a-cc"><div class="a-title">捷安特校园通勤自行车</div><div class="a-price"><b><i>¥</i>350</b><s>¥630</s></div><div class="a-meta">东校区<em></em>5 小时前</div></div></div>
+          </div>
+        </div>
+        <div class="a-tab">
+          <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5Z"/></svg>集市</div>
+          <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 1 1-3.2-6.4L21 4v6h-6"/></svg>消息</div>
+          <div><div class="a-fab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><span class="fb">发布</span></div>
+          <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>我的</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>改了什么</h4>
+      <ol>
+        <li><b>删掉 110px 装饰 banner</b>，首屏直接进入搜索 + 商品，同样屏高下多露出近一整行卡片。</li>
+        <li><b>搜索框常驻顶部</b>，与筛选按钮平级；筛选带「已选条件」角标，替代原来的折叠面板入口。</li>
+        <li><b>分类改为带图标的 chips</b>，从 12px 提到 12px + 32px 高度，点击目标变大；右侧留出渐隐暗示可横滑。</li>
+        <li><b>排序常驻为 tab</b>（综合 / 最新 / 价格⇅），一次点击完成，不再三级跳。</li>
+        <li><b>标题允许 2 行</b>，卡片等高；价格 17.5/700 + 等宽数字，纵向能对齐。</li>
+        <li><b>元信息 11px / 5.1:1</b>，校区与时间合并为一行，减少一条视觉线。</li>
+        <li><b>「发布」升为凸起 FAB</b>，把「消息」放进 tab 并带未读角标——发布是低频动作，消息是高频动作。需配 <code>custom-tab-bar</code>。</li>
+      </ol>
+    </div>
+  </div>
+  <p class="pair-note">注意：凸起 FAB 需要自定义 tabBar（<code>app.config.ts</code> 中 <code>custom: true</code>），若本期不改造，可先保留原 4 项结构，仅做字号与间距修正。</p>
+
+  <!-- 详情 -->
+  <div class="grp" id="p-detail" style="margin-bottom:20px"><span class="lv lv-p1">商品详情</span><h3>让状态可读、动作可预期</h3></div>
+  <div class="pair">
+    <div class="col">
+      <span class="ptag pt-b">现状</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="nv"><span class="back"><svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="#14201B" stroke-width="2" stroke-linecap="round"><path d="M8 1 2 8l6 7"/></svg></span>闲置详情<div class="cap"><i></i><i></i><u></u></div></div>
+        <div class="b-body" style="padding-bottom:0">
+          <div style="height:330px;border-radius:18px;overflow:hidden;background:#eadbbd"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" style="width:100%;height:100%;object-fit:cover" alt=""></div>
+          <div style="margin:22px 3px">
+            <div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:32px;font-weight:700;color:#194e41;letter-spacing:-1px">¥280</div><span style="color:#52714a;background:#eef2e7;border-radius:20px;font-size:10px;padding:4px 8px">在售</span></div>
+            <div style="font-size:21px;font-weight:600;line-height:1.5;margin:9px 0">索尼无线降噪耳机</div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;margin:12px 0"><span style="border:1px solid #d9dfd3;border-radius:7px;padding:4px 7px;color:#707c66;font-size:11px">几乎全新</span><span style="border:1px solid #d9dfd3;border-radius:7px;padding:4px 7px;color:#707c66;font-size:11px">数码电子</span><span style="border:1px solid #d9dfd3;border-radius:7px;padding:4px 7px;color:#707c66;font-size:11px">东校区 · 3号楼</span></div>
+            <div style="color:#767e77;font-size:12px">2 小时前发布</div>
+          </div>
+          <div style="background:#fff;border-radius:18px;padding:20px;margin:14px 0">
+            <div style="font-size:16px;font-weight:600">关于这件闲置</div>
+            <div style="color:#64705c;font-size:13px;line-height:1.95;margin-top:13px">同学自用闲置，使用情况已写在成色里。可以约在校内公共地点当面查看，具体时间和地点双方联系后商量。</div>
+          </div>
+          <div style="background:#fff;border-radius:18px;padding:20px;margin:14px 0;display:flex;align-items:center;gap:12px">
+            <div style="width:42px;height:42px;border-radius:50%;color:#194e41;background:#e1e9d7;display:flex;align-items:center;justify-content:center;font-size:19px">林</div>
+            <div><div style="font-size:16px;font-weight:600">小林同学</div><div style="font-size:12px;color:#777f78;margin-top:5px">西校区 · 同校商品</div></div>
+            <div style="margin-left:auto;color:#194e41;font-size:12px">分享</div>
+          </div>
+          <div style="background:#fff;border-radius:18px;padding:20px;margin:14px 0">
+            <div style="font-size:16px;font-weight:600">联系卖家</div>
+            <div style="color:#767e77;font-size:12px;line-height:1.7;margin-top:12px">卖家未公开联系方式，你可以先申请联系。</div>
+          </div>
+          <div style="text-align:right;color:#194e41;font-size:12px;margin:14px 0">举报此商品</div>
+        </div>
+        <div style="flex:0 0 auto;background:rgba(255,255,255,.96);border-top:1px solid #e5e8df;padding:12px 16px 22px;display:flex;gap:10px">
+          <div style="flex:0 0 96px;min-height:44px;border:1px solid #d9ddd6;border-radius:12px;color:#194e41;background:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500">♡ 收藏</div>
+          <div style="flex:1;min-height:44px;border-radius:12px;background:#194e41;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500">我想要 · 申请联系</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <span class="ptag pt-a">改版后</span>
+      <div class="ph" style="background:#F6F5F0">
+        <div class="sb" style="position:absolute;top:0;left:0;right:0;z-index:9;color:#fff"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#fff"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#fff"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#fff"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#fff"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#fff"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#fff" stroke-opacity=".5"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#fff"/></svg></div>
+        <div class="a-body">
+          <div class="a-gal"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" alt=""><span class="cnt">1 / 1</span></div>
+          <div style="position:absolute;top:52px;left:14px;right:14px;display:flex;justify-content:space-between;z-index:8">
+            <div style="width:32px;height:32px;border-radius:50%;background:rgba(20,32,27,.42);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center"><svg width="9" height="15" viewBox="0 0 10 16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M8 1 2 8l6 7"/></svg></div>
+            <div style="width:32px;height:32px;border-radius:50%;background:rgba(20,32,27,.42);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;gap:2.5px"><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i><i style="width:3px;height:3px;border-radius:50%;background:#fff"></i></div>
+          </div>
+          <div class="a-sec" style="margin-top:-18px;border-radius:18px 18px 0 0;position:relative;z-index:2">
+            <div class="a-price-row"><span class="a-big"><i>¥</i>280</span><s>¥504</s><span class="a-pill pill-ok">在售</span></div>
+            <div class="a-dtitle">索尼无线降噪耳机 WH-1000XM4</div>
+            <div class="a-tags"><span class="a-tag g">几乎全新</span><span class="a-tag">数码电子</span><span class="a-tag">东校区 · 3 号楼</span></div>
+            <div class="a-sub">2 小时前发布 · 128 次浏览</div>
+          </div>
+          <div class="a-sec">
+            <div class="a-seller"><div class="a-av">林</div><div><div class="nm">小林同学</div><div class="mt">西校区 · 在售 3 件</div></div><span class="go">主页 ›</span></div>
+          </div>
+          <div class="a-sec">
+            <div class="a-sec-h"><span class="t">商品情况</span><span class="x">5 项已说明 · 1 项有问题</span></div>
+            <div class="a-drow"><span class="k">外观成色</span><span class="v ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2F6B4F" stroke-width="2.6"><path d="m4 13 5 5L20 6"/></svg><b>正常</b></span></div>
+            <div class="a-drow"><span class="k">配件齐全度</span><span class="v warn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#A56A12" stroke-width="2.4"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg><b>缺收纳盒</b></span></div>
+          </div>
+        </div>
+        <div class="a-bar">
+          <div class="fav"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3D4A43" stroke-width="1.7"><path d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 7a4 4 0 0 1 7 3.7C19 15.6 12 20 12 20Z"/></svg>收藏</div>
+          <div class="cta">我想要</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>改了什么</h4>
+      <ol>
+        <li><b>图集改为<b>通栏铺满</b>（原 330px 内缩 16px + 18px 圆角，两侧留白浪费了横向空间），右下角加 <b>1/1</b> 计数。</li>
+        <li><b>价格 28/700 + 状态 pill 同行</b>，状态用语义色（在售绿 / 已售灰），一眼可辨。</li>
+        <li><b>标签统一为浅底 chip</b>，去掉 1px 描边带来的「表格感」。</li>
+        <li><b>卖家卡加「在售 3 件」与主页入口</b>——同校交易最需要判断的是「这个人靠不靠谱」。</li>
+        <li><b>商品情况前置并摘要化</b>：「5 项已说明 · 1 项有问题」，正常项用勾、异常项用琥珀色，比原来 12px 灰字平铺可读得多。</li>
+        <li><b>主 CTA 固定为「我想要」</b>，状态改由上方 pill 与副文案表达，点击结果可预期。</li>
+        <li><b>举报收进右上角「···」</b>，不再以 12px 文字悬在页尾。</li>
+      </ol>
+    </div>
+  </div>
+  <p class="pair-note">配套逻辑改动：主按钮禁用时，在按钮上方显示一行 12px 原因文案（如「卖家已同意，请复制联系方式」），而不是把原因写进按钮。</p>
+
+  <!-- 发布 -->
+  <div class="grp" id="p-publish" style="margin-bottom:20px"><span class="lv lv-p1">发布闲置</span><h3>把长表单拆成三步</h3></div>
+  <div class="pair">
+    <div class="col">
+      <span class="ptag pt-b">现状</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="nv">发布闲置<div class="cap"><i></i><i></i><u></u></div></div>
+        <div class="b-body">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:6px 0 22px">
+            <div><div style="font-size:23px;font-weight:600;line-height:1.4;letter-spacing:-.6px">给闲置，找个新主人</div><div style="font-size:12px;color:#777f78;margin-top:5px;line-height:1.65">拍张照片，写清楚情况，同校同学就能看到。</div></div>
+            <span style="flex-shrink:0;font-size:10px;color:#194e41;background:#e1e9dd;padding:4px 8px;border-radius:20px;margin-top:6px">演示版</span>
+          </div>
+          <div style="background:#fff;border-radius:18px;padding:20px">
+            <div style="font-size:12px;font-weight:600;margin-bottom:10px">商品图片 <span style="color:#767e77;font-size:12px;font-weight:400">（1/5）</span></div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px">
+              <div style="aspect-ratio:1;border-radius:12px;overflow:hidden"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" style="width:100%;height:100%;object-fit:cover" alt=""></div>
+              <div style="aspect-ratio:1;background:#f2f4ec;border:1px dashed #ccd7c4;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7b8c71;font-size:10px"><span style="font-size:30px;margin-bottom:4px">＋</span>拍照 / 相册</div>
+            </div>
+            <div style="font-size:12px;font-weight:600;margin:20px 0 10px">商品名称</div>
+            <div style="height:45px;background:#f5f5f0;border:1px solid #e9ebe3;border-radius:11px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:#9aa39a">例如：自用宿舍护眼台灯</div>
+            <div style="font-size:12px;font-weight:600;margin:20px 0 10px">商品描述</div>
+            <div style="height:116px;background:#f5f5f0;border:1px solid #e9ebe3;border-radius:11px;padding:12px;font-size:13px;color:#9aa39a;line-height:1.6">使用多久、有没有瑕疵、配件是否齐全…</div>
+            <div style="display:flex;gap:12px;margin-top:20px">
+              <div style="flex:1"><div style="font-size:12px;font-weight:600;margin-bottom:10px">出售价格（元）</div><div style="height:45px;background:#f5f5f0;border:1px solid #e9ebe3;border-radius:11px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:#9aa39a">0.00</div></div>
+              <div style="flex:1"><div style="font-size:12px;font-weight:600;margin-bottom:10px">原价（选填）</div><div style="height:45px;background:#f5f5f0;border:1px solid #e9ebe3;border-radius:11px;display:flex;align-items:center;padding:0 12px;font-size:13px;color:#9aa39a">0.00</div></div>
+            </div>
+          </div>
+          <div style="text-align:center;font-size:11px;color:#8c9188;margin-top:22px">请如实填写商品信息，联系方式默认不公开。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <span class="ptag pt-a">改版后 · 第 2 步</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="a-nav"><div style="display:flex;align-items:center;gap:10px"><svg width="9" height="15" viewBox="0 0 10 16" fill="none" stroke="#14201B" stroke-width="2" stroke-linecap="round"><path d="M8 1 2 8l6 7"/></svg><span class="t" style="font-size:16px">发布闲置</span></div><span style="font-size:12px;color:#5E6B63">存草稿</span></div>
+        <div class="a-body">
+          <div class="a-prog"><i class="f"></i><i class="f"></i><i></i></div>
+          <div class="a-step"><span>第 <b>2</b> 步 / 共 3 步 · 描述你的闲置</span><span>约 30 秒</span></div>
+          <div class="a-form">
+            <div class="a-fl a-mb">商品名称 <span>已填 12 / 60</span></div>
+            <div class="a-field a-mb" style="color:#14201B">索尼无线降噪耳机</div>
+
+            <div class="a-fl a-mb">分类</div>
+            <div class="a-chips-wrap a-mb">
+              <span class="a-chip-s on">数码电子</span><span class="a-chip-s">教材书籍</span><span class="a-chip-s">生活用品</span><span class="a-chip-s">服饰鞋包</span><span class="a-chip-s">运动户外</span><span class="a-chip-s">其他</span>
+            </div>
+
+            <div class="a-fl a-mb">成色</div>
+            <div class="a-chips-wrap a-mb">
+              <span class="a-chip-s">全新</span><span class="a-chip-s on">几乎全新</span><span class="a-chip-s">轻微使用痕迹</span><span class="a-chip-s">明显使用痕迹</span>
+            </div>
+
+            <div class="a-two a-mb">
+              <div><div class="a-fl">售价</div><div class="a-field" style="color:#14201B"><span class="pre">¥</span>280</div></div>
+              <div><div class="a-fl">原价 <span>选填</span></div><div class="a-field a-ph"><span class="pre">¥</span>504</div></div>
+            </div>
+
+            <div class="a-row" style="border-top:1px solid #F2F1EB;margin-top:-2px"><span style="font-size:13px">交易地点</span><span class="v">东校区 · 3 号楼 <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="#8A948C" stroke-width="1.4"><path d="M1.5 3 4 5.5 6.5 3"/></svg></span></div>
+          </div>
+        </div>
+        <div class="a-pbar"><div class="back">上一步</div><div class="next">下一步</div></div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>改了什么</h4>
+      <ol>
+        <li><b>三步拆分</b>：照片 → 信息 → 情况与联系方式。每屏 1 个决策，顶部三段进度条给出「还剩多少」。</li>
+        <li><b>分类 / 成色改成 chips</b>：6 个分类一屏放得下，一次点击完成；原来要点开 Picker、滚动、确定，三步。</li>
+        <li><b>价格带 ¥ 前缀 + 等宽数字</b>，售价比原价权重高；原价明确标注「选填」。</li>
+        <li><b>第 1 步图片区标注「第 1 张为主图」</b>并打角标——二手交易里主图决定点击率。</li>
+        <li><b>校区与楼栋合并为一行「交易地点」</b>，楼栋选填，少一次必填决策。</li>
+        <li><b>底部双按钮</b>「上一步 / 下一步」，替换原来一屏到底、提交按钮在 3 屏外的结构。</li>
+        <li><b>「存草稿」</b>给用户一个安全出口，降低中途放弃的心理成本。</li>
+      </ol>
+    </div>
+  </div>
+  <p class="pair-note">第 3 步承载「商品情况清单」与联系方式。清单加载失败时，该区块显示「重新加载」并允许跳过，不再阻塞提交。</p>
+
+  <!-- 通知 -->
+  <div class="grp" id="p-notify" style="margin-bottom:20px"><span class="lv lv-p1">联系申请</span><h3>状态要一眼分清</h3></div>
+  <div class="pair">
+    <div class="col">
+      <span class="ptag pt-b">现状</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="nv">联系申请<div class="cap"><i></i><i></i><u></u></div></div>
+        <div class="b-body">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:6px 0 22px">
+            <div><div style="font-size:23px;font-weight:600;line-height:1.4;letter-spacing:-.6px">每一次联系，<br>都由你决定</div><div style="font-size:12px;color:#777f78;margin-top:5px;line-height:1.65">申请和同意只针对这件商品，不影响商品在售状态。</div></div>
+            <span style="flex-shrink:0;font-size:10px;color:#194e41;background:#e1e9dd;padding:4px 8px;border-radius:20px;margin-top:6px">演示版</span>
+          </div>
+          <div style="display:flex;background:#e7eae0;border-radius:13px;padding:4px;margin:16px 0">
+            <span style="flex:1;text-align:center;padding:9px;border-radius:10px;font-size:12px;background:#fff;color:#194e41;box-shadow:0 2px 6px rgba(25,78,65,.06)">收到的申请</span>
+            <span style="flex:1;text-align:center;padding:9px;border-radius:10px;font-size:12px;color:#7c8574">发出的申请</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#81867b;margin:14px 0"><span>2 条申请</span><span style="color:#194e41;font-size:12px">刷新</span></div>
+          <div style="background:#fff;border-radius:18px;padding:20px;margin:14px 0">
+            <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#52714a;background:#eef2e7;border-radius:20px;font-size:10px;padding:4px 8px">等待处理</span><span style="color:#767e77;font-size:12px">2 小时前</span></div>
+            <div style="font-size:14px;font-weight:600;line-height:1.6;margin:12px 0 8px">索尼无线降噪耳机 ↗</div>
+            <div style="color:#767e77;font-size:12px;line-height:1.7">小鹿同学 想联系你</div>
+            <div style="display:flex;gap:10px;margin-top:16px"><div style="flex:1;min-height:44px;border:1px solid #d9ddd6;border-radius:12px;color:#194e41;display:flex;align-items:center;justify-content:center;font-size:14px">暂不同意</div><div style="flex:1;min-height:44px;border-radius:12px;background:#194e41;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px">同意联系</div></div>
+          </div>
+          <div style="background:#fff;border-radius:18px;padding:20px;margin:14px 0">
+            <div style="display:flex;justify-content:space-between;align-items:center"><span style="color:#52714a;background:#eef2e7;border-radius:20px;font-size:10px;padding:4px 8px">未同意</span><span style="color:#767e77;font-size:12px">昨天</span></div>
+            <div style="font-size:14px;font-weight:600;line-height:1.6;margin:12px 0 8px">宿舍护眼台灯 ↗</div>
+            <div style="color:#767e77;font-size:12px;line-height:1.7">卖家暂未同意这次申请。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <span class="ptag pt-a">改版后</span>
+      <div class="ph">
+        <div class="sb"><span>9:41</span><svg width="66" height="12" viewBox="0 0 66 12" fill="none"><rect y="7" width="3" height="5" rx="1" fill="#14201B"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#14201B"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#14201B"/><rect x="15" y="1" width="3" height="11" rx="1" fill="#14201B"/><path d="M24 5.5c2.5-2 6.5-2 9 0M26 8c1.5-1.2 3.8-1.2 5.3 0" stroke="#14201B" stroke-width="1.4" stroke-linecap="round"/><circle cx="28.7" cy="10.3" r="1" fill="#14201B"/><rect x="44" y="2" width="18" height="8.5" rx="2.5" stroke="#14201B" stroke-opacity=".4"/><rect x="46" y="4" width="13" height="4.5" rx="1.2" fill="#14201B"/></svg></div>
+        <div class="a-nav"><span class="t" style="font-size:16px">联系申请</span><span style="font-size:12px;color:#5E6B63">全部已读</span></div>
+        <div class="a-body">
+          <div class="a-hd"><div class="t">3 条联系申请</div><div class="s"><b>1 条待处理</b> · 2 条已处理</div></div>
+          <div class="a-seg"><span class="on">收到的 <b>3</b></span><span>发出的 <b>1</b></span></div>
+          <div class="a-req">
+            <div class="a-req-h"><div class="av">鹿</div><div><div class="nm">小鹿同学</div><div style="font-size:10.5px;color:#5E6B63;margin-top:1px">东校区 · 2 小时前</div></div><span class="a-pill pill-warn" style="margin:0 0 0 auto">待处理</span></div>
+            <div class="a-req-p"><img src="../campus-market-miniapp/src/assets/goods/headphones.png" alt=""><div style="min-width:0"><div class="ti">索尼无线降噪耳机 WH-1000XM4</div><div class="pr">¥280</div></div></div>
+            <div class="a-req-f"><span class="ok">同意联系</span><span class="no">暂不同意</span><span class="st">2 小时前</span></div>
+          </div>
+          <div class="a-req" style="opacity:.92">
+            <div class="a-req-h"><div class="av" style="background:#EFEFE8;color:#68736B">王</div><div><div class="nm">王同学</div><div style="font-size:10.5px;color:#5E6B63;margin-top:1px">东校区 · 昨天</div></div><span class="a-pill pill-ok" style="margin:0 0 0 auto">已同意</span></div>
+            <div class="a-req-p"><img src="../campus-market-miniapp/src/assets/goods/books.png" alt=""><div style="min-width:0"><div class="ti">高等数学教材，上下册</div><div class="pr">¥25</div></div></div>
+            <div class="a-req-f"><span style="font-size:12px;color:#5E6B63">对方已可查看联系方式</span><span class="st">昨天</span></div>
+          </div>
+          <div class="a-req" style="opacity:.72">
+            <div class="a-req-h"><div class="av" style="background:#EFEFE8;color:#68736B">李</div><div><div class="nm">李同学</div><div style="font-size:10.5px;color:#5E6B63;margin-top:1px">西校区 · 3 天前</div></div><span class="a-pill pill-mute" style="margin:0 0 0 auto">未同意</span></div>
+            <div class="a-req-f" style="margin-top:4px"><span style="font-size:12px;color:#8A948C">已婉拒，对方不会看到联系方式</span><span class="st">3 天前</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>改了什么</h4>
+      <ol>
+        <li><b>标题改为事实陈述</b>「3 条联系申请 / 1 条待处理」，把页面目的写在第一行；营销式长标题只留给首次空态。</li>
+        <li><b>状态 pill 分三色</b>：待处理琥珀 / 已同意绿 / 未同意中性灰。已处理项整体降透明度，视觉上自动「沉下去」。</li>
+        <li><b>申请卡加申请人头像与昵称</b>，原来只有「X 同学 想联系你」一行灰字。</li>
+        <li><b>商品改为缩略图 + 标题 + 价格</b>，比一行可点文字更容易确认「是哪件」。</li>
+        <li><b>同意为主按钮、暂不同意为文字按钮</b>，权重区分开，避免误点拒绝。</li>
+        <li><b>segment 带数量</b>，不用切换就能知道另一侧有几条。</li>
+        <li><b>tabBar 加未读角标</b>（<code>setTabBarBadge</code>），让用户知道有申请进来。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+  <div class="sec-h"><span class="sec-n">05</span><h2>落地路线</h2></div>
+  <p class="sec-d">建议按「先修可读性、再调结构、最后补体系」的顺序推进。第一阶段不涉及任何逻辑改动，风险最低、收益最直接。</p>
+
+  <div class="road">
+    <div class="rc">
+      <span class="tag lv-p0">阶段一 · P0</span>
+      <h4>可读性与触控</h4>
+      <div class="dur">纯样式 · 约 1–2 天</div>
+      <ul>
+        <li>9px/10px → 11px，灰色改 <code>#5E6B63</code></li>
+        <li>字重 550/650 → 500/600/700</li>
+        <li>收藏、删除等热区补到 44×44</li>
+        <li>状态 pill 接语义色</li>
+        <li>抽出 CSS 变量层（顺带完成）</li>
+      </ul>
+    </div>
+    <div class="rc">
+      <span class="tag lv-p1">阶段二 · P1</span>
+      <h4>首页与转化路径</h4>
+      <div class="dur">小改结构 · 约 1 周</div>
+      <ul>
+        <li>删 banner、搜索 sticky、排序前置</li>
+        <li>卡片 2 行标题 + 价格等宽数字</li>
+        <li>详情页 CTA 与状态语义化</li>
+        <li>通知页标题、数量、未读角标</li>
+        <li>发布页三步拆分 + chips</li>
+      </ul>
+    </div>
+    <div class="rc">
+      <span class="tag lv-p2">阶段三 · P2</span>
+      <h4>体系与打磨</h4>
+      <div class="dur">约 2 周，可并行</div>
+      <ul>
+        <li>图标替换文本字符</li>
+        <li>骨架屏高度对齐真实卡片</li>
+        <li>空态四段式统一</li>
+        <li>tabBar 自定义（FAB）</li>
+        <li>深色模式变量覆盖</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="checks">
+    <h4>验收清单</h4>
+    <ul>
+      <li>375 / 390 / 414 三档真机截图对比，无错位</li>
+      <li>所有正文文字 ≥ 11px，对比度 ≥ 4.5:1</li>
+      <li>所有可点元素热区 ≥ 44×44pt</li>
+      <li>全局无 <code>550</code> / <code>650</code> 字重</li>
+      <li>圆角只用 8 / 12 / 14 / 24 / 999</li>
+      <li>间距全部为 4 的倍数</li>
+      <li>iPhone SE（667 高）首屏可见 ≥ 2 张完整卡片</li>
+      <li>状态色与状态文案始终成对出现</li>
+      <li>发布流程每步可返回、可存草稿</li>
+      <li>清单接口失败不阻塞发布</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <span>校园集市 · 小程序端 UI 评审</span>
+  <span>评审依据：src/app.scss · src/components.tsx · src/pages/*</span>
+</footer>
+
+</div>
+</body>
+</html>
