@@ -9,7 +9,7 @@ import { tokenFromFragment } from '../utils/supply';
 import ListingItemEditor from '../components/supply/ListingItemEditor';
 
 export const ASSISTANT_ROLE_TEXT =
-  '你正在协助整理发布：可以修改标题、描述、分类、价格建议、打包明细与取货楼栋建议并保存。最终由商品所有者检查并发布；你看不到所有者的联系方式、订单、确认码或其他草稿。';
+  '你正在协助整理发布：可以修改标题、描述、分类、价格建议、打包明细与取货楼栋建议并保存。最终由商品所有者检查并发布；你看不到所有者的联系方式、联系申请或其他草稿。';
 
 /**
  * 协助人页面。邀请码可以手动输入，也可以来自链接的 # 片段：读取后立刻从地址栏抹掉，

@@ -53,7 +53,7 @@ V6 的 `isbn13_is_valid` **没有**重新定义；「979-0 不是图书 ISBN」�
 | `POST /v1/listing-assist-invites` | 为草稿或批次创建邀请（`expiresInHours` 1～168，默认 24）；**原始邀请码只在这个响应里出现一次** |
 | `GET /v1/listing-assist-invites`、`POST /{id}/revoke`、`GET /{id}/events` | 我发出的邀请（不含邀请码）、撤销（幂等）、审计事件 |
 | `POST /v1/listing-assist-invites/redeem` | 兑换；邀请码**只放在请求体** `{ "token": "…" }` |
-| `GET /v1/price-guidance?category=&condition=&textbookEditionId=` | 价格参考；只接受这三个维度 |
+| ~~`GET /v1/price-guidance`~~ | 价格参考（依赖成交订单，已随站内交易停用） |
 
 ### 逐项校验码
 
@@ -122,7 +122,7 @@ V6 的 `isbn13_is_valid` **没有**重新定义；「979-0 不是图书 ISBN」�
 | 批量发布 | 30 次 / 小时 | `campus-market.rate-limit.listing-batch-publish.*` |
 | 创建邀请 | 20 次 / 天 | `campus-market.rate-limit.assist-invite-create.*` |
 | 兑换邀请 | 10 次 / 10 分钟 | `campus-market.rate-limit.assist-invite-redeem.*` |
-| 价格参考 | 60 次 / 10 分钟 | `campus-market.rate-limit.price-guidance.*` |
+| ~~价格参考~~ | 已停用 | — |
 
 超出返回 429、`Retry-After` 与 `requestId`。邀请码、草稿内容、描述都不写日志（`AssistInviteIT` 用输出捕获断言）。
 

@@ -11,6 +11,8 @@ import type { Category } from '../types';
 /**
  * 模块 6.1 / 7 的 Mock 契约：与后端 SchoolIsolationIT、CircleMemberLimitIT、CommitmentIT、ModerationIT 的关键断言对应，
  * 保证离线演示与真实服务端的权限结论一致。全部是 API 调用的行为断言。
+ *
+ * <p>平台已改为只展示商品与联系方式：订单取消记录（7.1）与爽约报告（7.2）随交易 / 预约功能移除（Mock 返回 410）。
  */
 
 const DB = 'campus_market_mock_database_v1';
@@ -51,22 +53,6 @@ function product(title: string, extra: Partial<ProductCreateInput> = {}, categor
     ...(fullDisclosure(category) ? { inspection: fullDisclosure(category)! } : {}), ...extra,
   } as ProductCreateInput;
 }
-const meetingAt = () => { const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0); return at.toISOString() };
-const orderInput = (productId: string) => ({ productId, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-/**
- * 把订单的档期挪到过去（开始于 minutesAgo 分钟前、时长 60 分钟），模拟面交时间已过。
- * 7.1A 起档期在接受时冻结：订单与对应版本的快照一起平移（与后端测试的 SlotClock 相同）。
- */
-function meetingPast(orderId: string, minutesAgo = 120) {
-  const raw = JSON.parse(window.localStorage.getItem(DB)!);
-  const o = raw.market.orders.find((x: { id: string }) => x.id === orderId);
-  const start = Date.now() - minutesAgo * 60_000;
-  o.meetingAtIso = new Date(start).toISOString();
-  o.meetingEndsAtIso = new Date(start + 60 * 60_000).toISOString();
-  for (const a of raw.slotAgreements) if (a.orderId === orderId && a.revision === (o.meetingRevision ?? 0)) Object.assign(a, { startsAt: start, endsAt: start + 60 * 60_000 });
-  window.localStorage.setItem(DB, JSON.stringify(raw));
-  api = new MockCampusMarketApi();
-}
 /** 测试夹具：与运维手册的受控 SQL 等价，直接登记一名工作人员 */
 function makeStaff(userId: string, role: 'MODERATOR' | 'SENIOR_MODERATOR' = 'MODERATOR', school = 'pilot') {
   const raw = JSON.parse(window.localStorage.getItem(DB)!);
@@ -74,15 +60,6 @@ function makeStaff(userId: string, role: 'MODERATOR' | 'SENIOR_MODERATOR' = 'MOD
   window.localStorage.setItem(DB, JSON.stringify(raw));
   api = new MockCampusMarketApi();
 }
-async function deal(accept = true) {
-  const sellerId = await user('seller');
-  const pid = (await api.createProduct(product(`承诺 ${rnd()}`))).id;
-  const buyerId = await user('buyer');
-  const order = await api.createOrder(orderInput(pid));
-  if (accept) { await as('seller'); await api.transitionOrder(order.id, { to: 'PENDING_MEETING' }) }
-  return { sellerId, buyerId, pid, orderId: order.id };
-}
-
 describe('6.1A 学校隔离', () => {
   it('未登录不能读取商品；列表 / 搜索总数 / feed / 详情 / 评论 / 他人资料都不跨校；schoolId 参数 400；写入不能跨校', async () => {
     addLakeSchool();
@@ -109,7 +86,8 @@ describe('6.1A 学校隔离', () => {
     expect([hidden.code, hidden.message]).toEqual([404, missing.message]);
     expect(await code(api.listComments(b))).toBe(404);
     expect(await code(api.setFavorite(b, true))).toBe(404);
-    expect(await code(api.createOrder(orderInput(b)))).toBe(404);
+    expect(await code(api.requestContact(b))).toBe(404);
+    expect(await code(api.getOrCreateConversation(b))).toBe(404);
     expect(await code(api.listProducts({ campus: LAKE as never, sort: 'latest', page: 1, pageSize: 20 }))).toBe(400);
     expect(await code(api.listProducts({ schoolId: 'lake', sort: 'latest', page: 1, pageSize: 20 } as never))).toBe(400);
     expect(await code(api.createProduct(product('发到他校', { campus: LAKE as never })))).toBe(400);
@@ -117,7 +95,6 @@ describe('6.1A 学校隔离', () => {
     const lakeUser = (await api.login({ account: accounts.get('lake')!, password: 'test-password' })).user.id;
     await as('pilot');
     expect(await code(api.getUser(lakeUser))).toBe(404);
-    expect(await code(api.getPublicTradeSummary(lakeUser))).toBe(404);
     expect(await code(api.register({ account: `x-${rnd()}`, password: 'test-password', nickname: 'x', campus: '火星校区' as never }))).toBe(400);
   });
 });
@@ -155,114 +132,6 @@ describe('6.1C 成员分页与人数上限', () => {
     expect((await api.redeemCircleInvite(t3)).myRole).toBe('MEMBER');
     await as('owner');
     expect((await api.listCircleMembers(circle.id)).total).toBe(1000);
-  });
-});
-
-describe('7.1 取消记录', () => {
-  it('确认前无责取消（原因选填）；确认后必须选原因；「其他」需说明；幂等不重复记录；阶段由服务端判定；客户端不能伪造字段', async () => {
-    const early = await deal(false);
-    await as('buyer');
-    expect(await code(api.transitionOrder(early.orderId, { to: 'CANCELLED', phase: 'AFTER_MEETING_AGREED' } as never))).toBe(400);
-    await api.transitionOrder(early.orderId, { to: 'CANCELLED' });
-    const d = await deal();
-    await as('buyer');
-    expect(await code(api.transitionOrder(d.orderId, { to: 'CANCELLED' }))).toBe(400);
-    expect(await code(api.transitionOrder(d.orderId, { to: 'CANCELLED', reasonCode: 'OTHER' }))).toBe(400);
-    expect(await code(api.transitionOrder(d.orderId, { to: 'CANCELLED', reasonCode: 'CHANGED_MIND', note: '<b>x</b>' }))).toBe(400);
-    await api.transitionOrder(d.orderId, { to: 'CANCELLED', reasonCode: 'SCHEDULE_CONFLICT' });
-    await as('seller');
-    expect((await api.transitionOrder(d.orderId, { to: 'CANCELLED', reasonCode: 'CHANGED_MIND' })).canonicalStatus).toBe('CANCELLED');
-    const records = JSON.parse(window.localStorage.getItem(DB)!).cancellationRecords;
-    expect(records.map((r: { phase: string }) => r.phase)).toEqual(['BEFORE_SELLER_CONFIRM', 'AFTER_SELLER_CONFIRM']);
-    expect(records[1]).toMatchObject({ reasonCode: 'SCHEDULE_CONFLICT', actorId: d.buyerId });
-    const flow = await api.getOrderFlow(d.orderId);
-    expect(flow.cancellation).toMatchObject({ phase: 'AFTER_SELLER_CONFIRM', byMe: false });
-  });
-});
-
-describe('7.2 爽约报告', () => {
-  it('资格：没有确认档期 / 太早 / 见面后都不能报告；只能报告对方；单方报告不处罚；承认才计数；第 2 次限制预约 24 小时', async () => {
-    const pending = await deal(false);
-    meetingPast(pending.orderId);
-    await as('buyer');
-    expect((await api.getOrderNoShow(pending.orderId)).eligibility.code).toBe('NO_AGREED_MEETING');
-    const d = await deal();
-    await as('buyer');
-    expect((await api.getOrderNoShow(d.orderId)).eligibility.code).toBe('TOO_EARLY');
-    meetingPast(d.orderId);
-    await as('buyer');
-    expect(await code(api.reportNoShow(d.orderId, { reasonCode: 'DID_NOT_ARRIVE', reportedUserId: d.buyerId } as never))).toBe(400);
-    const r = await api.reportNoShow(d.orderId, { reasonCode: 'DID_NOT_ARRIVE' });
-    expect(r).toMatchObject({ status: 'PENDING', byMe: true, canRespond: false });
-    expect((await api.getOrderNoShow(d.orderId)).eligibility.code).toBe('ALREADY_REPORTED');
-    await as('seller');
-    expect((await api.getMyGovernance()).restrictions).toEqual([]);
-    expect(await code(api.createOrder(orderInput((await api.createProduct(product('卖家也能买'))).id)))).toBe(403);
-    // ↑ 自己的商品不能买（403），与限制无关；换一件别人的商品验证 BOOKING 不受 PENDING 影响
-    await as('buyer');
-    const other = (await api.createProduct(product('买家的商品'))).id;
-    await as('seller');
-    expect((await api.createOrder(orderInput(other))).productId).toBe(other);
-
-    await as('buyer');
-    expect(await code(api.acknowledgeNoShow(r.id))).toBe(404);
-    await as('seller');
-    expect((await api.acknowledgeNoShow(r.id)).status).toBe('ACKNOWLEDGED');
-    expect((await api.getMyGovernance()).noShowWarning).toEqual({ confirmedCount: 1, windowDays: 30 });
-    expect((await api.getMyGovernance()).restrictions).toEqual([]);
-
-    // 第二次已确认的爽约：限制预约 24 小时，来源是公开规则
-    const buyer2 = await user('buyer2');
-    void buyer2;
-    await as('seller');
-    const p2 = (await api.createProduct(product('第二次'))).id;
-    await as('buyer2');
-    const o2 = await api.createOrder(orderInput(p2));
-    await as('seller');
-    await api.transitionOrder(o2.id, { to: 'PENDING_MEETING' });
-    meetingPast(o2.id);
-    await as('buyer2');
-    const r2 = await api.reportNoShow(o2.id, { reasonCode: 'DID_NOT_ARRIVE' });
-    await as('seller');
-    await api.acknowledgeNoShow(r2.id);
-    const g = await api.getMyGovernance();
-    expect(g.restrictions).toHaveLength(1);
-    // 7.1B：自动限制来源为 SYSTEM_RULE，带规则版本与两次依据
-    expect(g.restrictions[0]).toMatchObject({ scope: 'BOOKING', source: 'SYSTEM_RULE', ruleVersion: 'NO_SHOW_V1', active: true, canAppeal: true });
-    expect(g.restrictions[0].basis).toHaveLength(2);
-    expect(g.restrictions[0].endsAt - g.restrictions[0].startsAt).toBe(24 * 3_600_000);
-    const blocked = await failure(api.createOrder(orderInput(other)));
-    expect(blocked.code).toBe(403);
-    expect(blocked.details).toMatchObject({ code: 'RESTRICTED', scope: 'BOOKING' });
-    // 已有订单照常可以取消 / 浏览不受影响
-    expect((await api.getProduct(other)).id).toBe(other);
-  });
-
-  it('异议进入复核并不计数；改约让旧档期上的报告失效；见面（买家确认）后不能报告', async () => {
-    const d = await deal();
-    meetingPast(d.orderId);
-    await as('buyer');
-    const r = await api.reportNoShow(d.orderId, { reasonCode: 'DID_NOT_ARRIVE' });
-    await as('seller');
-    expect(await code(api.disputeNoShow(r.id, ''))).toBe(400);
-    expect((await api.disputeNoShow(r.id, '我到了')).status).toBe('DISPUTED');
-    const raw = JSON.parse(window.localStorage.getItem(DB)!);
-    expect(raw.moderationCases.filter((c: { targetType: string; status: string }) => c.targetType === 'NO_SHOW' && c.status === 'OPEN')).toHaveLength(1);
-    expect((await api.getMyGovernance()).noShowWarning).toBeNull();
-
-    const r2deal = await deal();
-    meetingPast(r2deal.orderId);
-    await as('seller');
-    const old = await api.reportNoShow(r2deal.orderId, { reasonCode: 'DID_NOT_ARRIVE' });
-    const start = new Date(Date.now() + 2 * 86_400_000); start.setMinutes(0, 0, 0);
-    await as('buyer');
-    const flow = await api.proposeMeeting(r2deal.orderId, { meetingPointId: '东校区-library', startsAtIso: start.toISOString(), endsAtIso: new Date(start.getTime() + 3_600_000).toISOString() });
-    const proposal = flow.proposals.find((p) => p.status === 'PENDING')!;
-    await as('seller');
-    await api.acceptMeeting(r2deal.orderId, proposal.id);
-    await as('buyer');
-    expect((await api.getOrderNoShow(r2deal.orderId)).reports.find((x) => x.id === old.id)?.status).toBe('EXPIRED');
-    expect(await code(api.acknowledgeNoShow(old.id))).toBe(409);
   });
 });
 
@@ -357,8 +226,85 @@ describe('7.3～7.5 工作人员、举报、限制、申诉', () => {
   });
 });
 
-describe('REST 适配层（模块 6.1 / 7）', () => {
-  it('路径与方法；成员分页参数；取消原因只在请求体；工作人员接口在 /v1/moderation 下', async () => {
+describe('阶段 1（V16）治理收口', () => {
+  it('新的限制动作是 RESTRICT_CONTACT；RESTRICT_BOOKING / CONFIRM_NO_SHOW / REJECT_NO_SHOW 与处理原因 CONFIRMED_NO_SHOW 一律 400；不再提供的动作也不出现在 allowedActions', async () => {
+    const targetId = await user('target');
+    await user('reporter');
+    await api.createModerationReport({ targetType: 'USER', targetId, reasonCode: 'HARASSMENT' });
+    makeStaff(await user('staff'), 'SENIOR_MODERATOR');
+    await as('staff');
+    const caseId = (await api.listModerationCases({ status: 'OPEN' })).items[0].id;
+    const detail = await api.getModerationCase(caseId);
+    expect(detail.allowedActions).toEqual(['RESTRICT_CONTACT', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION', 'NO_ACTION']);
+    for (const action of ['RESTRICT_BOOKING', 'CONFIRM_NO_SHOW', 'REJECT_NO_SHOW']) {
+      expect(await code(api.decideModerationCase(caseId, { action: action as never, reasonCode: 'POLICY_VIOLATION', durationHours: 24 })), action).toBe(400);
+    }
+    expect(await code(api.decideModerationCase(caseId, { action: 'RESTRICT_CONTACT', reasonCode: 'CONFIRMED_NO_SHOW' as never, durationHours: 24 }))).toBe(400);
+    const decided = await api.decideModerationCase(caseId, { action: 'RESTRICT_CONTACT', reasonCode: 'HARASSMENT', durationHours: 24 });
+    expect([decided.status, decided.resolutionCode]).toEqual(['RESOLVED', 'RESTRICT_CONTACT']);
+    await as('target');
+    const g = await api.getMyGovernance();
+    expect(Object.keys(g).sort()).toEqual(['notices', 'restrictions']);
+    expect(g.restrictions[0]).toMatchObject({ scope: 'CONTACT', source: 'CASE', active: true, canAppeal: true });
+  });
+
+  it('订单与爽约复核不能再被举报或立案（400）；爽约复核的举报原因 400；案件列表仍可按历史类型筛选', async () => {
+    await user('reporter');
+    for (const targetType of ['ORDER', 'NO_SHOW']) {
+      expect(await code(api.createModerationReport({ targetType: targetType as never, targetId: 'x1', reasonCode: 'OTHER', note: '历史对象' })), targetType).toBe(400);
+    }
+    const sellerId = await user('seller');
+    void sellerId;
+    const p = (await api.createProduct(product('举报原因校验'))).id;
+    await as('reporter');
+    expect(await code(api.createModerationReport({ targetType: 'PRODUCT', targetId: p, reasonCode: 'NO_SHOW_REVIEW' as never }))).toBe(400);
+    makeStaff(await user('staff'));
+    await as('staff');
+    expect(await code(api.openModerationCase({ targetType: 'ORDER' as never, targetId: 'o1' }))).toBe(400);
+    expect((await api.listModerationCases({ targetType: 'ORDER' })).items).toEqual([]);
+    expect(await code(api.listModerationCases({ targetType: 'BOOKING' as never }))).toBe(400);
+  });
+
+  it('历史数据：爽约规则的自动限制已撤销（RULE_RETIRED）、历史爽约确认 active=false 且不能申诉、订单案件以「不采取措施」结案且只读', async () => {
+    const targetId = await user('target');
+    const staffId = await user('staff');
+    const now = Date.now();
+    const raw = JSON.parse(window.localStorage.getItem(DB)!);
+    raw.schemaVersion = 12;
+    raw.staffMembers.push({ userId: staffId, schoolId: 'pilot', role: 'MODERATOR', active: true, createdAt: now });
+    raw.market.orders.push({ id: 'legacy-order', productId: 'p-gone', buyerId: targetId, sellerId: staffId, price: 10, status: '交易中',
+      canonicalStatus: 'PENDING_MEETING', createdAt: now - 10, updatedAt: now - 10 });
+    raw.noShowReports.push({ id: 'ns1', orderId: 'legacy-order', meetingRevision: 1, schoolId: 'pilot', reporterId: staffId, reportedId: targetId,
+      status: 'CONFIRMED', reasonCode: 'DID_NOT_ARRIVE', note: null, responseNote: null, createdAt: now - 10, respondedAt: null, decidedAt: now - 5,
+      decidedBy: staffId, confirmedAt: now - 5 });
+    raw.userRestrictions.push({ id: 'rule-r', userId: targetId, schoolId: 'pilot', scope: 'BOOKING', source: 'SYSTEM_RULE', caseId: null,
+      noShowReportId: 'ns1', createdBy: null, reasonCode: 'CONFIRMED_NO_SHOW', startsAt: now - 5, endsAt: now + 86_400_000, createdAt: now - 5,
+      revokedAt: null, revokedBy: null, revokeReason: null, ruleVersion: 'NO_SHOW_V1', decidedAt: now - 5, basis: [{ reportId: 'ns1', confirmedAt: now - 5 }], lastCorrectionId: null });
+    raw.moderationActions.push({ id: 'act-ns', schoolId: 'pilot', caseId: null, appealId: null, staffId: 'someone', actionCode: 'CONFIRM_NO_SHOW',
+      reasonCode: 'CONFIRMED_NO_SHOW', note: null, targetType: 'NO_SHOW', targetId: 'ns1', restrictionId: null, expiresAt: null, effective: true,
+      createdAt: now - 5, subjectId: targetId });
+    raw.moderationCases.push({ id: 'case-order', schoolId: 'pilot', targetType: 'ORDER', targetId: 'legacy-order', status: 'OPEN', assignedStaffId: null,
+      resolutionCode: null, reportCount: 1, createdAt: now - 10, updatedAt: now - 10, resolvedAt: null, noShowReportId: null });
+    window.localStorage.setItem(DB, JSON.stringify(raw));
+    api = new MockCampusMarketApi();
+
+    await as('target');
+    const g = await api.getMyGovernance();
+    expect(g.restrictions[0]).toMatchObject({ id: 'rule-r', active: false, canAppeal: false, revokeReason: 'RULE_RETIRED', source: 'SYSTEM_RULE' });
+    expect(g.notices[0]).toMatchObject({ actionId: 'act-ns', actionCode: 'CONFIRM_NO_SHOW', active: false, canAppeal: false });
+    expect(await code(api.submitAppeal({ actionId: 'act-ns', reason: '历史记录' }))).toBe(409);
+    expect(await code(api.submitAppeal({ restrictionId: 'rule-r', reason: '已撤销' }))).toBe(409);
+    await as('staff');
+    // 本人参与过这张历史订单：利益回避同样适用于历史案件
+    expect((await failure(api.getModerationCase('case-order'))).details).toEqual({ code: 'CONFLICT_OF_INTEREST', reason: 'OWN_ORDER' });
+    const persisted = JSON.parse(window.localStorage.getItem(DB)!);
+    expect(persisted.moderationCases.find((c: { id: string }) => c.id === 'case-order')).toMatchObject({ status: 'DISMISSED', resolutionCode: 'NO_ACTION' });
+    expect(persisted.market.orders.find((o: { id: string }) => o.id === 'legacy-order').canonicalStatus).toBe('EXPIRED');
+  });
+});
+
+describe('REST 适配层（模块 6.1 / 7，阶段 1）', () => {
+  it('路径与方法；成员分页参数；新的限制动作 RESTRICT_CONTACT 只在请求体；工作人员接口在 /v1/moderation 下；没有订单 / 爽约接口', async () => {
     const calls: Array<{ method: string; url: string; body?: string }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ method: init?.method ?? 'GET', url: String(url).replace(/^https?:\/\/[^/]+/, ''), body: init?.body as string | undefined });
@@ -366,32 +312,37 @@ describe('REST 适配层（模块 6.1 / 7）', () => {
     }) as unknown as typeof fetch;
     const rest = new RestCampusMarketApi(new HttpTransport({ fetchImpl }));
     await rest.listCircleMembers('c1', 3, 50);
-    await rest.transitionOrder('o1', { to: 'CANCELLED', reasonCode: 'CHANGED_MIND', note: '有事' });
-    await rest.getOrderNoShow('o1');
-    await rest.reportNoShow('o1', { reasonCode: 'DID_NOT_ARRIVE' });
-    await rest.acknowledgeNoShow('r1');
-    await rest.disputeNoShow('r1', '我到了');
     await rest.createModerationReport({ targetType: 'PRODUCT', targetId: 'p1', reasonCode: 'SPAM' });
     await rest.listMyModerationReports();
     await rest.getMyGovernance();
     await rest.submitAppeal({ restrictionId: 'x1', reason: '申诉' });
     await rest.getStaffStatus();
     await rest.listModerationCases({ status: 'OPEN', page: 2, size: 20 });
+    await rest.listModerationCases({ targetType: 'ORDER' });
     await rest.getModerationCase('k1');
     await rest.openModerationCase({ targetType: 'USER', targetId: 'u1' });
     await rest.claimModerationCase('k1');
-    await rest.decideModerationCase('k1', { action: 'NO_ACTION', reasonCode: 'DUPLICATE' });
+    await rest.decideModerationCase('k1', { action: 'RESTRICT_CONTACT', reasonCode: 'HARASSMENT', durationHours: 72 });
+    await rest.decideModerationCase('k2', { action: 'NO_ACTION', reasonCode: 'DUPLICATE' });
     await rest.listModerationAppeals({ status: 'PENDING' });
     await rest.decideModerationAppeal('a1', { accept: false, reasonCode: 'APPEAL_REJECTED' });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /v1/circles/c1/members?page=3&size=50', 'POST /v1/orders/o1/transitions', 'GET /v1/orders/o1/no-show-reports',
-      'POST /v1/orders/o1/no-show-reports', 'POST /v1/no-show-reports/r1/acknowledge', 'POST /v1/no-show-reports/r1/dispute',
+      'GET /v1/circles/c1/members?page=3&size=50',
       'POST /v1/moderation-reports', 'GET /v1/moderation-reports/mine', 'GET /v1/me/governance', 'POST /v1/me/appeals', 'GET /v1/me/staff',
-      'GET /v1/moderation/cases?status=OPEN&page=2&size=20', 'GET /v1/moderation/cases/k1', 'POST /v1/moderation/cases',
-      'POST /v1/moderation/cases/k1/claim', 'POST /v1/moderation/cases/k1/decision', 'GET /v1/moderation/appeals?status=PENDING',
-      'POST /v1/moderation/appeals/a1/decision',
+      'GET /v1/moderation/cases?status=OPEN&page=2&size=20', 'GET /v1/moderation/cases?targetType=ORDER', 'GET /v1/moderation/cases/k1', 'POST /v1/moderation/cases',
+      'POST /v1/moderation/cases/k1/claim', 'POST /v1/moderation/cases/k1/decision', 'POST /v1/moderation/cases/k2/decision',
+      'GET /v1/moderation/appeals?status=PENDING', 'POST /v1/moderation/appeals/a1/decision',
     ]);
-    expect(calls[1].body).toBe(JSON.stringify({ to: 'CANCELLED', reasonCode: 'CHANGED_MIND', note: '有事' }));
+    // 请求体只带接口列出的字段（后端 DECISION_FIELDS / REPORT_FIELDS，未知字段 400）
+    expect(calls[1].body).toBe(JSON.stringify({ targetType: 'PRODUCT', targetId: 'p1', reasonCode: 'SPAM' }));
+    expect(calls[11].body).toBe(JSON.stringify({ action: 'RESTRICT_CONTACT', reasonCode: 'HARASSMENT', durationHours: 72 }));
+    expect(calls[12].body).toBe(JSON.stringify({ action: 'NO_ACTION', reasonCode: 'DUPLICATE' }));
     for (const c of calls) expect(c.body ?? '').not.toMatch(/schoolId|staffId|reporterId|actorUserId/);
+    for (const c of calls) expect(c.url).not.toMatch(/\/v1\/(orders|no-show-reports|meeting-points|price-guidance)|trade-(history|summary)/);
+    // 订单、爽约、交易履历与价格参考的方法已从 REST 适配层移除
+    for (const retired of ['createOrder', 'transitionOrder', 'listOrders', 'addReview', 'getOrderFlow', 'getOrderNoShow', 'reportNoShow',
+      'acknowledgeNoShow', 'disputeNoShow', 'getOwnTradeHistory', 'getPublicTradeSummary', 'getPriceGuidance', 'listMeetingPoints']) {
+      expect(retired in RestCampusMarketApi.prototype, retired).toBe(false);
+    }
   });
 });

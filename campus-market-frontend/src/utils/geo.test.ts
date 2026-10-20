@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCOPE_FALLBACK_ORDER, SCOPE_LABEL, allowsFallback, fallbackChain,
-  haversineMeters, rankMeetingPoints, walkMinutes,
+  haversineMeters, walkMinutes,
 } from './geo';
-import { seedBuildings, seedMeetingPointCoordinates } from '../data/buildings';
+import { seedBuildings } from '../data/buildings';
 
 /**
- * 距离公式、步行时间、降级顺序与面交点推荐（1.3 / 1.5）。
+ * 距离公式、步行时间与降级顺序（1.3）。
  *
  * <p>这些数字同时被后端 SQL 与前端 Mock 使用。下面的期望值取自后端
  * BuildingFeedIT 对同一组演示坐标的断言区间，两端一旦漂移，这里会先报错。
@@ -78,45 +78,5 @@ describe('范围降级顺序的唯一定义', () => {
   it('9. 中文标签仅用于展示：每个 scope 恰有一个标签，且标签不作为键出现在任何判断里', () => {
     expect(Object.keys(SCOPE_LABEL).sort()).toEqual([...SCOPE_FALLBACK_ORDER].sort());
     expect(Object.isFrozen(SCOPE_LABEL)).toBe(true);
-  });
-});
-
-describe('面交点推荐', () => {
-  const points = Object.entries(seedMeetingPointCoordinates)
-    .filter(([id]) => id.startsWith('东校区'))
-    .map(([id, c]) => ({ id, name: id, ...c }));
-
-  it('10. 按「买家楼栋 + 商品楼栋」距离之和最小推荐，且只推荐一个', () => {
-    const ranked = rankMeetingPoints(points, HOME, FAR);
-    const recommended = ranked.filter((r) => r.recommended);
-    expect(recommended).toHaveLength(1);
-    // 结果应当按合计距离升序
-    const totals = ranked.map((r) => r.totalMeters as number);
-    expect([...totals].sort((a, b) => a - b)).toEqual(totals);
-    expect(ranked[0].recommended).toBe(true);
-  });
-
-  it('11. 同距离时按 id 稳定排序：同样的输入永远得到同样的顺序', () => {
-    const twin = [
-      { id: 'b-point', name: 'B', latitude: 31.001, longitude: 121.001 },
-      { id: 'a-point', name: 'A', latitude: 31.001, longitude: 121.001 },
-    ];
-    const first = rankMeetingPoints(twin, HOME, HOME).map((r) => r.point.id);
-    const second = rankMeetingPoints([...twin].reverse(), HOME, HOME).map((r) => r.point.id);
-    expect(first).toEqual(['a-point', 'b-point']);
-    expect(second).toEqual(first);
-  });
-
-  it('12. 任一楼栋缺坐标：不做伪精确推荐，保持原顺序', () => {
-    const ranked = rankMeetingPoints(points, HOME, null);
-    expect(ranked.some((r) => r.recommended)).toBe(false);
-    expect(ranked.map((r) => r.point.id)).toEqual(points.map((p) => p.id));
-    expect(ranked.every((r) => r.totalMeters === null)).toBe(true);
-  });
-
-  it('13. 面交点缺坐标同样安全降级', () => {
-    const partial = [...points, { id: 'no-coord', name: '无坐标', latitude: null, longitude: null }];
-    const ranked = rankMeetingPoints(partial, HOME, FAR);
-    expect(ranked.some((r) => r.recommended)).toBe(false);
   });
 });

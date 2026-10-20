@@ -231,7 +231,7 @@ export default function CircleManagePage() {
       {owner && (
         <section aria-labelledby="archive-title" className="space-y-1">
           <h2 id="archive-title" className="text-base font-bold text-slate-800">归档圈子</h2>
-          <p className="text-xs text-slate-700">归档后不能再发布、订阅或邀请；圈子订阅会停用，未使用的邀请码会作废。已经成立的订单不受影响。归档不能撤销。</p>
+          <p className="text-xs text-slate-700">归档后不能再发布、订阅或邀请；圈子订阅会停用，未使用的邀请码会作废。归档不能撤销。</p>
           <Button color="error" variant="outlined" size="small" onClick={(e) => { restoreFocus.current = e.currentTarget; setPending({ kind: 'archive' }) }}>归档圈子</Button>
         </section>
       )}
@@ -259,7 +259,7 @@ export default function CircleManagePage() {
         </DialogTitle>
         <DialogContent>
           <p className="text-sm text-slate-700">
-            {pending?.kind === 'remove' ? '对方的圈子订阅将停用，看不到这个圈子里仅圈子可见的商品；已经成立的订单不受影响。'
+            {pending?.kind === 'remove' ? '对方的圈子订阅将停用，看不到这个圈子里仅圈子可见的商品；对方在这些商品上的联系申请会从列表中消失，已获同意的联系方式也不再向对方展示。'
               : pending?.kind === 'transfer' ? '转让后你会成为管理员，不能再调整成员角色或归档圈子。'
                 : '归档不能撤销。'}
           </p>

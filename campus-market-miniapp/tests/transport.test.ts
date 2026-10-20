@@ -70,8 +70,8 @@ describe('小程序 REST 请求适配', () => {
     expect(await native.restore()).toBeNull();
   });
   it('REST 联系与收藏沿用真实接口，不调用旧订单接口；查询正确编码并保留零价格', async () => {
-    const handler = vi.fn<RequestPort>(async (input) => ok(input.url.includes('/auth/login') ? session : {}));
-    const api = new RestApi(new Transport(handler, 'https://campus.example', true), async () => 'https://image.example/a.png');
+    const handler = vi.fn<RequestPort>(async (input) => ok(input.url.includes('/auth/login') ? session : input.url.endsWith('/contact-request') ? { id: 'request', status: 'PENDING' } : {}));
+    const api = new RestApi(new Transport(handler, 'https://campus.example', true));
     await api.login('myaccount', 'password'); await api.list({ keyword: '台灯 & 书', page: 1, pageSize: 12, sort: 'latest', minPrice: 0 });
     await api.requestContact('item'); await api.decide('request', 'APPROVED'); await api.favorite('item', true); await api.favorite('item', false);
     const calls = handler.mock.calls.map(([input]) => input);

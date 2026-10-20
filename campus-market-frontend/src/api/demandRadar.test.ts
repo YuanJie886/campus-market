@@ -235,7 +235,7 @@ describe('2.3 同步匹配（Mock）', () => {
     expect(match.valid).toBe(true);
   });
 
-  it('13. 下架 / 售出不可购买，重新上架恢复；被预约时即时显示 NOT_ON_SALE', async () => {
+  it('13. 下架 / 售出不可联系，重新上架恢复；联系申请不锁定商品，卖家标记售出后匹配即时失效', async () => {
     const buyer = await as('buyer');
     const t = tag();
     await api.createDemandSubscription({ keyword: t });
@@ -250,14 +250,17 @@ describe('2.3 同步匹配（Mock）', () => {
     await login(buyer);
     expect((await api.listDemandMatches()).items[0].valid).toBe(true);
 
-    // 通过订单流程锁定：Mock 与 REST 一样在读取时按商品状态判断
-    await api.createOrder({
-      productId: product.id, meetingPointId: '东校区-library',
-      meetingAtIso: new Date(Date.now() + 86_400_000).toISOString(), contact: '1', idempotencyKey: tag(),
-    });
-    const [reserved] = (await api.listDemandMatches()).items;
-    expect(reserved.valid).toBe(false);
-    expect(reserved.invalidReason).toBe('NOT_ON_SALE');
+    // 联系申请只是请求查看联系方式，不预约、不锁定商品：匹配仍然有效
+    await api.requestContact(product.id);
+    expect((await api.listDemandMatches()).items[0].valid).toBe(true);
+
+    // 卖家自行标记售出：发布状态变化时立即重算，匹配失效但保留（不再提供联系入口）
+    await login(seller);
+    await api.setProductStatus(product.id, '已售出');
+    await login(buyer);
+    const [sold] = (await api.listDemandMatches()).items;
+    expect(sold.valid).toBe(false);
+    expect(sold.invalidReason).toBe('NO_LONGER_MATCHES');
   });
 });
 
@@ -329,7 +332,9 @@ describe('2.6 Mock schema v4 迁移', () => {
     const first = migrateMockDatabase(v3Payload(), seed);
     expect(first.db.users[0].dormBuildingId).toBe('east-qinyuan-1');
     expect(first.db.market.products[0].buildingId).toBe('east-qinyuan-1');
-    expect(first.db.market.orders[0].canonicalStatus).toBe('PENDING_SELLER_CONFIRM');
+    // 订单迁移结果保留在阶段 1 收尾的留痕里（V16：未结束的订单被系统关闭）
+    expect(first.db.legacyTradeClosures.find((c) => c.entityId === first.db.market.orders[0].id)?.fromStatus).toBe('PENDING_SELLER_CONFIRM');
+    expect(first.db.market.orders[0].canonicalStatus).toBe('EXPIRED');
 
     const snapshot = JSON.parse(JSON.stringify(first.db));
     const second = migrateMockDatabase(snapshot, seed);

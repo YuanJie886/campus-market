@@ -9,8 +9,8 @@ import { join } from 'node:path';
  * E2E 夹具：
  *   · 每个参与方一个独立的 browser context（买卖双方、工作人员不共享登录存储）；
  *   · 账号每次随机生成，不依赖固定账号或执行顺序；
- *   · 失败时保存截图（确认码区域打码）与脱敏 trace：删除网络记录与响应体，替换本次登记的全部敏感值
- *     （密码、access token、刷新 Cookie、邀请码、确认码）以及任何 JWT 形状的字符串；
+ *   · 失败时保存截图与脱敏 trace：删除网络记录与响应体，替换本次登记的全部敏感值
+ *     （密码、access token、刷新 Cookie、邀请码）以及任何 JWT 形状的字符串；
  *   · 数据库夹具只通过 docker exec 在本次的一次性容器里执行（本地 socket，不需要密码）。
  */
 
@@ -39,24 +39,15 @@ export function sql(query: string): string {
   return out.trim();
 }
 
-/** 测试专用时间旅行：订单当前档期（订单行 + 冻结快照）整体平移，结束于 minutesAgo 分钟前（与后端 SlotClock 相同） */
-export function slotEndedMinutesAgo(orderId: string, minutesAgo: number) {
-  sql(`BEGIN; SET LOCAL session_replication_role = replica;
-    UPDATE orders SET meeting_at = now() - make_interval(mins => ${minutesAgo + 60}), meeting_ends_at = now() - make_interval(mins => ${minutesAgo}) WHERE id = '${orderId}';
-    UPDATE order_slot_agreements a SET starts_at = o.meeting_at, ends_at = o.meeting_ends_at FROM orders o WHERE o.id = '${orderId}' AND a.order_id = o.id AND a.meeting_revision = o.meeting_revision;
-    COMMIT;`);
-}
-
-/** 受控 SQL 夹具：与运维手册配置工作人员的语句相同 */
-export function makeStaff(userId: string, role: 'MODERATOR' | 'SENIOR_MODERATOR' = 'SENIOR_MODERATOR') {
+/** 受控 SQL 夹具：与运维手册配置工作人员的语句相同（SCHOOL_ADMIN 与后端 AccountLifecycleIT 的夹具相同，用于签发重置码） */
+export function makeStaff(userId: string, role: 'MODERATOR' | 'SENIOR_MODERATOR' | 'SCHOOL_ADMIN' = 'SENIOR_MODERATOR') {
   sql(`INSERT INTO staff_members(user_id, school_id, role) SELECT u.id, c.school_id, '${role}' FROM users u JOIN campuses c ON c.id = u.campus WHERE u.id = '${userId}';`);
 }
 
 /** 第二所学校（多校部署只需要登记学校与校区） */
 export function ensureSecondSchool(): string {
   sql(`INSERT INTO schools(id, name) VALUES ('e2e-lake', 'E2E 湖畔学校') ON CONFLICT DO NOTHING;
-       INSERT INTO campuses(id, school_id, name) VALUES ('E2E湖畔校区', 'e2e-lake', 'E2E湖畔校区') ON CONFLICT DO NOTHING;
-       INSERT INTO meeting_points(id, campus_id, name) VALUES ('E2E湖畔校区-library', 'E2E湖畔校区', '图书馆门口') ON CONFLICT DO NOTHING;`);
+       INSERT INTO campuses(id, school_id, name) VALUES ('E2E湖畔校区', 'e2e-lake', 'E2E湖畔校区') ON CONFLICT DO NOTHING;`);
   return 'E2E湖畔校区';
 }
 
@@ -127,8 +118,7 @@ export const test = base.extend<Fixtures>({
       for (const c of await p.context.cookies()) secrets.add(c.value);
       if (failed) {
         for (const pg of p.context.pages()) {
-          await pg.screenshot({ path: testInfo.outputPath(`${p.label}-failure.png`), fullPage: true,
-            mask: [pg.getByText(/交易确认码/)] }).catch(() => undefined);
+          await pg.screenshot({ path: testInfo.outputPath(`${p.label}-failure.png`), fullPage: true }).catch(() => undefined);
         }
         const zip = testInfo.outputPath(`${p.label}-trace.zip`);
         await p.context.tracing.stop({ path: zip }).catch(() => undefined);
@@ -169,17 +159,6 @@ export async function apiOk(p: Party, method: 'GET' | 'POST' | 'PUT' | 'PATCH' |
 export async function open(p: Party, path: string) {
   await p.page.goto(path);
   await expect(p.page.getByRole('button', { name: '用户菜单' })).toBeVisible({ timeout: 15_000 });
-}
-
-export function hourStart(hoursFromNow: number): Date {
-  const d = new Date(Date.now() + hoursFromNow * 3_600_000);
-  d.setMinutes(0, 0, 0);
-  return d;
-}
-
-export function localInput(d: Date) {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 export { expect };

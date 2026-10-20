@@ -6,8 +6,11 @@ export interface AdminIdentity {
 }
 export const getAdminIdentity = () => request<AdminIdentity>('/v1/admin/me');
 
+/** 站内交易已停用（V16），历史订单只读：任何写入动作都不授权，与后端返回的权限无关。 */
+const READ_ONLY_RESOURCES = new Set(['orders']);
 export function permissionFor(resource: string, action: string): string | null {
     if (['list', 'show', 'read'].includes(action)) return `${resource}:read`;
+    if (READ_ONLY_RESOURCES.has(resource)) return null;
     if (['edit', 'write'].includes(action)) return `${resource}:write`;
     return null;
 }

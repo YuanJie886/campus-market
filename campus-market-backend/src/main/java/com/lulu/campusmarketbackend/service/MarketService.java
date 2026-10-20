@@ -73,6 +73,11 @@ public class MarketService {
 
     private final com.lulu.campusmarketbackend.school.SchoolScope schools;
     private final com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions;
+    /** 阶段 4：上传图片的归属检查与文本内容安全 */
+    private final com.lulu.campusmarketbackend.image.ImageService uploadedImages;
+    private final com.lulu.campusmarketbackend.security.ContentSafetyService safety;
+    /** 图片数量 / 格式 / 外部地址开关与签名地址还原（与 GET /v1/config 同源） */
+    private final com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy;
 
     public MarketService(UserMapper users, ProductMapper products, FavoriteMapper favorites, ReferenceMapper references,
                          CommentMapper comments, ConversationMapper conversations, MessageMapper messages,
@@ -86,9 +91,15 @@ public class MarketService {
                          com.lulu.campusmarketbackend.supply.BundleService bundles,
                          com.lulu.campusmarketbackend.circle.ProductVisibility visibility,
                          com.lulu.campusmarketbackend.school.SchoolScope schools,
-                         com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions) {
+                         com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions,
+                         com.lulu.campusmarketbackend.image.ImageService uploadedImages,
+                         com.lulu.campusmarketbackend.security.ContentSafetyService safety,
+                         com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy) {
+        this.imagePolicy = imagePolicy;
         this.schools = schools;
         this.restrictions = restrictions;
+        this.uploadedImages = uploadedImages;
+        this.safety = safety;
         this.users = users; this.products = products; this.favorites = favorites; this.references = references;
         this.comments = comments; this.conversations = conversations; this.messages = messages; this.reads = reads;
         this.mapper = mapper; this.buildings = buildings; this.feeds = feeds;
@@ -157,7 +168,11 @@ public class MarketService {
 
     public Map<String, Object> profile(String id, Map<String, Object> body) {
         UUID uid = uuid(id); UpdateWrapper<UserEntity> update = new UpdateWrapper<>(); update.eq("id", uid);
-        if (body.containsKey("nickname")) update.set("nickname", AuthService.string(body, "nickname", 1, 40));
+        if (body.containsKey("nickname")) {
+            String nickname = AuthService.string(body, "nickname", 1, 40);
+            safety.check(uid, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.PROFILE, nickname);
+            update.set("nickname", nickname);
+        }
         if (body.containsKey("avatar")) { String avatar = AuthService.optional(body, "avatar", 2048); if (!avatar.isEmpty() && !avatar.matches("^https?://.*")) throw ApiException.badRequest("头像必须使用 HTTP(S) 地址"); update.set("avatar", avatar); }
         // 6.1A：只能在本校校区之间切换；换到他校校区等于绕过学校隔离，与不存在的校区同为 400
         String ownSchool = body.containsKey("campus") ? schools.schoolOf(id) : null;
@@ -179,11 +194,6 @@ public class MarketService {
         }
         JsonFieldPolicy.rejectUnknown(body, PROFILE_FIELDS);
         if (body.size() > 0) users.update(null, update); return user(id, true);
-    }
-
-    /** 稳定面交点。V3 起附带演示坐标，字段 campus 保持原名以兼容旧客户端。 */
-    public List<Map<String, Object>> meetingPoints() {
-        return references.selectMeetingPoints().stream().map(mapper::meetingPoint).toList();
     }
 
     public Map<String, Object> products(Map<String, String> query, String uid) {
@@ -247,6 +257,8 @@ public class MarketService {
         // 模块 7：单件、打包、批量、草稿最终发布都经过这里
         restrictions.require(sellerId, "PUBLISHING");
         ProductInput input = productInput(body, schools.schoolOf(sellerId.toString()));
+        uploadedImages.requireUsable(input.images, sellerId, assistedBy);
+        safety.check(sellerId, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.PRODUCT, input.title, input.description);
         String kind = listingKind(body.get("listingKind"));
         // 模块 6：默认全校公开；圈子可见必须主动选择 1～5 个圈子，卖家（所有者）必须是每个圈子的在籍成员。
         // 协助整理的人不能借此选择所有者无权访问的圈子——这里校验的永远是所有者本人。
@@ -257,7 +269,7 @@ public class MarketService {
         List<com.lulu.campusmarketbackend.mapper.BundleMapper.ItemRow> bundleItems = null;
         Map<String, Object> edition = null;
         if ("BUNDLE".equals(kind)) {
-            // 打包商品按每条明细验货（下单时生成），不接受商品级验货清单；也不关联单一教材版本
+            // 打包商品由每条明细自行说明，不接受商品级验货清单；也不关联单一教材版本
             if (body.get("inspection") != null) throw ApiException.badRequest("整套打包商品按每条明细验货，不需要提交商品级验货清单");
             if (body.get("textbookEditionId") != null && !String.valueOf(body.get("textbookEditionId")).isBlank()) {
                 throw ApiException.badRequest("整套打包商品不能关联单一教材版本");
@@ -305,13 +317,14 @@ public class MarketService {
             throw ApiException.badRequest("只有整套打包商品可以提交明细");
         }
         String title = body.containsKey("title") ? AuthService.string(body, "title", 1, 100) : null, description = body.containsKey("description") ? AuthService.string(body, "description", 1, 4000) : null, category = body.containsKey("category") ? enumValue(body.get("category"), CATEGORIES, "分类") : null, condition = body.containsKey("condition") ? enumValue(body.get("condition"), CONDITIONS, "成色") : null, campus = body.containsKey("campus") ? schools.requireCampusInSchool(body.get("campus"), schools.schoolOf(uid)) : null, contact = body.containsKey("contact") ? AuthService.optional(body, "contact", 100) : null;
-        BigDecimal price = body.containsKey("price") ? price(body.get("price")) : null, originalPrice = body.containsKey("originalPrice") && body.get("originalPrice") != null ? price(body.get("originalPrice")) : null; List<String> images = body.containsKey("images") ? images(body.get("images")) : null;
+        BigDecimal price = body.containsKey("price") ? price(body.get("price")) : null, originalPrice = body.containsKey("originalPrice") && body.get("originalPrice") != null ? price(body.get("originalPrice")) : null; List<String> images = body.containsKey("images") ? imagePolicy.productImages(body.get("images"), mapper.jsonArray(old.get("images"))) : null;
         String buildingId = resolveProductBuilding(body, old, campus);
+        if (images != null) uploadedImages.requireUsable(images, uuid(uid), old.get("assisted_by") == null ? null : uuid(text(old.get("assisted_by"))));
+        if (title != null || description != null) safety.check(uuid(uid), com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.PRODUCT, title, description);
         // 验货声明：
         //  * 切换分类 → 必须按新分类重新声明（不支持的分类则清空），绝不沿用旧分类的声明；
         //  * 分类不变且提交了 inspection → 按当前模板整体替换；
         //  * 否则保留原声明（包括没有声明的旧商品，照常可编辑）。
-        // 已生成订单的验货快照与这里无关，不会被改写。
         boolean categoryChanged = category != null && !category.equals(text(old.get("category")));
         boolean replaceDisclosure = !statusSet && !bundle && (categoryChanged || body.containsKey("inspection"));
         com.lulu.campusmarketbackend.inspection.InspectionService.Disclosure disclosure = replaceDisclosure
@@ -323,7 +336,7 @@ public class MarketService {
         //  * 显式提交 textbookEditionId → 按本次生效的分类与校区校验后关联 / 换绑；null 表示解除关联；
         //  * 切换到非教材分类 → 自动解除关联（不保留一个指向教材版本的数码产品）；
         //  * 换到其他学校的校区 → 自动解除关联（目录按学校划分）；
-        //  * 否则保留原关联与快照。已生成订单的验货快照与这里无关。
+        //  * 否则保留原关联与快照。
         String effectiveCategory = category != null ? category : text(old.get("category"));
         String effectiveCampus = campus != null ? campus : text(old.get("campus"));
         Map<String, Object> linked = statusSet ? null : catalog.selectProductTextbook(pid);
@@ -456,7 +469,8 @@ public class MarketService {
     public List<Map<String, Object>> comments(String id, String uid) { product(id, uid); return comments.selectRowsByProduct(uuid(id)).stream().map(row -> mapper.comment(row, uid)).toList(); }
 
     public Map<String, Object> comment(String uid, String id, Map<String, Object> body) {
-        JsonFieldPolicy.rejectUnknown(body, COMMENT_FIELDS); product(id, uid); String content = AuthService.string(body, "content", 1, 2000); UUID parentId = body.get("parentId") == null ? null : uuid(String.valueOf(body.get("parentId"))); if (parentId != null && comments.countRootByIdAndProduct(parentId, uuid(id)) == 0) throw ApiException.badRequest("回复对象无效");
+        JsonFieldPolicy.rejectUnknown(body, COMMENT_FIELDS); product(id, uid); String content = AuthService.string(body, "content", 1, 2000);
+        safety.check(uuid(uid), com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.COMMENT, content); UUID parentId = body.get("parentId") == null ? null : uuid(String.valueOf(body.get("parentId"))); if (parentId != null && comments.countRootByIdAndProduct(parentId, uuid(id)) == 0) throw ApiException.badRequest("回复对象无效");
         CommentEntity entity = new CommentEntity(); entity.setId(UUID.randomUUID()); entity.setProductId(uuid(id)); entity.setUserId(uuid(uid)); entity.setContent(content); entity.setParentId(parentId); comments.insert(entity); return mapper.comment(commentRow(entity.getId()), uid);
     }
 
@@ -471,7 +485,8 @@ public class MarketService {
 
     @Transactional
     public Map<String, Object> message(String uid, String id, Map<String, Object> body) {
-        JsonFieldPolicy.rejectUnknown(body, MESSAGE_FIELDS); String content = AuthService.string(body, "content", 1, 2000); member(uid, id); MessageEntity entity = new MessageEntity(); entity.setId(UUID.randomUUID()); entity.setConversationId(uuid(id)); entity.setSenderId(uuid(uid)); entity.setContent(content); messages.insert(entity); conversations.touch(uuid(id)); return mapper.message(messageRow(entity.getId()));
+        JsonFieldPolicy.rejectUnknown(body, MESSAGE_FIELDS); String content = AuthService.string(body, "content", 1, 2000); member(uid, id);
+        safety.check(uuid(uid), com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.MESSAGE, content); MessageEntity entity = new MessageEntity(); entity.setId(UUID.randomUUID()); entity.setConversationId(uuid(id)); entity.setSenderId(uuid(uid)); entity.setContent(content); messages.insert(entity); conversations.touch(uuid(id)); return mapper.message(messageRow(entity.getId()));
     }
 
     @Transactional public void read(String uid, String id) { member(uid, id); reads.markRead(uuid(id), uuid(uid)); }
@@ -489,7 +504,7 @@ public class MarketService {
         String buildingId = rawBuilding == null || String.valueOf(rawBuilding).isBlank()
                 ? null
                 : buildings.requireSelectable(String.valueOf(rawBuilding), campus);
-        return new ProductInput(AuthService.string(body, "title", 1, 100), AuthService.string(body, "description", 1, 4000), price(body.get("price")), body.get("originalPrice") == null ? null : price(body.get("originalPrice")), enumValue(body.get("category"), CATEGORIES, "分类"), enumValue(body.get("condition"), CONDITIONS, "成色"), campus, buildingId, images(body.get("images")), AuthService.optional(body, "contact", 100));
+        return new ProductInput(AuthService.string(body, "title", 1, 100), AuthService.string(body, "description", 1, 4000), price(body.get("price")), body.get("originalPrice") == null ? null : price(body.get("originalPrice")), enumValue(body.get("category"), CATEGORIES, "分类"), enumValue(body.get("condition"), CONDITIONS, "成色"), campus, buildingId, imagePolicy.productImages(body.get("images"), List.of()), AuthService.optional(body, "contact", 100));
     }
     public static String listingKind(Object raw) {
         if (raw == null) return "SINGLE";
@@ -497,7 +512,6 @@ public class MarketService {
         if (!LISTING_KINDS.contains(value)) throw ApiException.badRequest("发布方式无效");
         return value;
     }
-    public static List<String> images(Object raw) { if (!(raw instanceof List<?> values) || values.size() > 9) throw ApiException.badRequest("图片格式无效"); List<String> result = new ArrayList<>(); for (Object value : values) { if (!(value instanceof String s) || s.length() > 2048 || !s.matches("^https?://.*")) throw ApiException.badRequest("图片必须使用 HTTP(S) 地址"); result.add(s); } return result; }
     public static BigDecimal price(Object raw) { if (!(raw instanceof Number) && !(raw instanceof String)) throw ApiException.badRequest("价格无效"); try { BigDecimal value = new BigDecimal(String.valueOf(raw)); if (value.signum() < 0 || value.compareTo(new BigDecimal("99999999")) > 0 || value.scale() > 2) throw new Exception(); return value; } catch (Exception e) { throw ApiException.badRequest("价格最多两位小数"); } }
     public static String enumValue(Object raw, List<String> allowed, String label) { String value = raw == null ? "" : String.valueOf(raw); if (!allowed.contains(value)) throw ApiException.badRequest(label + "无效"); return value; }
     private static UUID uuid(Object value) { try { return UUID.fromString(String.valueOf(value)); } catch (Exception e) { throw ApiException.badRequest("ID 格式无效"); } }

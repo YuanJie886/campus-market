@@ -84,7 +84,8 @@ describe('0.9C 错误提示接入各业务入口', () => {
     });
   });
 
-  it('2. 注册失败：提示带服务端错误编号', async () => {
+  // REWRITTEN：注册前必须勾选同意《用户协议》《隐私政策》，否则不会发出注册请求
+  it('2. 注册失败：提示带服务端错误编号（REWRITTEN：先勾选同意协议）', async () => {
     setApiClient(apiThatFails('register', new ApiError({
       code: 409, message: '该账号已注册', requestId: 'rid-reg-002', httpStatus: 409,
     })));
@@ -92,8 +93,9 @@ describe('0.9C 错误提示接入各业务入口', () => {
     renderAt('/register');
     await waitFor(() => expect(document.querySelectorAll('input').length).toBeGreaterThan(0));
     document.querySelectorAll('input').forEach((input) => {
-      fireEvent.change(input, { target: { value: 'test-password-2026' } });
+      if (input.type !== 'checkbox') fireEvent.change(input, { target: { value: 'test-password-2026' } });
     });
+    fireEvent.click(screen.getByRole('checkbox', { name: /^已阅读并同意\s*《用户协议》\s*《隐私政策》$/ }));
     clickByText('注册并登录');
 
     await waitFor(() => expect(document.body.textContent).toContain('rid-reg-002'));
@@ -138,21 +140,17 @@ describe('0.9C Mock 模式的错误同样可追溯', () => {
     expect(error.userMessage()).toContain(error.requestId as string);
   });
 
-  it('6. 下单失败与收藏失败同样带编号', async () => {
+  it('6. 联系申请失败与收藏失败同样带编号', async () => {
     const api = new MockCampusMarketApi();
     await api.register({
       account: 'err-user', password: 'test-password', nickname: '同学',
       campus: '东校区', contact: '13800000000',
     });
 
-    const orderError = await api
-      .createOrder({
-        productId: 'missing', meetingPointId: '东校区-library',
-        meetingAtIso: new Date(Date.now() + 86_400_000).toISOString(),
-        contact: '13800000000', idempotencyKey: 'k',
-      })
+    const contactError = await api.requestContact('missing')
       .then(() => null).catch((e: unknown) => e as ApiError);
-    expect(orderError?.requestId).toMatch(/^mock-/);
+    expect(contactError?.code).toBe(404);
+    expect(contactError?.requestId).toMatch(/^mock-/);
 
     const favoriteError = await api.setFavorite('missing', true)
       .then(() => null).catch((e: unknown) => e as ApiError);

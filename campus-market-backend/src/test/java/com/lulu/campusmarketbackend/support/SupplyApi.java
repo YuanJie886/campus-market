@@ -7,9 +7,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,7 +15,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 模块 5 集成测试共用的 HTTP 辅助：注册、草稿 / 批次 / 邀请调用与完整面交流程。 */
+/** 模块 5 集成测试共用的 HTTP 辅助：注册、草稿 / 批次 / 邀请调用与联系请求。 */
 public final class SupplyApi {
 
     public record User(String id, String token) {}
@@ -207,48 +204,23 @@ public final class SupplyApi {
         return ok(post(seller, "/v1/products", b)).path("id").asText();
     }
 
-    // ---------------- 订单 ----------------
+    // ---------------- 联系请求 ----------------
+    // 平台只展示商品与联系方式：下单 / 面交 / 验货 / 完成接口已移除，原来的 order / transition / flow / submit / complete 辅助随之删除。
 
-    public String order(User buyer, String productId) throws Exception {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("productId", productId);
-        b.put("meetingPointId", "东校区-library");
-        b.put("meetingAtIso", OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).truncatedTo(ChronoUnit.HOURS).toString());
-        b.put("contact", "13800000000");
-        b.put("idempotencyKey", UUID.randomUUID().toString());
-        return ok(post(buyer, "/v1/orders", b)).path("id").asText();
+    /** 买家对一件商品发起联系请求，返回请求 id。 */
+    public String requestContact(User buyer, String productId) throws Exception {
+        return ok(post(buyer, "/v1/products/" + productId + "/contact-request", Map.of())).path("id").asText();
     }
 
-    public MvcResult transition(User who, String orderId, String to) throws Exception {
-        // 模块 7：卖家确认之后的取消必须带结构化原因（确认前也接受）
-        return post(who, "/v1/orders/" + orderId + "/transitions",
-                "CANCELLED".equals(to) ? Map.of("to", to, "reasonCode", "CHANGED_MIND") : Map.of("to", to));
+    /** 卖家同意或拒绝一条联系请求。 */
+    public MvcResult decideContact(User seller, String requestId, String status) throws Exception {
+        return post(seller, "/v1/contact-requests/" + requestId + "/decision", Map.of("status", status));
     }
 
-    public JsonNode flow(User who, String orderId) throws Exception {
-        return ok(get(who, "/v1/orders/" + orderId + "/flow"));
-    }
-
-    /** 买家对订单验货清单的每一条提交同一个结果。 */
-    public MvcResult submitAll(User buyer, String orderId, String result) throws Exception {
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (JsonNode item : flow(buyer, orderId).path("inspection").path("items")) {
-            items.add(Map.of("itemCode", item.path("code").asText(), "result", result));
-        }
-        return post(buyer, "/v1/orders/" + orderId + "/inspection/submit", Map.of("items", items));
-    }
-
-    public MvcResult submit(User buyer, String orderId, List<Map<String, Object>> items) throws Exception {
-        return post(buyer, "/v1/orders/" + orderId + "/inspection/submit", Map.of("items", items));
-    }
-
-    /** 下单 → 接单 → 验货全部一致 → 买家确认 → 卖家输入确认码完成。 */
-    public String complete(User seller, User buyer, String productId, java.util.function.Function<String, String> codeOf) throws Exception {
-        String orderId = order(buyer, productId);
-        ok(transition(seller, orderId, "PENDING_MEETING"));
-        if (flow(buyer, orderId).path("inspection").path("items").size() > 0) ok(submitAll(buyer, orderId, "MATCH"));
-        ok(transition(buyer, orderId, "BUYER_CONFIRMED"));
-        ok(post(seller, "/v1/orders/" + orderId + "/transitions", Map.of("to", "COMPLETED", "confirmationCode", codeOf.apply(orderId))));
-        return orderId;
+    /** 发起联系请求并由卖家同意，返回请求 id。 */
+    public String approvedContact(User seller, User buyer, String productId) throws Exception {
+        String id = requestContact(buyer, productId);
+        ok(decideContact(seller, id, "APPROVED"));
+        return id;
     }
 }

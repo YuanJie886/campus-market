@@ -12,12 +12,14 @@ import { MockCampusMarketApi } from './api/mockCampusMarketApi';
 import { ApiError } from './api/errors';
 import type { BundleItemInput, ListingPayload } from './api/contracts';
 import { fullDisclosure } from './test/inspectionFixtures';
-import PriceGuidanceCard from './components/supply/PriceGuidanceCard';
 import type { Category } from './types';
 
 /**
  * 5.7C 前端 20 项追踪矩阵的补测：模块 5 报告里没有一一对应的要求，在这里用行为测试补齐
  * （界面交互或 API 调用的结果，不是源码扫描）。编号与报告中的矩阵一致。
+ *
+ * <p>平台已改为只展示商品与联系方式：#14 价格参考（依赖历史成交）与 #19 整套打包订单流程随交易功能移除；
+ * #7 改为验证明细不能单独申请联系。
  */
 
 const DB_STORAGE_KEY = 'campus_market_mock_database_v1';
@@ -57,7 +59,6 @@ function single(category: Category, title: string, price: number): ListingPayloa
 function bundleItems(n: number): BundleItemInput[] {
   return Array.from({ length: n }, (_, i) => ({ name: `明细${i + 1}`, category: (i % 2 ? '教材书籍' : '生活用品') as Category, condition: '全新', quantity: 1 }));
 }
-const meetingAt = () => { const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0); return at.toISOString() };
 
 describe('5.7C 追踪矩阵补测', () => {
   it('#1 草稿创建与恢复：在工作台保存后离开，重新进入批次时内容从服务端草稿恢复', async () => {
@@ -91,7 +92,7 @@ describe('5.7C 追踪矩阵补测', () => {
     expect((e as ApiError).code).toBe(400);
   }, 30_000);   // jsdom 里渲染 30 行 MUI 选择框较慢
 
-  it('#7 明细不能单独购买：详情里明细行没有任何操作按钮；用明细编号下单 404，只有整套能下单', async () => {
+  it('#7 明细不能单独申请联系：详情里明细行没有任何操作按钮；用明细编号申请联系 404，只有整套能申请', async () => {
     await user('seller');
     const p = await api.createProduct({ title: '整套不拆卖', description: 'd', price: 60, category: '其他', condition: '全新', campus: '东校区',
       images: ['https://example.invalid/a.png'], contact: '1', listingKind: 'BUNDLE', bundleItems: bundleItems(3) });
@@ -102,11 +103,12 @@ describe('5.7C 追踪矩阵补测', () => {
     expect(within(section).queryAllByRole('link')).toEqual([]);
     expect(screen.getAllByRole('button', { name: '我想要' })).toHaveLength(1);
     for (const code of ['I01', 'B01_I01', `${p.id}:I01`]) {
-      const e = await api.createOrder({ productId: code, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() }).catch((x) => x);
+      const e = await api.requestContact(code).catch((x) => x);
       expect((e as ApiError).code, code).toBe(404);
     }
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-    expect(order.productId).toBe(p.id);
+    fireEvent.click(screen.getByRole('button', { name: '我想要' }));
+    expect(await screen.findByRole('button', { name: '等待卖家同意' })).toBeTruthy();
+    expect((await api.getContactRequest(p.id))).toMatchObject({ productId: p.id, status: 'PENDING' });
   });
 
   it('#10 撤销后不能继续编辑：协助人页面打开着，所有者在另一页撤销；协助人保存被拒，草稿内容不变', async () => {
@@ -145,27 +147,6 @@ describe('5.7C 追踪矩阵补测', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '确认发布' }));
     await screen.findByRole('heading', { name: '已发布 1 件' });
     expect(spy).toHaveBeenCalledTimes(1);
-  });
-
-  it('#14 教材与普通分类都能使用价格参考：教材按订单上的版本快照统计，普通分类按分类统计', async () => {
-    await user('viewer');
-    const raw = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    const push = (i: number, category: Category, edition: string | null, price: number) => raw.market.orders.push({
-      id: `m14-${category}-${i}`, productId: `gone-${category}-${i}`, buyerId: 'b', sellerId: 's', price, status: '已完成', canonicalStatus: 'COMPLETED',
-      createdAt: 1, updatedAt: Date.now(), priceSnapshot: price, currency: 'CNY', schoolIdSnapshot: 'pilot', categorySnapshot: category,
-      conditionSnapshot: '全新', listingKindSnapshot: 'SINGLE', textbookEditionIdSnapshot: edition });
-    for (let i = 1; i <= 8; i += 1) push(i, '教材书籍', 'demo-calculus-8', 20 + i);
-    for (let i = 1; i <= 8; i += 1) push(i, '运动户外', null, 100 + i);
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(raw));
-    api = new MockCampusMarketApi();
-    setApiClient(api);
-    const spy = vi.spyOn(api, 'getPriceGuidance');
-    const textbook = render(<PriceGuidanceCard category="教材书籍" textbookEditionId="demo-calculus-8" />);
-    await waitFor(() => expect(textbook.container.textContent).toContain('中位数约 ¥25'));
-    expect(spy).toHaveBeenLastCalledWith({ category: '教材书籍', textbookEditionId: 'demo-calculus-8' });
-    textbook.unmount();
-    const outdoor = render(<PriceGuidanceCard category="运动户外" />);
-    await waitFor(() => expect(outdoor.container.textContent).toContain('中位数约 ¥105'));
   });
 
   it('#17 错误带 requestId：批量发布失败时提示写出错误编号，且写明没有任何商品被发布', async () => {
@@ -208,25 +189,6 @@ describe('5.7C 追踪矩阵补测', () => {
     const message = await screen.findByText(/操作过于频繁/);
     expect(message.textContent).toMatch(/约 \d+ 秒后可重试/);
     expect(message.textContent).not.toContain('错误编号');
-  });
-
-  it('#19 原订单流程不退化：整套打包订单照常走接单 → 逐条验货 → 买家确认 → 卖家核销，商品变为已售出', async () => {
-    const seller = await user('seller');
-    const p = await api.createProduct({ title: '走完整流程的整套', description: 'd', price: 80, category: '其他', condition: '全新', campus: '东校区',
-      images: [], contact: '1', listingKind: 'BUNDLE', bundleItems: bundleItems(2) });
-    const buyer = await user('buyer');
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-    await as(seller);
-    await api.transitionOrder(order.id, { to: 'PENDING_MEETING' });
-    await as(buyer);
-    const flow = await api.getOrderFlow(order.id);
-    await api.submitInspection(order.id, flow.inspection.items.map((i) => ({ itemCode: i.code, result: 'MATCH' as const })));
-    await api.transitionOrder(order.id, { to: 'BUYER_CONFIRMED' });
-    await as(seller);
-    const code = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!).market.orders.find((o: { id: string }) => o.id === order.id).confirmationCode;
-    const done = await api.transitionOrder(order.id, { to: 'COMPLETED', confirmationCode: code });
-    expect(done.canonicalStatus).toBe('COMPLETED');
-    expect((await api.getProduct(p.id)).status).toBe('已售出');
   });
 
   it('#20 需求雷达同步匹配不退化：批量发布返回时，订阅者的匹配与未读数已经可见', async () => {

@@ -20,6 +20,8 @@ test('#13 界面注册 → 刷新后登录恢复（刷新 Cookie：HttpOnly + Sa
   await page.getByLabel('昵称').fill('界面注册');
   await page.getByLabel(/^密码/).fill(password);
   await page.getByLabel('确认密码').fill(password);
+  // 注册前必须勾选同意《用户协议》《隐私政策》（未勾选时不会发出注册请求）
+  await page.getByRole('checkbox', { name: /^已阅读并同意\s*《用户协议》\s*《隐私政策》$/ }).check();
   await page.getByRole('button', { name: '注册并登录' }).click();
   await expect(page.getByRole('button', { name: '用户菜单' })).toBeVisible();
   const cookie = (await context.cookies()).find((c) => c.name === 'cm_refresh')!;
@@ -41,9 +43,9 @@ test('#14 直接打开商品详情（冷启动、刷新）不出现 React Hook �
   await expect(viewer.page.getByRole('heading', { name: product.title })).toBeVisible();
   await viewer.page.reload();
   await expect(viewer.page.getByRole('heading', { name: product.title })).toBeVisible();
-  await open(viewer, '/profile/orders');
+  await open(viewer, '/profile/contact-requests');
   await viewer.page.reload();
-  await expect(viewer.page.getByRole('tab').first()).toBeVisible();
+  await expect(viewer.page.getByRole('heading', { name: '联系申请' })).toBeVisible();
   const hookErrors = consoleErrors.filter((e) => /hook|Minified React error|Rendered (more|fewer) hooks/i.test(e));
   expect(hookErrors).toEqual([]);
 });

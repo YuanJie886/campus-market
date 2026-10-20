@@ -53,14 +53,14 @@ export default function Dashboard() {
             {canRead('users') && <Metric resource="users" label="校园用户" hint="本校注册用户总数" />}
             {canRead('products') && <Metric resource="products" label="商品总数" hint="本校商品目录" />}
             {canRead('cases') && <Metric resource="cases" label="待处理案件" hint="点击进入待处理队列" status="OPEN" />}
-            {canRead('appeals') ? <Metric resource="appeals" label="待复核申诉" hint="点击进入申诉队列" status="PENDING" /> : canRead('orders') && <Metric resource="orders" label="交易订单" hint="本校订单总数" />}
+            {canRead('appeals') ? <Metric resource="appeals" label="待复核申诉" hint="点击进入申诉队列" status="PENDING" /> : canRead('orders') && <Metric resource="orders" label={resourceNames.orders} hint="停用站内交易前的订单" />}
         </Box>
         <Box className="dashboard-columns"><Box>
             {canRead('cases') && <QueuePanel />}
             {canRead('products') && <RecentProducts />}
             {canRead('audit') && <RecentAudit />}
         </Box><Box className="dashboard-aside">
-            <Box className="welcome-banner"><Typography className="eyebrow">YOUR WORKSPACE</Typography><Typography variant="h6">一起维护友好的校园集市</Typography><Typography>当前身份：{roleName(permissions?.role)}。从待办队列开始，让每一次交易更安心。</Typography><Button component={Link} to={canRead('cases') ? queueLink('cases', 'OPEN') : '/products'} variant="contained" endIcon={<ArrowForwardIcon />}>开始今日工作</Button></Box>
+            <Box className="welcome-banner"><Typography className="eyebrow">YOUR WORKSPACE</Typography><Typography variant="h6">一起维护友好的校园集市</Typography><Typography>当前身份：{roleName(permissions?.role)}。从待办队列开始，让校园集市更安心。</Typography><Button component={Link} to={canRead('cases') ? queueLink('cases', 'OPEN') : '/products'} variant="contained" endIcon={<ArrowForwardIcon />}>开始今日工作</Button></Box>
             <Card><PanelHeader title="快捷入口" description="常用管理功能，一步直达" />
                 {Object.entries(resourceNames).filter(([key]) => canRead(key)).map(([key, label]) => { const Icon = resourceIcons[key as keyof typeof resourceIcons]; return <Box key={key} className="quick-link" component={Link} to={`/${key}`}><Icon sx={{ fontSize: 18, color: '#789d87' }} /><span>{label}</span><ArrowForwardIcon sx={{ fontSize: 14, color: '#a7b5ac' }} /></Box>; })}
             </Card>

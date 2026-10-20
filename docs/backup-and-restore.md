@@ -8,7 +8,7 @@
 
 ## 1. 原则
 
-- 备份文件含全部业务数据（账号、联系方式、订单、私信、治理记录）：按敏感数据保管——加密存放在数据库主机之外，限制访问，按保留期删除。
+- 备份文件含全部业务数据（账号、联系方式、联系申请、历史订单、私信、治理记录、上传图片的登记）：按敏感数据保管——加密存放在数据库主机之外，限制访问，按保留期删除。
 - **永远先恢复到一个新的临时数据库验证，再考虑切换**；不要对正在使用的数据库直接执行 `pg_restore -c`。
 - 命令行里不出现密码：备份与恢复都通过 `docker compose exec` 在数据库容器内执行（容器内本地 socket 连接，不需要密码），
   或者使用 `~/.pgpass` / `PGPASSFILE`，绝不要把密码写进命令参数、脚本或 CI 日志。
@@ -25,6 +25,19 @@ docker compose exec -T postgres pg_dump -U campus -d campus_market -Fc > campus_
 - 自定义格式（`-Fc`）带压缩，可以用 `pg_restore --list` 查看内容、按需恢复部分对象。
 - 备份包含 `flyway_schema_history`：恢复后 Flyway 会认出数据库的版本，不会重复执行迁移。
 - 建议同时保存对应的应用版本（镜像 tag / jar 版本）与迁移目录的 checksum，恢复时成对使用。
+
+### 2.1 上传的图片（阶段 4 起）
+
+图片文件不在数据库里，存放在 API 容器的持久卷 `uploaded_images`（容器内 `/data/images`）；数据库只登记它们。**两者要一起备份、成对恢复**，
+否则恢复后的商品会引用不存在的文件（读取时得到 404，不会报错）。卷里的文件名是随机 id，不含个人信息，但图片本身仍按敏感数据保管。
+
+```bash
+# 与数据库备份同一时刻执行；只读挂载卷，打包到当前目录
+docker run --rm -v "$(docker compose ps -q api | xargs docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data/images"}}{{.Name}}{{end}}{{end}}')":/data/images:ro \
+  -v "$PWD":/backup alpine tar czf /backup/images_$(date +%Y%m%d_%H%M%S).tgz -C /data images
+```
+
+恢复时先恢复数据库，再把对应时间点的图片包解到新卷里。接入对象存储后改用对象存储自己的版本与生命周期策略。
 
 ## 3. 恢复到新的临时数据库做验证
 

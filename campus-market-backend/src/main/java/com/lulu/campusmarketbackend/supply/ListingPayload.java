@@ -55,7 +55,9 @@ public final class ListingPayload {
                     }
                     result.put(key, value);
                 }
-                case "images" -> result.put(key, list(value, 9, "图片", v -> string(v, 2048, "图片地址")));
+                // 形状检查；签名地址还原与外部地址开关在 ListingDraftService 里按 ImagePolicy 处理
+                case "images" -> result.put(key, list(value, com.lulu.campusmarketbackend.image.ImagePolicy.MAX_COUNT, "图片",
+                        v -> string(v, com.lulu.campusmarketbackend.image.ImagePolicy.MAX_REF_LENGTH, "图片地址")));
                 case "inspection" -> result.put(key, list(value, 40, "验货清单", v -> object(v, INSPECTION_KEYS, "验货条目")));
                 case "bundleItems" -> result.put(key, list(value, BundleService.MAX_ITEMS + 1, "打包明细", v -> object(v, BUNDLE_KEYS, "打包明细")));
                 default -> throw ApiException.badRequest("草稿包含不支持的字段：" + key);

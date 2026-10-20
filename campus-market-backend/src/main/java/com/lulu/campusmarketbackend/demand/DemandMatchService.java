@@ -161,9 +161,8 @@ public class DemandMatchService {
     }
 
     /**
-     * 收件箱条目。商品按<b>非本人</b>视角投影：卖家联系方式不在这里出现，
-     * 买家仍须走站内消息或预约流程。「是否仍可预约」由服务端给出，
-     * 前端据此决定是否展示「去预约面交」。
+     * 收件箱条目。商品按<b>非本人</b>视角投影：只有卖家选择公开时才带联系方式，否则为空、需要申请联系或站内留言。
+     * 「是否仍有效」（valid / invalidReason）由服务端给出，前端据此决定是否展示「申请联系卖家」。
      */
     private Map<String, Object> project(Map<String, Object> row) {
         Map<String, Object> result = new LinkedHashMap<>();

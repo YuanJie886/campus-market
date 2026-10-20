@@ -13,8 +13,8 @@ import java.util.UUID;
  * 客户端提交的任何 schoolId 都不会被采信（请求里出现即 400）。校区合法性以数据库 campuses 表为准，
  * 不再使用硬编码的校区名单——多校部署时新学校只需要在 campuses 里登记。
  *
- * <p>读取侧的隔离写在 V10 重新定义的 {@code product_visible_to / product_readable_by} 里（SQL 口径）；
- * 写入侧（发布、改价改校区、改资料、下单）经由这里校验，并由 V10 的触发器兜底。
+ * <p>读取侧的隔离写在 V10 重新定义的 {@code product_visible_to} 里（SQL 口径）；
+ * 写入侧（发布、改价改校区、改资料、申请联系）经由这里校验，并由 V10 的触发器兜底。
  */
 @Component
 public class SchoolScope {

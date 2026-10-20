@@ -1,6 +1,5 @@
 import { seedCourseTextbooks, seedCourses, seedEditions, seedOfferings } from '../data/courseCatalog';
-import type { CanonicalOrderStatus } from './contracts';
-import type { MarketState, Order, User } from '../types';
+import type { CanonicalOrderStatus, MarketState, Order, User } from '../types';
 import { isTerminalStatus, statusLabel } from './mapper';
 import { seedBuildings, type MockBuilding } from '../data/buildings';
 
@@ -16,7 +15,7 @@ import { seedBuildings, type MockBuilding } from '../data/buildings';
  */
 
 /** 当前 schema 版本。每次改变持久化形状都要 +1 并补一条迁移。 */
-export const MOCK_SCHEMA_VERSION = 12;
+export const MOCK_SCHEMA_VERSION = 13;
 
 /** 需求订阅（v4 起）。字段与后端 demand_subscriptions 一一对应。 */
 export interface MockDemandSubscription {
@@ -155,12 +154,15 @@ export interface MockCircleEvent { seq: number; circleId: string; actorId: strin
 /* ---------------- v10：交易承诺与可信治理（模块 7） ---------------- */
 /** 订单取消记录：一张订单至多一条；阶段由 Mock 按与后端相同的规则判定 */
 export interface MockCancellation {
-  orderId: string; schoolId: string; actorId: string; phase: import('./contracts').CancellationPhase;
-  reasonCode: import('./contracts').CancellationReason | null; note: string | null; createdAt: number;
+  orderId: string; schoolId: string; actorId: string;
+  phase: 'BEFORE_SELLER_CONFIRM' | 'AFTER_SELLER_CONFIRM' | 'AFTER_MEETING_AGREED' | 'AFTER_ARRIVAL_REPORTED' | 'INSPECTION_MISMATCH';
+  reasonCode: 'CHANGED_MIND' | 'SCHEDULE_CONFLICT' | 'ITEM_UNAVAILABLE' | 'CONDITION_MISMATCH' | 'COUNTERPART_UNRESPONSIVE' | 'OTHER' | null;
+  note: string | null; createdAt: number;
 }
 export interface MockNoShowReport {
   id: string; orderId: string; meetingRevision: number; schoolId: string; reporterId: string; reportedId: string;
-  status: import('./contracts').NoShowStatus; reasonCode: import('./contracts').NoShowReason; note: string | null;
+  status: 'PENDING' | 'ACKNOWLEDGED' | 'DISPUTED' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED';
+  reasonCode: 'DID_NOT_ARRIVE' | 'ARRIVED_TOO_LATE' | 'UNREACHABLE_AT_MEETING' | 'OTHER'; note: string | null;
   responseNote: string | null; createdAt: number; respondedAt: number | null; decidedAt: number | null;
   decidedBy: string | null; confirmedAt: number | null;
 }
@@ -169,12 +171,12 @@ export interface MockStaffMember { userId: string; schoolId: string; role: impor
 export interface MockModerationCase {
   id: string; schoolId: string; targetType: import('./contracts').ModerationTargetType; targetId: string;
   status: import('./contracts').ModerationCaseStatus; assignedStaffId: string | null;
-  resolutionCode: import('./contracts').ModerationActionCode | null; reportCount: number;
+  resolutionCode: import('./contracts').ModerationActionCode | import('./contracts').HistoricalActionCode | null; reportCount: number;
   createdAt: number; updatedAt: number; resolvedAt: number | null; noShowReportId: string | null;
 }
 export interface MockModerationReport {
   id: string; schoolId: string; caseId: string; reporterId: string; targetType: import('./contracts').ModerationTargetType;
-  targetId: string; reasonCode: import('./contracts').ModerationReportReason; note: string | null; snapshot: string | null; createdAt: number;
+  targetId: string; reasonCode: import('./contracts').ModerationReportReason | import('./contracts').LegacyReportReason; note: string | null; snapshot: string | null; createdAt: number;
 }
 /** 治理动作：只增不改 */
 export interface MockModerationAction {
@@ -192,7 +194,7 @@ export interface MockUserRestriction {
   id: string; userId: string; schoolId: string; scope: import('./contracts').RestrictionScope; source: import('./contracts').RestrictionSource;
   caseId: string | null; noShowReportId: string | null; createdBy: string | null; reasonCode: string;
   startsAt: number; endsAt: number; createdAt: number; revokedAt: number | null; revokedBy: string | null;
-  revokeReason: 'APPEAL_ACCEPTED' | 'STAFF_CORRECTION' | 'RULE_RECOMPUTED' | null;
+  revokeReason: import('./contracts').RevokeReason | null;
   /** v11：规则版本（仅 SYSTEM_RULE）、决定时间、依据的确认记录（决定时刻的快照）、最近一次纠正 */
   ruleVersion: string | null; decidedAt: number;
   basis: Array<{ reportId: string; confirmedAt: number }>;
@@ -219,8 +221,26 @@ export interface MockCatalog {
   courseTextbooks: import('../data/courseCatalog').MockCourseTextbook[];
 }
 
+/* ---------------- v12 / v13：联系申请（阶段 1） ---------------- */
+/** 联系申请的持久化形状（与后端 contact_requests 一一对应）。v13 起带决定时间与双方的已读时间 */
+export interface MockContactRequest {
+  id: string; productId: string; buyerId: string; sellerId: string;
+  status: import('./contracts').ContactRequestStatus; createdAt: number; updatedAt: number;
+  /** 同意 / 拒绝 / 撤回同意的时间；与后端 contact_requests_decided_shape 相同：只有 APPROVED / REJECTED / REVOKED 有值 */
+  decidedAt: number | null;
+  /** 卖家最近一次看到这条待处理申请的时间；买家最近一次看到决定结果的时间（站内未读数） */
+  sellerSeenAt: number | null; buyerSeenAt: number | null;
+}
+/** v13：历史交易数据收尾的审计记录（与后端 legacy_trade_closures 一致，只增不改） */
+export interface MockLegacyTradeClosure {
+  entityType: 'ORDER' | 'NO_SHOW_REPORT' | 'RESTRICTION' | 'MODERATION_CASE' | 'PRODUCT';
+  entityId: string; fromStatus: string; toStatus: string; reason: 'PLATFORM_TRADE_RETIRED' | 'NO_SHOW_RULE_RETIRED'; closedAt: number;
+}
+
 export interface MockDatabase {
-  contactRequests?: import('./contracts').ContactRequest[];
+  contactRequests: MockContactRequest[];
+  /** v13：历史交易收尾留痕 */
+  legacyTradeClosures: MockLegacyTradeClosure[];
   schemaVersion: number;
   /** v10：校区 → 学校（6.1A 学校隔离；多校演示与测试可以登记新的校区） */
   campusSchools: Record<string, string>;
@@ -867,6 +887,79 @@ function sanitizeCatalog(db: MockDatabase): number {
   return skipped;
 }
 
+/**
+ * 阶段 1 的历史交易收尾（与后端 V16 第 1 节逐条对应），种子数据与迁移共用：
+ * 未结束的订单 → EXPIRED（系统关闭）；未决的爽约报告 → EXPIRED；爽约规则产生、仍在生效的自动限制 → 撤销（RULE_RETIRED）；
+ * 以订单 / 爽约为对象、还没有结果的案件 → 不采取措施结案；残留的「预约中」商品 → 在售。每一处改动都写一条留痕。
+ * 幂等：已经收尾的数据再跑一次不会有任何变化。
+ */
+export function closeLegacyTrade(db: MockDatabase, now = Date.now()): void {
+  db.legacyTradeClosures ??= [];
+  const log = (entityType: MockLegacyTradeClosure['entityType'], entityId: string, fromStatus: string, toStatus: string,
+               reason: MockLegacyTradeClosure['reason']) => db.legacyTradeClosures.push({ entityType, entityId, fromStatus, toStatus, reason, closedAt: now });
+  for (const o of db.market.orders ?? []) {
+    if (!o || typeof o !== 'object') continue;
+    const status = o.canonicalStatus ?? 'PENDING_SELLER_CONFIRM';
+    if (status === 'COMPLETED' || status === 'CANCELLED' || status === 'EXPIRED') continue;
+    log('ORDER', o.id, status, 'EXPIRED', 'PLATFORM_TRADE_RETIRED');
+    o.canonicalStatus = 'EXPIRED';
+    o.status = statusLabel('EXPIRED');
+    o.updatedAt = now;
+  }
+  for (const r of db.noShowReports ?? []) {
+    if (!r || (r.status !== 'PENDING' && r.status !== 'DISPUTED')) continue;
+    log('NO_SHOW_REPORT', r.id, r.status, 'EXPIRED', 'NO_SHOW_RULE_RETIRED');
+    r.status = 'EXPIRED';
+  }
+  for (const r of db.userRestrictions ?? []) {
+    if (!r || r.source !== 'SYSTEM_RULE' || r.revokedAt || r.endsAt <= now) continue;
+    log('RESTRICTION', r.id, 'ACTIVE', 'REVOKED', 'NO_SHOW_RULE_RETIRED');
+    Object.assign(r, { revokedAt: now, revokedBy: null, revokeReason: 'RULE_RETIRED' });
+  }
+  for (const c of db.moderationCases ?? []) {
+    if (!c || (c.targetType !== 'ORDER' && c.targetType !== 'NO_SHOW') || (c.status !== 'OPEN' && c.status !== 'UNDER_REVIEW')) continue;
+    log('MODERATION_CASE', c.id, c.status, 'DISMISSED', 'PLATFORM_TRADE_RETIRED');
+    Object.assign(c, { status: 'DISMISSED', resolutionCode: 'NO_ACTION', resolvedAt: now, updatedAt: now });
+  }
+  for (const p of db.market.products ?? []) {
+    if (!p || p.status !== '预约中') continue;
+    log('PRODUCT', p.id, '预约中', '在售', 'PLATFORM_TRADE_RETIRED');
+    p.status = '在售';
+  }
+}
+
+const CONTACT_STATUSES: readonly string[] = ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'REVOKED'];
+
+/**
+ * v12 → v13（阶段 1，与后端 V16 对应）：
+ * <ul>
+ *   <li>历史交易数据收尾（{@link closeLegacyTrade}）；</li>
+ *   <li>联系申请补决定时间（已同意 / 已拒绝 = 原 updatedAt）与双方的已读时间（null：与 V16 新增的空列一致）；
+ *       损坏的申请记录逐条丢弃，不猜状态。</li>
+ * </ul>
+ */
+function migrateV12ToV13(db: MockDatabase): number {
+  let skipped = 0;
+  closeLegacyTrade(db);
+  const raw = Array.isArray(db.contactRequests) ? db.contactRequests as unknown[] : [];
+  const kept: MockContactRequest[] = [];
+  for (const x of raw) {
+    if (!isRecord(x) || typeof x.id !== 'string' || typeof x.productId !== 'string' || typeof x.buyerId !== 'string'
+      || typeof x.sellerId !== 'string' || typeof x.status !== 'string' || !CONTACT_STATUSES.includes(x.status)
+      || typeof x.createdAt !== 'number' || typeof x.updatedAt !== 'number') { skipped += 1; continue; }
+    const status = x.status as MockContactRequest['status'];
+    const decided = status === 'APPROVED' || status === 'REJECTED' || status === 'REVOKED';
+    kept.push({
+      id: x.id, productId: x.productId, buyerId: x.buyerId, sellerId: x.sellerId, status, createdAt: x.createdAt, updatedAt: x.updatedAt,
+      decidedAt: decided ? (typeof x.decidedAt === 'number' ? x.decidedAt : x.updatedAt) : null,
+      sellerSeenAt: typeof x.sellerSeenAt === 'number' ? x.sellerSeenAt : null,
+      buyerSeenAt: typeof x.buyerSeenAt === 'number' ? x.buyerSeenAt : null,
+    });
+  }
+  db.contactRequests = kept;
+  return skipped;
+}
+
 /** 逐版本迁移表。key 是「当前版本」，值把它升到 key+1。 */
 const STEPS: Record<number, { name: string; run: (db: MockDatabase, ambiguous: string[]) => number }> = {
   1: { name: 'v1→v2 固化 canonicalStatus 并重算商品状态', run: migrateV1ToV2 },
@@ -878,8 +971,9 @@ const STEPS: Record<number, { name: string; run: (db: MockDatabase, ambiguous: s
   7: { name: 'v7→v8 冻结成交统计维度（旧订单为 null，不回填）', run: migrateV7ToV8 },
   8: { name: 'v8→v9 圈子集市（旧商品全部公开，不创建圈子、不替任何人入圈）', run: migrateV8ToV9 },
   9: { name: 'v9→v10 交易承诺与可信治理（不伪造工作人员、举报、处罚或爽约；旧取消订单不猜原因）', run: migrateV9ToV10 },
-  11: { name: 'v11→v12 联系方式申请（默认不公开，释放旧预约）', run: (db) => { db.contactRequests = []; for (const p of db.market.products) { p.contactPublic = false; if (p.status === '预约中') p.status = '在售'; } return 0; } },
   10: { name: 'v10→v11 治理规则收口（只为真实改约回填档期快照，旧原始预约不补结束时间；NO_SHOW_RULE 改名 SYSTEM_RULE 并补依据）', run: migrateV10ToV11 },
+  11: { name: 'v11→v12 联系方式申请（默认不公开，释放旧预约）', run: (db) => { db.contactRequests = []; for (const p of db.market.products) { p.contactPublic = false; if (p.status === '预约中') p.status = '在售'; } return 0; } },
+  12: { name: 'v12→v13 联系申请撤回 / 撤回同意 / 未读，历史交易收尾（未结束订单关闭、爽约规则限制撤销、订单与爽约案件结案，均留痕）', run: migrateV12ToV13 },
 };
 
 /** 深拷贝。迁移在副本上进行，全部成功后调用方才整体写回。 */
@@ -922,6 +1016,7 @@ export function migrateMockDatabase(raw: unknown, buildSeed: () => MockDatabase)
   try {
     db = clone(raw) as unknown as MockDatabase;
     db.contactRequests ??= [];
+    db.legacyTradeClosures ??= [];
     db.buildings ??= [];
     db.demandSubscriptions ??= [];
     db.demandMatches ??= [];

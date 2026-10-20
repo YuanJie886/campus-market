@@ -107,7 +107,7 @@ export default function TextbookIsbnField({ value, onChange, editing, initial, p
       {error && <Alert severity="error">{error}</Alert>}
       {changed && (
         <Alert severity="info" role="note" sx={{ py: 0 }}>
-          更换或解除后，买家在商品页看到的教材版本信息会随之变化；已经生成的订单不受影响。
+          更换或解除后，买家在商品页看到的教材版本信息会随之变化。
         </Alert>
       )}
 

@@ -19,15 +19,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -149,25 +146,26 @@ class UnknownFieldRejectionIT {
     }
 
     @Test
-    @DisplayName("5. 订单 transition 携带 buyerId/codeAttempts → 400，状态与计数不变")
-    void transitionRejectsUnknownFields() throws Exception {
-        Ordered ordered = buyerConfirmedOrder("tr");
-        String statusBefore = orderStatus(ordered.orderId());
-        int attemptsBefore = codeAttempts(ordered.orderId());
-        long eventsBefore = countEvents(ordered.orderId());
+    @DisplayName("5. 联系请求决定携带 buyerId/sellerId → 400，请求保持 PENDING、买家看不到联系方式")
+    void contactDecisionRejectsUnknownFields() throws Exception {
+        Actor seller = registerActor("cr-s");
+        Actor buyer = registerActor("cr-b");
+        String productId = publishProduct(seller);
+        MvcResult created = mockMvc.perform(authorized(post("/v1/products/" + productId + "/contact-request"), buyer)
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn();
+        assertThat(created.getResponse().getStatus()).isEqualTo(200);
+        String requestId = objectMapper.readTree(created.getResponse().getContentAsString()).path("data").path("id").asText();
 
-        MvcResult result = mockMvc.perform(
-                authorized(post("/v1/orders/" + ordered.orderId() + "/transitions"), ordered.seller())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "to", "COMPLETED", "confirmationCode", "000000",
-                                "buyerId", UUID.randomUUID().toString(), "codeAttempts", 0))))
+        MvcResult result = mockMvc.perform(authorized(post("/v1/contact-requests/" + requestId + "/decision"), seller)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of(
+                        "status", "APPROVED",
+                        "buyerId", UUID.randomUUID().toString(),
+                        "sellerId", UUID.randomUUID().toString()))))
                 .andReturn();
 
         assertBadRequest(result, "buyerId");
-        assertThat(orderStatus(ordered.orderId())).isEqualTo(statusBefore);
-        assertThat(codeAttempts(ordered.orderId())).as("不得消耗确认码次数").isEqualTo(attemptsBefore);
-        assertThat(countEvents(ordered.orderId())).isEqualTo(eventsBefore);
+        assertThat(jdbc.queryForObject("SELECT status FROM contact_requests WHERE id=?::uuid", String.class, requestId)).isEqualTo("PENDING");
     }
 
     @Test
@@ -231,25 +229,6 @@ class UnknownFieldRejectionIT {
     }
 
     @Test
-    @DisplayName("9. 评价携带 reviewerId/status → 400，不创建评价")
-    void reviewRejectsUnknownFields() throws Exception {
-        Ordered ordered = buyerConfirmedOrder("rv");
-        long before = countAll("reviews");
-
-        MvcResult result = mockMvc.perform(
-                authorized(post("/v1/orders/" + ordered.orderId() + "/reviews"), ordered.buyer())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "rating", 5, "comment", "很好",
-                                "reviewerId", UUID.randomUUID().toString(),
-                                "status", "COMPLETED"))))
-                .andReturn();
-
-        assertBadRequest(result, "reviewerId");
-        assertThat(countAll("reviews")).as("不得创建评价").isEqualTo(before);
-    }
-
-    @Test
     @DisplayName("10. Profile 携带 role/id → 400，资料不变")
     void profileRejectsUnknownFields() throws Exception {
         Actor actor = registerActor("profile");
@@ -271,10 +250,10 @@ class UnknownFieldRejectionIT {
         Actor actor = registerActor("stable");
         String secretValue = "super-secret-value-should-not-appear";
 
-        MvcResult result = mockMvc.perform(authorized(post("/v1/orders/" + UUID.randomUUID() + "/transitions"), actor)
+        MvcResult result = mockMvc.perform(authorized(post("/v1/contact-requests/" + UUID.randomUUID() + "/decision"), actor)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
-                        "to", "CANCELLED", "zebra", secretValue, "alpha", secretValue))))
+                        "status", "REJECTED", "zebra", secretValue, "alpha", secretValue))))
                 .andReturn();
 
         String message = objectMapper.readTree(result.getResponse().getContentAsString())
@@ -318,7 +297,6 @@ class UnknownFieldRejectionIT {
     // ==================================================================
 
     private record Actor(String id, String token) {}
-    private record Ordered(Actor seller, Actor buyer, String orderId) {}
 
     private void assertBadRequest(MvcResult result, String expectedFieldInMessage) throws Exception {
         assertThat(result.getResponse().getStatus()).isEqualTo(400);
@@ -390,44 +368,6 @@ class UnknownFieldRejectionIT {
         return objectMapper.readTree(result.getResponse().getContentAsString()).path("data").path("id").asText();
     }
 
-    private Ordered buyerConfirmedOrder(String prefix) throws Exception {
-        Actor seller = registerActor(prefix + "s");
-        Actor buyer = registerActor(prefix + "b");
-        String productId = publishProduct(seller);
-
-        MvcResult points = mockMvc.perform(authorized(get("/v1/meeting-points"), buyer)).andReturn();
-        String meetingPointId = null;
-        for (JsonNode p : objectMapper.readTree(points.getResponse().getContentAsString()).path("data")) {
-            if (CAMPUS.equals(p.path("campus").asText())) { meetingPointId = p.path("id").asText(); break; }
-        }
-
-        Map<String, Object> orderBody = new LinkedHashMap<>();
-        orderBody.put("productId", productId);
-        orderBody.put("meetingPointId", meetingPointId);
-        orderBody.put("meetingAtIso", OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).toString());
-        orderBody.put("contact", "13800000002");
-        MvcResult created = mockMvc.perform(authorized(post("/v1/orders"), buyer)
-                .header("Idempotency-Key", UUID.randomUUID().toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(orderBody))).andReturn();
-        assertThat(created.getResponse().getStatus()).isEqualTo(200);
-        String orderId = objectMapper.readTree(created.getResponse().getContentAsString())
-                .path("data").path("id").asText();
-
-        transition(seller, orderId, Map.of("to", "PENDING_MEETING"));
-        // 模块 3：有验货清单的订单，买家须先当面验货并提交，才能确认
-        com.lulu.campusmarketbackend.support.InspectionFixtures.submitAllMatch(mockMvc, objectMapper, buyer.token(), orderId);
-        transition(buyer, orderId, Map.of("to", "BUYER_CONFIRMED"));
-        return new Ordered(seller, buyer, orderId);
-    }
-
-    private void transition(Actor actor, String orderId, Map<String, Object> body) throws Exception {
-        assertThat(mockMvc.perform(authorized(post("/v1/orders/" + orderId + "/transitions"), actor)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body)))
-                .andReturn().getResponse().getStatus()).isEqualTo(200);
-    }
-
     private static MockHttpServletRequestBuilder authorized(MockHttpServletRequestBuilder b, Actor a) {
         return b.header("Authorization", "Bearer " + a.token());
     }
@@ -440,22 +380,6 @@ class UnknownFieldRejectionIT {
     private long countUsers(String account) {
         Long c = jdbc.queryForObject("SELECT count(*) FROM users WHERE account = ?", Long.class, account);
         return c == null ? 0 : c;
-    }
-
-    private long countEvents(String orderId) {
-        Long c = jdbc.queryForObject("SELECT count(*) FROM order_events WHERE order_id = ?::uuid",
-                Long.class, orderId);
-        return c == null ? 0 : c;
-    }
-
-    private String orderStatus(String orderId) {
-        return jdbc.queryForObject("SELECT status FROM orders WHERE id = ?::uuid", String.class, orderId);
-    }
-
-    private int codeAttempts(String orderId) {
-        Integer v = jdbc.queryForObject("SELECT code_attempts FROM orders WHERE id = ?::uuid",
-                Integer.class, orderId);
-        return v == null ? -1 : v;
     }
 
     private String productStatus(String productId) {

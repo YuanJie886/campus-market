@@ -16,15 +16,13 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 验货模板、商品声明与订单验货快照（模块 3.2 / 3.3A）。
+ * 验货模板与商品声明（模块 3.2）。
  *
- * <p>三者的关系：
  * <ul>
  *   <li><b>模板</b>按分类、带版本，发布即冻结（数据库触发器保证）；</li>
- *   <li><b>商品声明</b>是卖家「当前」对每个条目的说法，可随编辑更新；</li>
- *   <li><b>订单快照</b>在下单那一刻把模板条目与卖家声明一起复制进订单，之后与商品完全脱钩——
- *       卖家再怎么改商品，已经生成的订单上看到的永远是下单时的声明。</li>
+ *   <li><b>商品声明</b>是卖家「当前」对每个条目的说法，可随编辑更新，展示在商品详情里供买家参考。</li>
  * </ul>
+ * 站内交易已停用：订单验货快照只作为历史数据保留（V16 起只读），这里不再生成。
  */
 @Service
 public class InspectionService {
@@ -183,37 +181,6 @@ public class InspectionService {
             item.put("note", declared == null ? "" : DomainMapper.text(declared.get("note")));
         }
         return result;
-    }
-
-    // ------------------------------------------------------------------
-    // 订单快照
-    // ------------------------------------------------------------------
-
-    /**
-     * 下单时生成验货快照。必须与订单写入在同一事务（MANDATORY）：
-     * 快照失败，订单一起回滚。
-     *
-     * <p>商品有结构化声明 → 复制模板条目与卖家声明，状态 PENDING；
-     * 没有（旧商品或不支持的分类）→ 状态 NOT_PROVIDED、零条目。不伪造任何清单结果。
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void snapshotForOrder(UUID orderId, UUID productId) {
-        // 模块 5：整套打包商品按每条明细生成检查项（一条 INSERT … SELECT），仍是同一份订单验货记录
-        if ("BUNDLE".equals(inspections.selectListingKind(productId))) {
-            inspections.insertInspection(orderId, "tpl-bundle-v1", "整套打包验货清单", 1, "PENDING");
-            inspections.copyBundleSnapshotItems(orderId, productId);
-            return;
-        }
-        List<Map<String, Object>> disclosures = inspections.selectDisclosures(productId);
-        if (disclosures.isEmpty()) {
-            inspections.insertInspection(orderId, null, null, null, "NOT_PROVIDED");
-            return;
-        }
-        String templateId = DomainMapper.text(disclosures.get(0).get("template_id"));
-        Map<String, Object> template = inspections.selectTemplate(templateId);
-        inspections.insertInspection(orderId, templateId, DomainMapper.text(template.get("title")),
-                ((Number) template.get("version")).intValue(), "PENDING");
-        inspections.copySnapshotItems(orderId, productId, templateId);
     }
 
     static String note(Object raw) {

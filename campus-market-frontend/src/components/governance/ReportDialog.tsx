@@ -10,13 +10,14 @@ import RadioGroup from '@mui/material/RadioGroup';
 import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { toUserMessage } from '../../api/errors';
-import { MODERATION_NOTE_MAX, MODERATION_REPORT_REASONS, type ModerationReportReason, type ModerationTargetType } from '../../api/contracts';
+import { MODERATION_NOTE_MAX, MODERATION_REPORT_REASONS, type ModerationReportReason, type ReportableTargetType } from '../../api/contracts';
 import { REPORT_REASON_LABEL, TARGET_LABEL } from '../../utils/governance';
 import ErrorSummary, { focusRadioGroup, type ErrorSummaryItem } from '../trust/ErrorSummary';
 
 interface Props {
   open: boolean;
-  targetType: Exclude<ModerationTargetType, 'NO_SHOW'>;
+  /** 只能举报现有内容；订单与爽约复核是只读历史，不能再举报 */
+  targetType: ReportableTargetType;
   targetId: string;
   /** 给读屏的对象说明，例如商品标题（不写进任何地址或日志） */
   targetLabel: string;
@@ -24,7 +25,7 @@ interface Props {
 }
 
 /**
- * 举报对话框（商品 / 用户 / 圈子 / 留言 / 私信 / 订单）。原因不预选；「其他」必须写说明。
+ * 举报对话框（商品 / 用户 / 圈子 / 留言 / 私信）。原因不预选；「其他」必须写说明。
  * 被举报的人看不到举报人是谁；举报人之后只能看到「已处理 / 未采取措施」这样的状态摘要。
  */
 export default function ReportDialog({ open, targetType, targetId, targetLabel, onClose }: Props) {

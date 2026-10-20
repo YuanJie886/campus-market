@@ -7,6 +7,11 @@ spring:
       - optional:file:./.env[.properties]
   application:
     name: campus-market-backend
+  # 阶段 4：只有图片上传使用 multipart；单张最大 5 MB（服务端还会按文件头再判断一次）
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/campus_market}
     username: ${DATABASE_USERNAME:postgres}
@@ -40,6 +45,18 @@ campus-market:
   # 本地开发同样需要显式设置；测试环境使用 src/test/resources/application-test.yaml 中的专用测试值。
   jwt-secret: ${JWT_SECRET}
   jwt-issuer: campus-market
+  # 阶段 3：微信小程序登录（code2session）。两个值都配置后才启用；任一为空时接口返回「微信登录尚未开通」。
+  # 密钥只来自环境变量，不写入仓库；session_key 不落库、不记录。
+  # 阶段 4：上传图片的存放目录（生产用持久卷；接入对象存储后替换 ImageStore 实现）
+  images:
+    dir: ${IMAGES_DIR:${java.io.tmpdir}/campus-market-images}
+    # 是否允许商品 / 打包 / 批量 / 草稿使用外部 http(s) 图片地址。默认 true（开发、测试与演示数据不变）；
+    # 生产建议设为 false：新提交的外部地址 400，编辑时商品原有的外部地址可以保留。见 docs/images-and-content-safety.md
+    allow-external: ${ALLOW_EXTERNAL_IMAGES:true}
+  wechat:
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    api-base: ${WECHAT_API_BASE:https://api.weixin.qq.com}
   jwt-audience: campus-market-web
   # BUYER_CONFIRMED 停留超过该时长后自动 EXPIRED 并释放商品。
   # 与早期订单的 expires_at 是两套独立阈值，不要混用。
@@ -64,15 +81,11 @@ campus-market:
     refresh:
       limit: ${RATE_LIMIT_REFRESH:30}
       window-seconds: ${RATE_LIMIT_REFRESH_WINDOW:600}
-    # 同一用户 20 次 / 10 分钟
-    confirmation-code:
-      limit: ${RATE_LIMIT_CONFIRMATION_CODE:20}
-      window-seconds: ${RATE_LIMIT_CONFIRMATION_CODE_WINDOW:600}
     # 同一用户每天 10 条教材建议（只计新建）
     textbook-suggestion:
       limit: ${RATE_LIMIT_TEXTBOOK_SUGGESTION:10}
       window-seconds: ${RATE_LIMIT_TEXTBOOK_SUGGESTION_WINDOW:86400}
-    # 模块 5（均按登录用户计）：草稿创建、批量发布、协助邀请创建与兑换、价格参考
+    # 模块 5（均按登录用户计）：草稿创建、批量发布、协助邀请创建与兑换
     listing-draft-create:
       limit: ${RATE_LIMIT_LISTING_DRAFT_CREATE:120}
       window-seconds: 3600
@@ -85,9 +98,6 @@ campus-market:
     assist-invite-redeem:
       limit: ${RATE_LIMIT_ASSIST_INVITE_REDEEM:10}
       window-seconds: 600
-    price-guidance:
-      limit: ${RATE_LIMIT_PRICE_GUIDANCE:60}
-      window-seconds: 600
     circle-create:
       limit: ${RATE_LIMIT_CIRCLE_CREATE:10}
       window-seconds: 86400
@@ -97,16 +107,38 @@ campus-market:
     circle-invite-redeem:
       limit: ${RATE_LIMIT_CIRCLE_INVITE_REDEEM:10}
       window-seconds: 600
-    # 模块 7：举报每日 20 次、爽约报告每日 10 次、申诉每日 5 次（均按登录用户计）
+    # 模块 7：举报每日 20 次、申诉每日 5 次（均按登录用户计）
     moderation-report:
       limit: ${RATE_LIMIT_MODERATION_REPORT:20}
-      window-seconds: 86400
-    no-show-report:
-      limit: ${RATE_LIMIT_NO_SHOW_REPORT:10}
       window-seconds: 86400
     appeal-submit:
       limit: ${RATE_LIMIT_APPEAL_SUBMIT:5}
       window-seconds: 86400
+    # 阶段 1：同一用户每小时最多发起 20 次联系申请（对同一件商品重复请求不计数）
+    contact-request:
+      limit: ${RATE_LIMIT_CONTACT_REQUEST:20}
+      window-seconds: 3600
+    # 阶段 2：运营后台按工作人员计——读取（列表 / 详情 / 导出）每 10 分钟 300 次，写入每 10 分钟 60 次
+    admin-read:
+      limit: ${RATE_LIMIT_ADMIN_READ:300}
+      window-seconds: 600
+    admin-write:
+      limit: ${RATE_LIMIT_ADMIN_WRITE:60}
+      window-seconds: 600
+    # 阶段 3：修改密码 / 注销按用户每小时 10 次；重置码兑换按账号每小时 10 次；微信登录全局每分钟 600 次
+    account-security:
+      limit: ${RATE_LIMIT_ACCOUNT_SECURITY:10}
+      window-seconds: 3600
+    password-reset:
+      limit: ${RATE_LIMIT_PASSWORD_RESET:10}
+      window-seconds: 3600
+    wechat-login:
+      limit: ${RATE_LIMIT_WECHAT_LOGIN:600}
+      window-seconds: 60
+    # 阶段 4：同一用户每小时最多上传 60 张图片
+    image-upload:
+      limit: ${RATE_LIMIT_IMAGE_UPLOAD:60}
+      window-seconds: 3600
     # 过期计数清理任务；测试 profile 关闭
     cleanup-enabled: ${RATE_LIMIT_CLEANUP_ENABLED:true}
 

@@ -2,8 +2,8 @@
 /**
  * 4.8B 构建产物检查：在 `npm run build:rest` 与 `npm run build:mock` 之后运行（npm run build:all 会依次执行）。
  *
- * - REST 产物（dist/）里不能出现离线 Mock：Mock 的存储键、演示种子、Mock 专用的打包验货模板标识。
- * - Mock 产物（dist-mock/）里不能出现真实 REST 传输层：认证刷新、批量发布、价格参考等 REST 路径。
+ * - REST 产物（dist/）里不能出现离线 Mock：Mock 的存储键、演示种子、Mock 专用的历史交易收尾标识。
+ * - Mock 产物（dist-mock/）里不能出现真实 REST 传输层：认证刷新、批量发布、协助邀请、联系申请未读 / 已读、找回密码、注销、图片上传、客户端配置等 REST 路径。
  * - 每个标记都必须在另一份产物里出现，证明检查不是空转（例如标记拼错了永远找不到）。
  * - 入口 chunk 不超过 chunkSizeWarningLimit（1500 kB，未调高）。
  *
@@ -17,9 +17,13 @@ const MOCK_DIR = 'dist-mock';
 const ENTRY_LIMIT_KB = 1500;
 
 /** REST 产物里不得出现的离线 Mock 标记 */
-const MOCK_ONLY = ['mock_database_v1', 'demo-calculus-8', 'tpl-bundle-v1', 'demo-staff-switch'];
+const MOCK_ONLY = ['mock_database_v1', 'demo-calculus-8', 'PLATFORM_TRADE_RETIRED', 'demo-staff-switch', 'demo-reset-code', 'mock_uploaded_images_v1'];
 /** Mock 产物里不得出现的 REST 传输层标记 */
-const REST_ONLY = ['/v1/auth/refresh', '/v1/listing-batches', '/v1/price-guidance', '/v1/listing-assist-invites'];
+const REST_ONLY = ['/v1/auth/refresh', '/v1/listing-batches', '/v1/listing-assist-invites', '/v1/contact-requests/unread-count', '/v1/contact-requests/read',
+  // 阶段 3 / 4：账号生命周期与图片上传只走真实后端；离线演示用本机的 data: 图片与内存里的演示重置码
+  '/v1/auth/password-reset', '/v1/auth/me/deletion', '/v1/images',
+  // 客户端配置（图片张数 / 大小 / 类型 / 是否允许外部图片）：REST 请求后端，Mock 直接给出离线演示的固定配置
+  '/v1/config'];
 
 function bundle(dir) {
   const assets = join(dir, 'assets');

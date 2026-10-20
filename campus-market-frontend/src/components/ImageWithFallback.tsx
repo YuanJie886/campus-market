@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { resolveImageSrc } from '../utils/images';
 
 interface ImageWithFallbackProps {
   /** 图片地址，可能为空 */
@@ -19,13 +20,15 @@ interface ImageWithFallbackProps {
  * 图片加载失败时回退为「渐变背景 + emoji」，保证任何情况下 UI 都不破图。
  */
 export default function ImageWithFallback({
-  src,
+  src: rawSrc,
   alt,
   emoji = '🖼️',
   gradient = 'linear-gradient(135deg,#e2e8f0 0%,#cbd5e1 100%)',
   className = '',
   imgClassName = '',
 }: ImageWithFallbackProps) {
+  // 阶段 4：上传图片的签名地址是相对路径，按 API 基址补全；外部地址与 data: 原样
+  const src = resolveImageSrc(rawSrc);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 

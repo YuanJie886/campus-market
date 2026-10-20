@@ -9,16 +9,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * 模块 6：商品可见性的 Java 侧入口。判断本身只有一个实现——V9 的 SQL 函数：
- * <ul>
- *   <li>{@code product_visible_to}：列表、搜索、feed、计数、收藏列表、需求匹配、收件箱、未读数（在各自 SQL 里调用）；</li>
- *   <li>{@code product_readable_by}：单个商品的直接访问（详情、分享链接，以及收藏 / 评论 / 会话 / 浏览数的前置检查）。</li>
- * </ul>
+ * 模块 6：商品可见性的 Java 侧入口。判断本身只有一个实现——SQL 函数 {@code product_visible_to}：
+ * 列表、搜索、feed、计数、收藏列表、需求匹配、收件箱、未读数、联系申请，以及单个商品的直接访问（详情、分享链接，
+ * 收藏 / 评论 / 会话 / 浏览数的前置检查）都用它。V16 起 {@code product_readable_by} 与它等价（去掉了订单参与者例外）。
  * 这里不重复写一遍规则，只负责调用它们、解析请求里的 visibility / circleIds，以及在发布 / 购买时对成员资格加锁。
  */
 @Component
@@ -88,21 +85,6 @@ public class ProductVisibility {
     /** 单个商品的直接访问：不可读与不存在一样 404，不透露私密商品是否存在。 */
     public boolean readable(UUID productId, UUID viewer) {
         return Boolean.TRUE.equals(circles.selectReadable(productId, viewer));
-    }
-
-    /**
-     * 下单前：圈子商品只有在籍成员能买。对买家的成员行与圈子行加共享锁——并发的「移除成员」要改这些行，
-     * 必须等订单事务提交；若移除先提交，这里读到的已是 REMOVED，下单失败（404）。
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void requirePurchasable(Map<String, Object> productRow, UUID buyer) {
-        String school = circles.selectCampusSchool(String.valueOf(productRow.get("campus")));
-        // 6.1A：他校商品（包括 PUBLIC）与被治理隐藏的商品，对买家与不存在相同
-        if (school == null || !school.equals(circles.selectUserSchool(buyer)) || productRow.get("moderation_hidden_at") != null) {
-            throw ApiException.notFound("商品不存在");
-        }
-        if (!CIRCLE_ONLY.equals(String.valueOf(productRow.get("visibility")))) return;
-        if (circles.lockBuyerAccess((UUID) productRow.get("id"), buyer, school).isEmpty()) throw ApiException.notFound("商品不存在");
     }
 
     public List<UUID> linkedCircles(UUID productId) {

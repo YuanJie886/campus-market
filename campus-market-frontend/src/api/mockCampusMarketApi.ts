@@ -1,45 +1,46 @@
-import type { CanonicalOrderStatus, CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePatch, ProductQuery, ProductPage, ProductCreateInput, ProductPatch, CreateOrderInput, OrderTransitionInput, ReviewInput, CommentInput } from './contracts';
-import type { User, Product, Favorite, Order, Review, Comment, Conversation, ChatMessage, MarketState, ProductStatus } from '../types';
+import type { CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePatch, ProductQuery, ProductPage, ProductCreateInput, ProductPatch, CommentInput, ContactRequest, ContactRequestPage, ContactRequestQuery, ContactRequestRole, ContactRequestStatus, ContactUnreadCounts } from './contracts';
+import type { User, Product, Favorite, Comment, Conversation, ChatMessage, ProductStatus } from '../types';
 import { ApiError } from './errors';
 import { loadState, saveState } from '../utils/storage';
-import { MOCK_SCHEMA_VERSION, PILOT_CAMPUS_SCHOOLS, freshCatalog, migrateMockDatabase, type MockAssistInvite, type MockDatabase, type MockDemandMatch, type MockDemandSubscription, type MockDisclosure, type MockListingBatch, type MockListingDraft, type MockMeetingProposal, type MockTextbookSuggestion } from './mockMigrations';
-import { ASSISTANT_FIELDS, parseBundleItems, percentileCont, randomToken, roundGuidance, sampleBucket, sanitizePayload, sha256Hex, validateListing, type ValidationContext } from './mock/supplyRules';
-import { BATCH_MAX_ITEMS, CANCELLATION_NOTE_MAX, CANCELLATION_REASONS, CIRCLE_MEMBER_LIMIT, NO_SHOW_GRACE_MINUTES, NO_SHOW_REPORT_WINDOW_DAYS, NO_SHOW_RULE_VERSION, PRICE_GUIDANCE_MIN_SAMPLE, PRICE_GUIDANCE_NOTE, RESTRICTION_MAX_HOURS, SLOT_DEFAULT_MINUTES, SLOT_MAX_MINUTES, SLOT_MIN_MINUTES, type CancellationReason } from './contracts';
-
-/** 7.1A：与后端 NoShowService.message("NO_EXPLICIT_SLOT") 相同 */
-const NO_EXPLICIT_SLOT_MESSAGE = '原始预约没有明确的结束时间，不能据此认定爽约；可以先通过改约确认一个完整的新档期';
-import type { AssistEvent, AssistInvite, AssistInviteCreated, AssistInviteRedeemed, BundleItem, ListingBatch, ListingBatchSummary, ListingDraft, ListingKind, ListingPayload, ListingValidation, PriceGuidance, PriceGuidanceQuery, PublishBatchResult } from './contracts';
+import { MOCK_SCHEMA_VERSION, PILOT_CAMPUS_SCHOOLS, closeLegacyTrade, freshCatalog, migrateMockDatabase, type MockAssistInvite, type MockContactRequest, type MockDatabase, type MockDemandMatch, type MockDemandSubscription, type MockDisclosure, type MockListingBatch, type MockListingDraft, type MockTextbookSuggestion } from './mockMigrations';
+import { ASSISTANT_FIELDS, parseBundleItems, randomToken, sanitizePayload, sha256Hex, validateListing, type ValidationContext } from './mock/supplyRules';
+import { BATCH_MAX_ITEMS, CIRCLE_MEMBER_LIMIT, CONTACT_REQUEST_HOURLY_LIMIT, CONTACT_REQUEST_PAGE_MAX, CONTACT_REQUEST_STATUSES, MODERATION_DECISION_REASONS, MODERATION_REPORT_REASONS, MODERATION_REPORT_TARGETS, RESTRICTION_MAX_HOURS } from './contracts';
+import type { AssistEvent, AssistInvite, AssistInviteCreated, AssistInviteRedeemed, BundleItem, ListingBatch, ListingBatchSummary, ListingDraft, ListingKind, ListingPayload, ListingValidation, PublishBatchResult } from './contracts';
 import { seedInspectionTemplates, type MockInspectionTemplate } from '../data/inspectionTemplates';
 import { isbnProblem, parseIsbn } from '../utils/isbn';
-import { BUYER_RESULTS, DECLARED_CONDITIONS, MAX_CODE_ATTEMPTS, PRESENCE_ALLOWED, SCHEDULABLE, TERMINAL, buyerConfirmBlockReason, inspectionGate, meetingStatus, note, rejectUnknownKeys, slot } from './mock/trustedFlowRules';
+import { DECLARED_CONDITIONS, note, rejectUnknownKeys } from './mock/trustedFlowRules';
 import { MAX_ACTIVE_SUBSCRIPTIONS, MAX_KEYWORD_LENGTH } from '../utils/demand';
 import { containsKeyword, mockTier, normalizeDemandText, scoreDemandMatch } from './mock/demandScoring';
 import { CATEGORIES } from '../types';
 import { buildSeedMarketState, seedUsers } from '../data/seed';
-import { compareBuildings, publicBuilding, seedBuildings, seedMeetingPointCoordinates } from '../data/buildings';
+import { compareBuildings, publicBuilding, seedBuildings } from '../data/buildings';
 import { allowsFallback, fallbackChain, haversineMeters, SCOPE_FALLBACK_ORDER, SCOPE_LABEL, walkMinutes, type BuildingScope } from '../utils/geo';
-import { uid } from '../utils/id';
-import { statusLabel, isTerminalStatus } from './mapper';
-/**
- * 读取订单的 canonical status。
- *
- * <p>装载时的迁移（见 mockMigrations）已经为每个订单固化了 canonicalStatus，
- * 这里只保留一个最保守的兜底，用于运行期新建但尚未赋值的边界情况——
- * 刻意<b>不</b>再从中文文案反推，那正是状态漂移的来源。
- */
-function canonicalOf(order: Order): CanonicalOrderStatus {
-  return order.canonicalStatus ?? 'PENDING_SELLER_CONFIRM';
+import { safeUuid, uid } from '../utils/id';
+import { requireSafeText } from './mock/contentSafety';
+import { bytesToDataUrl, imageSize, readBytes, sniffImage } from './mock/imageRules';
+import { ACCOUNT_DELETION_CONFIRMATION, DEFAULT_CLIENT_CONFIG, normalizeClientConfig, type ClientConfig, IMAGE_MAX_BYTES, IMAGE_TOO_LARGE, PASSWORD_MAX, PASSWORD_MIN, PASSWORD_RESET_FAILURE, UPLOAD_REF_PREFIX, type AccountDeletionResult, type PasswordChangeResult, type PasswordResetInput, type UploadedImage } from './contracts';
+
+/** 与后端 RestrictionGuard 的到期时间格式相同：「M 月 d 日 HH:mm」（Asia/Shanghai） */
+function formatRestrictionEnd(epochMs: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(epochMs));
+  const part = (type: string) => parts.find((x) => x.type === type)?.value ?? '';
+  return `${part('month')} 月 ${part('day')} 日 ${part('hour')}:${part('minute')}`;
 }
 
 const DB_KEY = 'mock_database_v1';
+/** 阶段 4：离线演示上传的图片（data: 地址）单独存放，不进入 MockDatabase，避免一张大图挤爆演示数据；超出浏览器配额时只保留在内存里 */
+const IMAGE_KEY = 'mock_uploaded_images_v1';
+interface MockUploadedImage { ownerId: string; dataUrl: string; status: 'ACTIVE' | 'DELETED'; width: number; height: number }
 
 /** 全新的演示数据。始终按当前 schema 版本生成。 */
 function buildSeedDatabase(): MockDatabase {
   const market = buildSeedMarketState();
-  market.products = market.products.map((p) => ({ ...p, contactPublic: false, status: p.status === '预约中' ? '在售' : p.status }));
-  return {
+  market.products = market.products.map((p) => ({ ...p, contactPublic: false }));
+  const db: MockDatabase = {
     schemaVersion: MOCK_SCHEMA_VERSION,
     contactRequests: [],
+    legacyTradeClosures: [],
     users: seedUsers.map((user) => ({ ...user, dormBuildingId: user.dormBuildingId ?? null })),
     buildings: seedBuildings.map((building) => ({ ...building })),
     demandSubscriptions: [],
@@ -83,6 +84,9 @@ function buildSeedDatabase(): MockDatabase {
     idempotency: {},
     currentUserId: null,
   };
+  // 演示种子里的历史订单同样按阶段 1 收尾（与迁移同一个函数）：站内交易已停用，不留下未结束的订单或「预约中」的商品
+  closeLegacyTrade(db);
+  return db;
 }
 
 // 静态白名单放在模块顶层并标注 PURE：类定义本身因此没有副作用，
@@ -94,8 +98,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
   private db: MockDatabase;
   /** 读到更高 schema 版本时为 false：不拿旧代码覆盖新版应用写下的数据。 */
   private readonly persistEnabled: boolean;
-  /** 迁移过程中被保守判定的订单 id，供界面提示用户核对。 */
-  readonly ambiguousOrderIds: readonly string[];
 
   constructor() {
     // loadState 已经吃掉 JSON 解析异常；migrate 再负责形状与版本
@@ -103,7 +105,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const result = migrateMockDatabase(raw, buildSeedDatabase);
     this.db = result.db;
     this.persistEnabled = result.persistable;
-    this.ambiguousOrderIds = result.ambiguousOrderIds;
     // 迁移结果立即落盘，避免每次装载都重新推断一遍
     this.persist();
   }
@@ -116,21 +117,21 @@ export class MockCampusMarketApi implements CampusMarketApi {
    * 不写 localStorage，刷新页面即清零——离线演示没有需要防御的服务端资源。
    */
   private readonly supplyCounters = new Map<string, number[]>();
-  private supplyLimit(scope: string, userId: string, limit: number, windowMs: number): void {
+  private supplyLimit(scope: string, userId: string, limit: number, windowMs: number, message = '操作过于频繁，请稍后再试'): void {
     const now = Date.now();
     const key = `${scope}:${userId}`;
     const hits = (this.supplyCounters.get(key) ?? []).filter((t) => t > now - windowMs);
     if (hits.length >= limit) {
       this.supplyCounters.set(key, hits);
-      throw ApiError.mock({ code: 429, message: '操作过于频繁，请稍后再试', retryAfterSeconds: Math.max(1, Math.ceil((hits[0] + windowMs - now) / 1000)) });
+      throw ApiError.mock({ code: 429, message, retryAfterSeconds: Math.max(1, Math.ceil((hits[0] + windowMs - now) / 1000)) });
     }
     hits.push(now);
     this.supplyCounters.set(key, hits);
   }
 
   /**
-   * 多标签页：订单流程的读写之前以 localStorage 为准重新装载（保留本标签页的登录身份），
-   * 避免用过期的内存副本覆盖另一个标签页刚写下的状态——例如把对方标签页的「已到达」写回「已出发」。
+   * 多标签页：联系申请与治理的读写之前以 localStorage 为准重新装载（保留本标签页的登录身份），
+   * 避免用过期的内存副本覆盖另一个标签页刚写下的状态——例如把对方标签页刚撤回的同意写回「已同意」。
    */
   private syncFromStorage(): void {
     if (!this.persistEnabled) return;
@@ -156,19 +157,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
     if (!u || this.schoolOf(u.campus) !== this.schoolOf(me.campus)) throw ApiError.mock({ code: 404, message: '用户不存在' });
     return { id: u.id, nickname: u.nickname, avatar: u.avatar, campus: u.campus, createdAt: u.createdAt };
   }
-  /** 与后端一致的 12 个稳定面交点，含 V3 的演示坐标。 */
-  async listMeetingPoints() {
-    this.retiredTradeFeature();
-    const names: Array<[string, string]> = [['library', '图书馆门口'], ['canteen', '食堂入口'], ['express', '快递站']];
-    return (['东校区', '西校区', '南校区', '北校区'] as User['campus'][]).flatMap((campus) =>
-      names.map(([suffix, name]) => {
-        const id = `${campus}-${suffix}`;
-        const coordinate = seedMeetingPointCoordinates[id];
-        return { id, campus, name, latitude: coordinate?.latitude ?? null, longitude: coordinate?.longitude ?? null, active: !this.db.inactiveMeetingPoints.includes(id) };
-      }),
-    );
-  }
-
   /** 楼栋参考数据。公共信息，未登录也可读，不含任何住户信息。 */
   async listBuildings(campus: User['campus'], zone?: string) {
     // 与 REST 相同：只列启用的楼栋，按唯一的 compareBuildings 排序，只返回 6 个公共字段
@@ -195,7 +183,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
   async markConversationRead(_id: string) {}
   async login(input: LoginInput): Promise<AuthSession> { const account = input.account.trim(); const user = this.db.users.find((item) => item.account === account || item.contact === account); if (!user) throw ApiError.mock({ code: 404, message: '账号不存在，请先注册' }); if (user.password !== input.password) throw ApiError.mock({ code: 401, message: '密码错误，请重新输入' }); return this.session(user) }
-  async register(input: RegisterInput): Promise<AuthSession> { const account = input.account.trim(); if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' }); if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' }); if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' }); const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: `https://picsum.photos/seed/${encodeURIComponent(account)}/200/200`, campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() }; this.db.users.push(user); this.persist(); return this.session(user) }
+  async register(input: RegisterInput): Promise<AuthSession> { const account = input.account.trim(); if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' }); requireSafeText(input.nickname); if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' }); if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' }); const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: `https://picsum.photos/seed/${encodeURIComponent(account)}/200/200`, campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() }; this.db.users.push(user); this.persist(); return this.session(user) }
   /** Mock 的登录态持久在 MockDatabase（演示数据），无需真实刷新，直接回报当前会话。 */
   async refreshSession(): Promise<AuthSession | null> {
     const id = this.db.currentUserId;
@@ -206,6 +194,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
   async getCurrentUser(): Promise<User | null> { const id = this.db.currentUserId; return this.db.users.find((user) => user.id === id) ?? null }
   async updateProfile(patch: ProfilePatch): Promise<User> {
     const current = this.currentUser();
+    // 阶段 4：昵称经过内容安全检查（与后端 MarketService.profile 相同）
+    if (patch.nickname !== undefined) requireSafeText(patch.nickname);
     // 6.1A：只能在本校校区之间切换
     if (patch.campus !== undefined) this.requireCampusInSchool(patch.campus, this.schoolOf(current.campus));
     const { dormBuildingId, ...rest } = patch;
@@ -223,49 +213,383 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return { ...current };
   }
   async logout(): Promise<void> { this.db.currentUserId = null; this.persist() }
+  // ======================================================================
+  // 阶段 3：账号生命周期（与后端 AccountService 逐条对应；docs/account-lifecycle.md）
+  // ======================================================================
+  /** 后端 AuthService.string：必须是字符串、去掉首尾空白后再按长度校验，消息只回显字段名 */
+  private static accountString(body: Record<string, unknown>, name: string, min: number, max: number): string {
+    const raw = body[name];
+    if (typeof raw !== 'string') throw ApiError.mock({ code: 400, message: `${name} 格式无效` });
+    const value = raw.trim();
+    if (value.length < min || value.length > max) throw ApiError.mock({ code: 400, message: `${name} 长度无效` });
+    return value;
+  }
+  private static rejectUnknownAccountFields(body: object, allowed: readonly string[]): void {
+    const unknown = Object.keys(body).filter((k) => !allowed.includes(k));
+    if (unknown.length) throw ApiError.mock({ code: 400, message: `不支持的字段：${unknown.join(', ')}` });
+  }
+
+  async changePassword(input: { currentPassword: string; newPassword: string }): Promise<PasswordChangeResult> {
+    const user = this.currentUser();
+    const body = input as unknown as Record<string, unknown>;
+    MockCampusMarketApi.rejectUnknownAccountFields(body, ['currentPassword', 'newPassword']);
+    const current = MockCampusMarketApi.accountString(body, 'currentPassword', 1, PASSWORD_MAX);
+    const next = MockCampusMarketApi.accountString(body, 'newPassword', PASSWORD_MIN, PASSWORD_MAX);
+    // 后端按用户每小时 10 次（ACCOUNT_SECURITY）
+    this.supplyLimit('account-security', user.id, 10, MockCampusMarketApi.HOUR, '请求过于频繁，请稍后再试');
+    if (user.password !== current) throw ApiError.mock({ code: 400, message: '当前密码不正确' });
+    if (current === next) throw ApiError.mock({ code: 400, message: '新密码不能与当前密码相同' });
+    user.password = next;
+    this.persist();
+    // 离线演示只有本标签页这一个会话：没有其他设备可以结束
+    return { changed: true, otherSessionsEnded: 0 };
+  }
+
+  /** 重置码只在内存里保存 SHA-256（与后端只存哈希相同），刷新页面即失效 */
+  private readonly resetTickets = new Map<string, { codeHash: string; expiresAt: number; attempts: number }>();
+  private static readonly RESET_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  private static normalizeResetCode(code: string): string { return code.replace(/-/g, '').replace(/ /g, '').toUpperCase() }
+
+  /**
+   * 仅离线演示：代替「学校管理员线下核对身份后签发」这一步（真实部署由管理后台签发，见 docs/account-lifecycle.md）。
+   * 与后端相同：XXXX-XXXX-XXXX、30 分钟、最多 5 次错误、新码让旧码作废；账号不存在时不签发也不报错（返回 null）。
+   */
+  async demoIssueResetCode(account: string): Promise<{ code: string; expiresAt: number } | null> {
+    this.syncFromStorage();
+    const user = this.db.users.find((u) => u.account === account.trim());
+    if (!user) return null;
+    const bytes = new Uint8Array(12);
+    globalThis.crypto.getRandomValues(bytes);
+    const alphabet = MockCampusMarketApi.RESET_CODE_ALPHABET;
+    let code = '';
+    bytes.forEach((b, i) => { if (i > 0 && i % 4 === 0) code += '-'; code += alphabet[b % alphabet.length] });
+    const expiresAt = Date.now() + 30 * 60_000;
+    this.resetTickets.set(user.id, { codeHash: sha256Hex(MockCampusMarketApi.normalizeResetCode(code)), expiresAt, attempts: 0 });
+    return { code, expiresAt };
+  }
+
+  async resetPasswordWithCode(input: PasswordResetInput): Promise<{ reset: boolean }> {
+    this.syncFromStorage();
+    const body = input as unknown as Record<string, unknown>;
+    MockCampusMarketApi.rejectUnknownAccountFields(body, ['account', 'code', 'newPassword']);
+    const account = MockCampusMarketApi.accountString(body, 'account', 1, 64);
+    if (!/^[\w@.+-]+$/.test(account)) throw ApiError.mock({ code: 400, message: 'account 格式无效' });
+    const code = MockCampusMarketApi.accountString(body, 'code', 1, 40);
+    const next = MockCampusMarketApi.accountString(body, 'newPassword', PASSWORD_MIN, PASSWORD_MAX);
+    // 后端按账号每小时 10 次（PASSWORD_RESET），成功与失败都计数
+    this.supplyLimit('password-reset', account.toLowerCase(), 10, MockCampusMarketApi.HOUR, '请求过于频繁，请稍后再试');
+    const user = this.db.users.find((u) => u.account === account);
+    const ticket = user ? this.resetTickets.get(user.id) : undefined;
+    if (!user || !ticket || ticket.expiresAt <= Date.now() || ticket.attempts >= 5) {
+      throw ApiError.mock({ code: 400, message: PASSWORD_RESET_FAILURE });
+    }
+    if (sha256Hex(MockCampusMarketApi.normalizeResetCode(code)) !== ticket.codeHash) {
+      ticket.attempts += 1;
+      throw ApiError.mock({ code: 400, message: PASSWORD_RESET_FAILURE });
+    }
+    this.resetTickets.delete(user.id);
+    user.password = next;
+    // 全部会话结束：如果本标签页正登录着这个账号，同样退出
+    if (this.db.currentUserId === user.id) this.db.currentUserId = null;
+    this.persist();
+    return { reset: true };
+  }
+
+  /** 注销：与后端同一事务内的收尾一一对应（docs/account-lifecycle.md 第 3 节） */
+  async deleteAccount(input: { password: string; confirmation: string }): Promise<AccountDeletionResult> {
+    this.syncFromStorage();
+    const user = this.currentUser();
+    const body = input as unknown as Record<string, unknown>;
+    MockCampusMarketApi.rejectUnknownAccountFields(body, ['password', 'confirmation']);
+    const password = MockCampusMarketApi.accountString(body, 'password', 1, PASSWORD_MAX);
+    if (body.confirmation !== ACCOUNT_DELETION_CONFIRMATION) throw ApiError.mock({ code: 400, message: `请输入「${ACCOUNT_DELETION_CONFIRMATION}」确认注销` });
+    this.supplyLimit('account-security', user.id, 10, MockCampusMarketApi.HOUR, '请求过于频繁，请稍后再试');
+    if (user.password !== password) throw ApiError.mock({ code: 400, message: '密码不正确' });
+    if (this.db.staffMembers.some((s) => s.userId === user.id && s.active)) {
+      throw ApiError.mock({ code: 409, message: '你仍有后台工作人员权限，请先请学校管理员停用后再注销' });
+    }
+    if (this.db.circles.some((c) => c.ownerId === user.id && c.status === 'ACTIVE')) {
+      throw ApiError.mock({ code: 409, message: '你还是在用圈子的所有者，请先移交所有者或归档圈子后再注销' });
+    }
+    const now = Date.now();
+    let productsTakenDown = 0;
+    for (const p of this.db.market.products) {
+      if (p.sellerId !== user.id) continue;
+      if (p.status === '在售') { p.status = '已下架'; productsTakenDown += 1 }
+      p.contact = '';
+      p.contactPublic = false;
+    }
+    let requestsClosed = 0;
+    for (const r of this.db.contactRequests) {
+      if (r.buyerId === user.id && r.status === 'PENDING') { r.status = 'WITHDRAWN'; r.updatedAt = now; requestsClosed += 1 }
+      else if (r.sellerId === user.id && r.status === 'PENDING') { r.status = 'REJECTED'; r.decidedAt = now; r.updatedAt = now; r.buyerSeenAt = null; requestsClosed += 1 }
+      else if (r.sellerId === user.id && r.status === 'APPROVED') { r.status = 'REVOKED'; r.decidedAt = now; r.updatedAt = now; r.buyerSeenAt = null; requestsClosed += 1 }
+    }
+    let membershipsEnded = 0;
+    for (const m of this.db.circleMemberships) {
+      if (m.userId !== user.id || m.status !== 'ACTIVE' || m.role === 'OWNER') continue;
+      m.status = 'LEFT'; m.role = 'MEMBER'; m.endedAt = now; m.updatedAt = now; membershipsEnded += 1;
+      this.circleEvent(m.circleId, user.id, user.id, 'MEMBER_LEFT');
+    }
+    for (const sub of this.db.demandSubscriptions) if (sub.userId === user.id && sub.active) { sub.active = false; sub.updatedAt = now }
+    for (const invite of this.db.listingAssistInvites) if (invite.ownerId === user.id && invite.status !== 'REVOKED') { invite.status = 'REVOKED'; invite.revokedAt = now }
+    // 阶段 4：本人上传的图片一律不可读
+    for (const image of Object.values(this.images)) if (image.ownerId === user.id) { image.status = 'DELETED'; image.dataUrl = '' }
+    this.persistImages();
+    this.resetTickets.delete(user.id);
+    // 资料匿名化：账号改为不可登录的占位值，密码改为随机值；原账号名可以重新注册
+    Object.assign(user, { account: `deleted-${user.id}`, password: randomToken(), nickname: '已注销用户', avatar: '', contact: '', dormBuildingId: null });
+    this.db.currentUserId = null;
+    this.persist();
+    return { deleted: true, productsTakenDown, requestsClosed, membershipsEnded };
+  }
+
+  // ======================================================================
+  // 阶段 4：图片上传（与后端 ImageService 的校验顺序相同；图片以 data: 地址保存在本机）
+  // ======================================================================
+  private images: Record<string, MockUploadedImage> = loadState<Record<string, MockUploadedImage>>(IMAGE_KEY, {}) ?? {};
+  private persistImages(): void { if (this.persistEnabled) saveState(IMAGE_KEY, this.images) }
+
+  async uploadImage(file: File): Promise<UploadedImage> {
+    const user = this.currentUser();
+    if (!file || file.size === 0) throw ApiError.mock({ code: 400, message: '请选择一张图片' });
+    if (file.size > IMAGE_MAX_BYTES) throw ApiError.mock({ code: 413, message: IMAGE_TOO_LARGE });
+    const bytes = await readBytes(file);
+    const format = sniffImage(bytes);
+    if (!format) throw ApiError.mock({ code: 400, message: '只支持 JPEG 或 PNG 图片' });
+    this.supplyLimit('image-upload', user.id, 60, MockCampusMarketApi.HOUR, '请求过于频繁，请稍后再试');
+    const size = imageSize(bytes, format);
+    if (!size || size.width < 1 || size.height < 1) throw ApiError.mock({ code: 400, message: '图片已损坏或无法识别' });
+    if (size.width > 6000 || size.height > 6000) throw ApiError.mock({ code: 400, message: '图片尺寸不能超过 6000×6000' });
+    const id = safeUuid();
+    const dataUrl = bytesToDataUrl(bytes, format === 'png' ? 'image/png' : 'image/jpeg');
+    this.images[id] = { ownerId: user.id, dataUrl, status: 'ACTIVE', ...size };
+    this.persistImages();
+    return { id, ref: `${UPLOAD_REF_PREFIX}${id}`, url: dataUrl, ...size };
+  }
+
+  /** GET /v1/config 的离线版本：演示需要示例图，因此允许外部图片；张数、大小与类型与后端默认值相同 */
+  async getClientConfig(): Promise<ClientConfig> {
+    return normalizeClientConfig({ images: { ...DEFAULT_CLIENT_CONFIG.images, externalAllowed: true } });
+  }
+
+  /** 商品里保存的引用 → 可显示的地址；外部示例图原样返回，已删除 / 不存在的上传图片为空串（界面显示占位图） */
+  private imageUrlOf(stored: string): string {
+    if (!stored.startsWith(UPLOAD_REF_PREFIX)) return stored;
+    const image = this.images[stored.slice(UPLOAD_REF_PREFIX.length)];
+    return image && image.status === 'ACTIVE' ? image.dataUrl : '';
+  }
+  /** 草稿里保存的引用 → 显示地址（与后端草稿响应里的签名地址相同）；已失效的上传图片保留引用，保存时原样带回由校验处理 */
+  private draftImageUrlOf(stored: string): string {
+    return this.imageUrlOf(stored) || stored;
+  }
+  private draftPayloadIn(payload: ListingPayload | undefined): ListingPayload | undefined {
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.images)) return payload;
+    return { ...payload, images: payload.images.map((image) => (typeof image === 'string' ? this.imageRefOf(image) : image)) };
+  }
+  /** 编辑时表单带回的是显示地址：还原成引用（与 REST 把签名地址还原成 upload:<id> 相同） */
+  private imageRefOf(value: string): string {
+    if (!value.startsWith('data:')) return value;
+    const hit = Object.entries(this.images).find(([, image]) => image.dataUrl === value);
+    return hit ? `${UPLOAD_REF_PREFIX}${hit[0]}` : value;
+  }
+  /** 与后端 ImageService.requireUsable 相同：只能引用卖家本人或协助人上传、仍有效的图片 */
+  private requireUsableImages(images: readonly string[] | undefined, sellerId: string, assistantId: string | null): void {
+    for (const ref of images ?? []) {
+      if (typeof ref !== 'string' || !ref.startsWith(UPLOAD_REF_PREFIX)) continue;
+      const id = ref.slice(UPLOAD_REF_PREFIX.length);
+      if (!/^[0-9a-fA-F-]{36}$/.test(id) && !id.startsWith('uuid_')) throw ApiError.mock({ code: 400, message: '图片无效，请重新上传' });
+      const image = this.images[id];
+      if (!image || image.status !== 'ACTIVE' || (image.ownerId !== sellerId && image.ownerId !== assistantId)) {
+        throw ApiError.mock({ code: 400, message: '只能使用自己上传的图片，请重新上传' });
+      }
+    }
+  }
+
   async listProducts(query: ProductQuery): Promise<ProductPage> { const me = this.currentUser(); MockCampusMarketApi.rejectSchoolOverride(query); if (query.campus) this.requireCampusInSchool(query.campus, this.schoolOf(me.campus)); const viewer = me.id; const keyword = query.keyword?.trim().toLowerCase() ?? ''; let items = this.db.market.products.filter((p) => this.visibleTo(p, viewer) && (!keyword || `${p.title} ${p.description}`.toLowerCase().includes(keyword)) && (!query.category || p.category === query.category) && (!query.campus || p.campus === query.campus) && (!query.condition || p.condition === query.condition) && (query.minPrice === undefined || p.price >= query.minPrice) && (query.maxPrice === undefined || p.price <= query.maxPrice)); items = [...items].sort((a, b) => query.sort === 'priceAsc' ? a.price - b.price : query.sort === 'priceDesc' ? b.price - a.price : query.sort === 'views' ? b.views - a.views : b.createdAt - a.createdAt); const page = Math.max(1, query.page); const pageSize = Math.max(1, query.pageSize); return { items: items.slice((page - 1) * pageSize, page * pageSize).map((p) => this.withBuilding(p)), page, pageSize, total: items.length } }
-  private retiredTradeFeature(): void { throw ApiError.mock({ code: 410, message: '平台只展示商品与联系方式，交易和预约功能已移除' }); }
   private validateContactPublic(input: { contactPublic?: boolean }): void {
     if ('contactPublic' in input && typeof input.contactPublic !== 'boolean') throw ApiError.mock({ code: 400, message: 'contactPublic 必须是布尔值' });
   }
-  async getContactRequest(productId: string) {
-    this.syncFromStorage();
-    const me = this.currentUser(); this.readableProduct(productId);
-    const request = this.db.contactRequests?.find((r) => r.productId === productId && r.buyerId === me.id);
-    return request ? { ...request } : null;
+  // ======================================================================
+  // 联系申请（阶段 1，与后端 ContactRequestService / ContactRequestMapper 逐条对应）
+  //   PENDING → APPROVED / REJECTED（卖家）/ WITHDRAWN（买家撤回）；APPROVED → REVOKED（卖家撤回同意）；
+  //   WITHDRAWN → PENDING（买家重新申请，同一条记录）；REJECTED、REVOKED 是终态，再次申请 409。
+  // ======================================================================
+
+  private static readonly CONTACT_NOT_FOUND = '联系申请不存在';
+
+  /** 申请对象：按查看者视角计算 unread，从不包含联系方式 */
+  private contactView(r: MockContactRequest, viewerId: string): ContactRequest {
+    const asSeller = r.sellerId === viewerId;
+    const unread = asSeller ? r.status === 'PENDING' && r.sellerSeenAt === null
+      : (r.status === 'APPROVED' || r.status === 'REJECTED' || r.status === 'REVOKED') && r.buyerSeenAt === null;
+    return {
+      id: r.id, productId: r.productId, buyerId: r.buyerId, sellerId: r.sellerId, status: r.status,
+      createdAt: r.createdAt, updatedAt: r.updatedAt, decidedAt: r.decidedAt,
+      productTitle: this.db.market.products.find((p) => p.id === r.productId)?.title ?? '',
+      buyerNickname: this.db.users.find((u) => u.id === r.buyerId)?.nickname ?? '',
+      sellerNickname: this.db.users.find((u) => u.id === r.sellerId)?.nickname ?? '',
+      unread,
+    };
   }
-  async requestContact(productId: string) {
+
+  /** 与后端 VISIBLE 条件相同：只列出本人仍能看到的商品上的申请 */
+  private contactVisible(r: MockContactRequest, viewerId: string): boolean {
+    const p = this.db.market.products.find((x) => x.id === r.productId);
+    return !!p && this.visibleTo(p, viewerId);
+  }
+
+  /** 不属于本人与不存在同为 404 */
+  private ownedContactRequest(id: string, userId: string, side: 'sellerId' | 'buyerId'): MockContactRequest {
+    const r = this.db.contactRequests.find((x) => x.id === id);
+    if (!r || r[side] !== userId) throw ApiError.mock({ code: 404, message: MockCampusMarketApi.CONTACT_NOT_FOUND });
+    return r;
+  }
+
+  private static contactConflict(current: ContactRequestStatus): string {
+    return current === 'WITHDRAWN' ? '买家已撤回这次申请' : current === 'REVOKED' ? '卖家已撤回同意' : '该申请已处理';
+  }
+
+  async getContactRequest(productId: string): Promise<ContactRequest | null> {
     this.syncFromStorage();
-    const me = this.currentUser(); const product = this.readableProduct(productId);
+    const me = this.currentUser();
+    this.readableProduct(productId);
+    const request = this.db.contactRequests.find((r) => r.productId === productId && r.buyerId === me.id);
+    return request ? this.contactView(request, me.id) : null;
+  }
+
+  async requestContact(productId: string): Promise<ContactRequest> {
+    this.syncFromStorage();
+    const me = this.currentUser();
+    // 限制检查在先（后端先对用户行取共享锁再读商品）：受限时不透露商品是否存在
+    this.requireUnrestricted(me.id, 'CONTACT');
+    const product = this.readableProduct(productId);
     if (product.sellerId === me.id) throw ApiError.mock({ code: 400, message: '不能申请自己的联系方式' });
+    const existing = this.db.contactRequests.find((r) => r.productId === productId && r.buyerId === me.id);
+    if (existing) {
+      // 对同一件商品的重复请求幂等返回原申请，不计入限流
+      if (existing.status === 'PENDING' || existing.status === 'APPROVED') return this.contactView(existing, me.id);
+      if (existing.status === 'REJECTED') throw ApiError.mock({ code: 409, message: '卖家已拒绝这次申请，不能再次申请' });
+      if (existing.status === 'REVOKED') throw ApiError.mock({ code: 409, message: '卖家已撤回同意，不能再次申请' });
+    }
     if (product.status !== '在售') throw ApiError.mock({ code: 409, message: '该商品当前不可申请联系' });
     if (product.contactPublic) throw ApiError.mock({ code: 409, message: '卖家已公开联系方式，请直接查看' });
-    const existing = this.db.contactRequests?.find((r) => r.productId === productId && r.buyerId === me.id);
-    if (existing) return { ...existing };
-    const request: import('./contracts').ContactRequest = { id: uid('contact'), productId, buyerId: me.id, sellerId: product.sellerId, status: 'PENDING', createdAt: Date.now(), updatedAt: Date.now() };
-    (this.db.contactRequests ??= []).unshift(request); this.persist(); return { ...request };
+    this.supplyLimit('contactRequest', me.id, CONTACT_REQUEST_HOURLY_LIMIT, 3_600_000, '请求过于频繁，请稍后再试');
+    const now = Date.now();
+    if (existing) {
+      // 撤回后重新申请：回到 PENDING（同一条记录），卖家重新看到一条未读
+      Object.assign(existing, { status: 'PENDING', updatedAt: now, sellerSeenAt: null, buyerSeenAt: now });
+      this.persist();
+      return this.contactView(existing, me.id);
+    }
+    const request: MockContactRequest = { id: uid('contact'), productId, buyerId: me.id, sellerId: product.sellerId, status: 'PENDING',
+      createdAt: now, updatedAt: now, decidedAt: null, sellerSeenAt: null, buyerSeenAt: now };
+    this.db.contactRequests.unshift(request);
+    this.persist();
+    return this.contactView(request, me.id);
   }
-  async listContactRequests() {
-    this.syncFromStorage(); const me = this.currentUser();
-    return (this.db.contactRequests ?? []).filter((r) => (r.buyerId === me.id || r.sellerId === me.id) && this.db.market.products.some((p) => p.id === r.productId && this.visibleTo(p, me.id)))
-      .map((r) => ({ ...r, productTitle: this.db.market.products.find((p) => p.id === r.productId)?.title ?? '', buyerNickname: this.db.users.find((u) => u.id === r.buyerId)?.nickname ?? '' }));
+
+  /** 分页列表：role 默认 received；按最近变化倒序（updatedAt DESC, id） */
+  async listContactRequests(query: ContactRequestQuery = {}): Promise<ContactRequestPage> {
+    this.syncFromStorage();
+    const me = this.currentUser();
+    rejectUnknownKeys(query, ['role', 'status', 'page', 'size'], '查询');
+    const role = query.role === undefined ? 'received' : query.role;
+    if (role !== 'received' && role !== 'sent') throw ApiError.mock({ code: 400, message: 'role 只能是 received 或 sent' });
+    const status = query.status === undefined ? null : query.status;
+    if (status !== null && !CONTACT_REQUEST_STATUSES.includes(status)) throw ApiError.mock({ code: 400, message: '申请状态无效' });
+    const intParam = (raw: unknown, name: string, max: number, fallback: number) => {
+      if (raw === undefined) return fallback;
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 1 || n > max) throw ApiError.mock({ code: 400, message: `${name} 无效` });
+      return n;
+    };
+    const page = intParam(query.page, 'page', 10000, 1);
+    const size = intParam(query.size, 'size', CONTACT_REQUEST_PAGE_MAX, 20);
+    const side = role === 'received' ? 'sellerId' : 'buyerId';
+    const all = this.db.contactRequests
+      .filter((r) => r[side] === me.id && this.contactVisible(r, me.id) && (status === null || r.status === status))
+      .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { items: all.slice((page - 1) * size, page * size).map((r) => this.contactView(r, me.id)), total: all.length, page, size };
   }
-  async decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED') {
-    this.syncFromStorage(); const me = this.currentUser();
+
+  /** 卖家未读：还没看过的待处理申请；买家未读：还没看过的同意 / 拒绝 / 撤回同意 */
+  private contactUnread(meId: string): ContactUnreadCounts {
+    const received = this.db.contactRequests.filter((r) => r.sellerId === meId && r.status === 'PENDING' && r.sellerSeenAt === null && this.contactVisible(r, meId)).length;
+    const updates = this.db.contactRequests.filter((r) => r.buyerId === meId && (r.status === 'APPROVED' || r.status === 'REJECTED' || r.status === 'REVOKED')
+      && r.buyerSeenAt === null && this.contactVisible(r, meId)).length;
+    return { received, updates, total: received + updates };
+  }
+
+  async getContactRequestUnreadCount(): Promise<ContactUnreadCounts> {
+    this.syncFromStorage();
+    return this.contactUnread(this.currentUser().id);
+  }
+
+  async markContactRequestsRead(role: ContactRequestRole): Promise<ContactUnreadCounts> {
+    this.syncFromStorage();
+    const me = this.currentUser();
+    if (role !== 'received' && role !== 'sent') throw ApiError.mock({ code: 400, message: 'role 只能是 received 或 sent' });
+    const now = Date.now();
+    for (const r of this.db.contactRequests) {
+      if (role === 'received' && r.sellerId === me.id && r.status === 'PENDING' && r.sellerSeenAt === null) r.sellerSeenAt = now;
+      if (role === 'sent' && r.buyerId === me.id && (r.status === 'APPROVED' || r.status === 'REJECTED' || r.status === 'REVOKED') && r.buyerSeenAt === null) r.buyerSeenAt = now;
+    }
+    this.persist();
+    return this.contactUnread(me.id);
+  }
+
+  async decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED'): Promise<ContactRequest> {
+    this.syncFromStorage();
+    const me = this.currentUser();
     if (status !== 'APPROVED' && status !== 'REJECTED') throw ApiError.mock({ code: 400, message: '请选择同意或拒绝' });
-    const request = this.db.contactRequests?.find((r) => r.id === id && r.sellerId === me.id);
-    if (!request) throw ApiError.mock({ code: 404, message: '联系申请不存在' });
+    const request = this.ownedContactRequest(id, me.id, 'sellerId');
     this.readableProduct(request.productId);
-    if (request.status !== 'PENDING' && request.status !== status) throw ApiError.mock({ code: 409, message: '该申请已处理' });
-    if (request.status === 'PENDING') { request.status = status; request.updatedAt = Date.now(); this.persist(); }
-    return { ...request };
+    if (request.status === 'PENDING') {
+      const now = Date.now();
+      // 卖家同意 / 拒绝：买家多一条未读结果
+      Object.assign(request, { status, updatedAt: now, decidedAt: now, buyerSeenAt: null });
+      this.persist();
+    } else if (request.status !== status) {
+      throw ApiError.mock({ code: 409, message: MockCampusMarketApi.contactConflict(request.status) });
+    }
+    return this.contactView(request, me.id);
+  }
+
+  async withdrawContactRequest(id: string): Promise<ContactRequest> {
+    this.syncFromStorage();
+    const me = this.currentUser();
+    const request = this.ownedContactRequest(id, me.id, 'buyerId');
+    if (request.status === 'PENDING') {
+      Object.assign(request, { status: 'WITHDRAWN', updatedAt: Date.now() });
+      this.persist();
+    } else if (request.status !== 'WITHDRAWN') {
+      throw ApiError.mock({ code: 409, message: MockCampusMarketApi.contactConflict(request.status) });
+    }
+    return this.contactView(request, me.id);
+  }
+
+  async revokeContactRequest(id: string): Promise<ContactRequest> {
+    this.syncFromStorage();
+    const me = this.currentUser();
+    const request = this.ownedContactRequest(id, me.id, 'sellerId');
+    if (request.status === 'APPROVED') {
+      const now = Date.now();
+      // 卖家撤回同意：买家立即看不到联系方式，并多一条未读结果
+      Object.assign(request, { status: 'REVOKED', updatedAt: now, decidedAt: now, buyerSeenAt: null });
+      this.persist();
+    } else if (request.status !== 'REVOKED') {
+      throw ApiError.mock({ code: 409, message: '只能撤回已经同意的申请' });
+    }
+    return this.contactView(request, me.id);
   }
   async getProduct(id: string): Promise<Product> {
     this.syncFromStorage();
     this.currentUser();
     const product = this.readableProduct(id);
     const view: Product = { ...this.withBuilding(product), inspection: this.productDisclosureView(product.id) };
-    if (this.db.contactRequests?.some((r) => r.productId === id && r.buyerId === this.viewerId() && r.status === 'APPROVED')) view.contact = product.contact;
+    // 只有「已获同意且未被撤回」的这一位买家能看到联系方式（REVOKED 立即失效）
+    if (this.db.contactRequests.some((r) => r.productId === id && r.buyerId === this.viewerId() && r.status === 'APPROVED')) view.contact = product.contact;
     if ((product.listingKind ?? 'SINGLE') === 'BUNDLE') view.bundleItems = (this.db.bundleItems[product.id] ?? []).map((i) => ({ ...i }));
     return view;
   }
@@ -287,6 +611,9 @@ export class MockCampusMarketApi implements CampusMarketApi {
     this.requireCampusInSchool(input.campus, this.schoolOf(user.campus));
     const { inspection, textbookEditionId, listingKind: rawKind, bundleItems: rawItems, visibility: rawVisibility, circleIds: rawCircleIds, ...fields } = input as ProductCreateInput & { listingKind?: unknown };
     const listingKind = this.listingKindOf(rawKind);
+    // 阶段 4：只能引用本人或协助人上传的有效图片；标题与描述经过内容安全检查（与后端 MarketService 相同的顺序）
+    this.requireUsableImages(fields.images, user.id, assistedBy);
+    requireSafeText(fields.title, fields.description);
     // 模块 6：默认公开；圈子可见要求所有者（卖家本人）是每个目标圈子的在籍成员
     const choice = this.parseVisibility(rawVisibility, rawCircleIds);
     this.requirePublishable(user.id, fields.campus, choice);
@@ -328,6 +655,11 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
     this.validateContactPublic(patch);
     rejectUnknownKeys(patch, MockCampusMarketApi.PRODUCT_FIELDS, '商品');
+    if (patch.images) {
+      patch = { ...patch, images: patch.images.map((image) => this.imageRefOf(image)) };
+      this.requireUsableImages(patch.images, user.id, this.db.productAttribution[product.id]?.assistedBy ?? null);
+    }
+    if (patch.title !== undefined || patch.description !== undefined) requireSafeText(patch.title, patch.description);
     const { buildingId, inspection, textbookEditionId, bundleItems: rawItems, visibility: rawVisibility, circleIds: rawCircleIds, ...rest } = patch;
     const kind = product.listingKind ?? 'SINGLE';
     if ('listingKind' in patch && (patch as { listingKind?: unknown }).listingKind !== kind) {
@@ -430,13 +762,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return (this.db.productCircleVisibility[product.id] ?? []).some((cid) => this.activeMember(cid, viewer));
   }
 
-  /** 单个商品的直接访问：再加上「这件商品上仍有效或已完成订单的参与者」。 */
-  private readableBy(product: Product, viewer: string | null): boolean {
-    if (this.visibleTo(product, viewer)) return true;
-    return !!viewer && this.db.market.orders.some((o) => o.productId === product.id && (o.buyerId === viewer || o.sellerId === viewer)
-      && !['CANCELLED', 'EXPIRED'].includes(canonicalOf(o)));
-  }
-
   /** 不可读与不存在一样：同一个 404、同一句话。 */
   private readableProduct(id: string): Product {
     const product = this.db.market.products.find((item) => item.id === id);
@@ -486,6 +811,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const own = product.sellerId === this.viewerId();
     return {
       ...rest,
+      images: (product.images ?? []).map((image) => this.imageUrlOf(image)),
       contactPublic: product.contactPublic === true,
       contact: own || product.contactPublic === true ? product.contact : '',
       // 模块 7：被治理隐藏只告诉卖家本人（与 REST 的 moderationHidden 一致）；Mock 内部字段不外泄
@@ -979,10 +1305,10 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return this.getDemandUnreadCount();
   }
 
-  /* ============================ 可信面交（模块 3） ============================ */
+  /* ============================ 卖家声明（模块 3） ============================ */
   //
-  // 与 REST 的 InspectionService / OrderFlowService / OrderTransitionExecutor / TradeHistoryService
-  // 逐条对齐：同样的声明规则、快照语义、验货闸门、档期握手、到达状态机、时间线与履历白名单。
+  // 与 REST 的 InspectionService 对齐：发布 / 编辑时的卖家声明规则。
+  // 订单验货、档期、到达与交易履历随站内交易一起停用（阶段 1），这里不再提供。
 
   private templateFor(category: string): MockInspectionTemplate | null {
     return seedInspectionTemplates.find((t) => t.category === category) ?? null;
@@ -1037,431 +1363,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
         const declared = d.items.find((x) => x.code === i.code);
         return { ...i, condition: declared?.condition ?? null, note: declared?.note ?? '' };
       }),
-    };
-  }
-
-  /** 下单时的验货快照，与后端 InspectionService.snapshotForOrder 同一语义。 */
-  private snapshotInspection(orderId: string, productId: string): void {
-    const product = this.db.market.products.find((p) => p.id === productId);
-    const bundle = (product?.listingKind ?? 'SINGLE') === 'BUNDLE' ? this.db.bundleItems[productId] : undefined;
-    if (bundle) {
-      // 与后端 copyBundleSnapshotItems 同一口径：每条明细一项基础核对，核对要点取该分类模板的必填条目
-      this.db.orderInspections[orderId] = {
-        status: 'PENDING', templateId: 'tpl-bundle-v1', templateTitle: '整套打包验货清单', templateVersion: 1,
-        hasMismatch: false, submittedAt: null, submittedBy: null,
-        items: bundle.map((b) => {
-          const required = (this.templateFor(b.category)?.items ?? []).filter((i) => i.required).map((i) => i.label);
-          return {
-            code: `B${String(b.sortOrder + 1).padStart(2, '0')}_${b.itemCode}`, label: `${b.name} ×${b.quantity}`,
-            description: `分类：${b.category}；卖家标注成色：${b.condition}${required.length ? `；核对要点：${required.join('、')}` : ''}`,
-            required: true, sellerCondition: null, sellerNote: b.note ?? '', buyerResult: null, buyerNote: '', checkedAt: null,
-          };
-        }),
-      };
-      return;
-    }
-    const d = this.db.productDisclosures[productId];
-    const t = d ? seedInspectionTemplates.find((x) => x.id === d.templateId) : undefined;
-    if (!d || !t) {
-      this.db.orderInspections[orderId] = {
-        status: 'NOT_PROVIDED', templateId: null, templateTitle: null, templateVersion: null,
-        hasMismatch: false, submittedAt: null, submittedBy: null, items: [],
-      };
-      return;
-    }
-    this.db.orderInspections[orderId] = {
-      status: 'PENDING', templateId: t.id, templateTitle: t.title, templateVersion: t.version,
-      hasMismatch: false, submittedAt: null, submittedBy: null,
-      items: t.items.map((i) => {
-        const declared = d.items.find((x) => x.code === i.code);
-        return {
-          code: i.code, label: i.label, description: i.description, required: i.required,
-          sellerCondition: declared?.condition ?? null, sellerNote: declared?.note ?? '',
-          buyerResult: null, buyerNote: '', checkedAt: null,
-        };
-      }),
-    };
-  }
-
-  /** 与后端 OrderTransitionExecutor.inspectionBlock 同一口径。 */
-  private inspectionBlock(orderId: string): string | null {
-    const code = inspectionGate(this.db.orderInspections[orderId]?.status ?? null);
-    if (!code) return null;
-    return code === 'INSPECTION_MISMATCH' ? '验货不一致，不能继续确认或核销' : '请先由买家完成验货并提交';
-  }
-
-  /** 同一操作写入的多条事件共用 at（对应 REST 同一事务的 now()）；先后由 seq 决定。 */
-  private recordEvent(orderId: string, actorId: string | null, code: string, revision: number | null = null, at = Date.now()): void {
-    this.db.flowSeq += 1;
-    this.db.flowEvents.push({ seq: this.db.flowSeq, orderId, actorId, code, revision, at });
-  }
-
-  /**
-   * 与 REST 的过期扫描一致：PENDING_SELLER_CONFIRM / PENDING_MEETING / DISPUTED 到期即 EXPIRED 并释放商品。
-   * 没有 expiresAtIso 的旧订单不参与（不虚构截止时间）。
-   */
-  private sweepExpired(): void {
-    const now = Date.now();
-    let changed = false;
-    for (const order of this.db.market.orders) {
-      const status = canonicalOf(order);
-      if (!['PENDING_SELLER_CONFIRM', 'PENDING_MEETING', 'DISPUTED'].includes(status)) continue;
-      if (!order.expiresAtIso || Date.parse(order.expiresAtIso) > now) continue;
-      order.canonicalStatus = 'EXPIRED';
-      order.status = statusLabel('EXPIRED');
-      order.updatedAt = now;
-      const product = this.db.market.products.find((p) => p.id === order.productId);
-      if (product?.status === '预约中') { product.status = '在售'; product.soldAt = undefined }
-      this.recordEvent(order.id, null, 'ORDER_EXPIRED', null, now);
-      changed = true;
-    }
-    if (changed) this.persist();
-  }
-
-  private participant(orderId: string): { order: Order; me: User; buyer: boolean } {
-    this.syncFromStorage();
-    const me = this.currentUser();
-    this.sweepExpired();
-    const order = this.db.market.orders.find((o) => o.id === orderId);
-    if (!order || (order.buyerId !== me.id && order.sellerId !== me.id)) {
-      throw ApiError.mock({ code: 404, message: '订单不存在' });
-    }
-    return { order, me, buyer: order.buyerId === me.id };
-  }
-
-  async getOrderFlow(orderId: string): Promise<import('./contracts').OrderFlow> {
-    this.retiredTradeFeature();
-    const { order, me, buyer } = this.participant(orderId);
-    const status = canonicalOf(order);
-    const counterpart = buyer ? order.sellerId : order.buyerId;
-    const revision = order.meetingRevision ?? 0;
-    const points = await this.listMeetingPoints();
-    const pointName = (id: string | undefined) => points.find((p) => p.id === id)?.name ?? null;
-    const presenceOf = (userId: string) => {
-      const row = this.db.presence.find((p) => p.orderId === orderId && p.userId === userId && p.revision === revision);
-      return {
-        status: row?.status ?? 'NOT_STARTED',
-        departedAtIso: row?.departedAt ? new Date(row.departedAt).toISOString() : null,
-        arrivedAtIso: row?.arrivedAt ? new Date(row.arrivedAt).toISOString() : null,
-      } as import('./contracts').PresenceState;
-    };
-    const inspection = this.db.orderInspections[orderId];
-    const finalised = inspection?.status === 'SUBMITTED' || inspection?.status === 'NEEDS_RESOLUTION';
-    const events = this.db.flowEvents
-      .filter((e) => e.orderId === orderId)
-      // Mock 的全部事件在同一个数组里按写入序号 seq 追加，seq 就是精确的因果顺序；
-      // REST 需要 LOGICAL_ORDER 是因为 order_events 与 order_flow_events 分属两张表、同一事务时间相同
-      .sort((a, b) => a.at - b.at || a.seq - b.seq);
-    return {
-      orderId, status, role: buyer ? 'BUYER' : 'SELLER',
-      agreement: {
-        revision, meetingPointId: order.meetingPointId ?? '', meetingPointName: pointName(order.meetingPointId),
-        startsAtIso: order.meetingAtIso ?? '', endsAtIso: order.meetingEndsAtIso ?? null,
-        confirmed: status !== 'PENDING_SELLER_CONFIRM' || revision > 0,
-        explicitSlot: !!this.slotOf(orderId, revision),
-      },
-      proposals: this.db.meetingProposals
-        .filter((p) => p.orderId === orderId)
-        // 稳定排序：同一毫秒内创建的提议保持写入顺序（REST 各自事务的 created_at 天然不同）
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .map((p) => ({
-          id: p.id, proposedBy: p.proposerId === order.buyerId ? 'BUYER' : 'SELLER', mine: p.proposerId === me.id,
-          meetingPointId: p.meetingPointId, meetingPointName: pointName(p.meetingPointId) ?? '',
-          startsAtIso: new Date(p.startsAt).toISOString(), endsAtIso: new Date(p.endsAt).toISOString(),
-          note: p.note, status: p.status, revision: p.revision,
-          createdAtIso: new Date(p.createdAt).toISOString(),
-          respondedAtIso: p.respondedAt ? new Date(p.respondedAt).toISOString() : null,
-        })),
-      presence: { revision, me: presenceOf(me.id), counterpart: presenceOf(counterpart) },
-      inspection: !inspection
-        ? { status: 'LEGACY_NONE', items: [] }
-        : {
-            status: inspection.status, templateTitle: inspection.templateTitle, templateVersion: inspection.templateVersion,
-            hasMismatch: inspection.hasMismatch,
-            submittedAtIso: inspection.submittedAt ? new Date(inspection.submittedAt).toISOString() : null,
-            items: inspection.items.map((i) => {
-              // 与 REST 一致：买家草稿只有买家本人可见
-              const visible = buyer || finalised;
-              return {
-                code: i.code, label: i.label, description: i.description, required: i.required,
-                sellerCondition: i.sellerCondition, sellerNote: i.sellerNote,
-                buyerResult: visible ? i.buyerResult : null, buyerNote: visible ? i.buyerNote : '',
-                checkedAtIso: visible && i.checkedAt ? new Date(i.checkedAt).toISOString() : null,
-              };
-            }),
-          },
-      ...(() => {
-        const reason = buyerConfirmBlockReason(status, inspection?.status ?? null);
-        return {
-          buyerConfirmAllowed: reason === null,
-          buyerConfirmBlockReason: reason,
-          currentMeetingStatus: meetingStatus(status, this.db.meetingProposals.some((p) => p.orderId === orderId && p.status === 'PENDING')),
-        };
-      })(),
-      timeline: events.map((e) => ({
-        code: e.code,
-        actor: e.actorId === null ? 'SYSTEM' : e.actorId === order.buyerId ? 'BUYER' : 'SELLER',
-        meetingRevision: e.revision,
-        atIso: new Date(e.at).toISOString(),
-      })),
-      // 模块 7：订单双方看到的取消事实
-      cancellation: (() => {
-        const c = this.db.cancellationRecords.find((x) => x.orderId === orderId);
-        return c ? { phase: c.phase, reasonCode: c.reasonCode, note: c.note, byMe: c.actorId === me.id, createdAt: c.createdAt } : null;
-      })(),
-    };
-  }
-
-  private async writeInspection(orderId: string, items: import('./contracts').InspectionResultInput[], finalSubmit: boolean) {
-    const { order, me, buyer } = this.participant(orderId);
-    if (!buyer) throw ApiError.mock({ code: 403, message: '只有买家可以填写验货结果' });
-    const inspection = this.db.orderInspections[orderId];
-    if (!inspection || inspection.status === 'NOT_PROVIDED') throw ApiError.mock({ code: 409, message: '该订单没有结构化验货清单' });
-    if (!Array.isArray(items)) throw ApiError.mock({ code: 400, message: '请提交验货条目' });
-
-    const codes = new Set(inspection.items.map((i) => i.code));
-    const submitted = new Map<string, { result: string | null; note: string }>();
-    for (const element of items) {
-      if (!element || typeof element !== 'object') throw ApiError.mock({ code: 400, message: '验货条目格式无效' });
-      rejectUnknownKeys(element, ['itemCode', 'result', 'note'], '验货条目');
-      if (typeof element.itemCode !== 'string' || !codes.has(element.itemCode)) throw ApiError.mock({ code: 400, message: '验货条目不存在' });
-      if (submitted.has(element.itemCode)) throw ApiError.mock({ code: 400, message: '验货条目重复' });
-      const result = element.result ?? null;
-      if (result !== null && !(BUYER_RESULTS as readonly string[]).includes(result)) throw ApiError.mock({ code: 400, message: '验货结果无效' });
-      if (finalSubmit && result === null) throw ApiError.mock({ code: 400, message: '提交前请逐项给出结果' });
-      submitted.set(element.itemCode, { result, note: note(element.note, 200) });
-    }
-    if (finalSubmit && submitted.size !== codes.size) throw ApiError.mock({ code: 400, message: '提交前请逐项给出结果' });
-
-    if (inspection.status !== 'PENDING') {
-      const same = finalSubmit && submitted.size === inspection.items.length && inspection.items.every((i) => {
-        const s = submitted.get(i.code);
-        return s && s.result === i.buyerResult && s.note === i.buyerNote;
-      });
-      if (same) return this.getOrderFlow(orderId);
-      throw ApiError.mock({ code: 409, message: '验货已提交，记录不可修改' });
-    }
-    if (canonicalOf(order) !== 'PENDING_MEETING') throw ApiError.mock({ code: 409, message: '只有在待面交阶段才能填写验货结果' });
-
-    const now = Date.now();
-    for (const item of inspection.items) {
-      const s = submitted.get(item.code);
-      if (!s) continue;
-      item.buyerResult = s.result as typeof item.buyerResult;
-      item.buyerNote = s.note;
-      item.checkedAt = finalSubmit ? now : null;
-    }
-    if (finalSubmit) {
-      const mismatch = inspection.items.some((i) => i.buyerResult === 'MISMATCH');
-      inspection.status = mismatch ? 'NEEDS_RESOLUTION' : 'SUBMITTED';
-      inspection.hasMismatch = mismatch;
-      inspection.submittedAt = now;
-      inspection.submittedBy = me.id;
-      this.recordEvent(orderId, me.id, 'INSPECTION_SUBMITTED', null, now);
-      // 模块 7：提交验货说明双方已经见面
-      this.expireNoShows(orderId, Number.MAX_SAFE_INTEGER);
-      if (mismatch) {
-        this.recordEvent(orderId, me.id, 'INSPECTION_MISMATCH', null, now);
-        order.canonicalStatus = 'DISPUTED';
-        order.status = statusLabel('DISPUTED');
-        order.updatedAt = now;
-        this.recordEvent(orderId, me.id, 'ORDER_DISPUTED', null, now);
-      }
-    }
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  async saveInspectionDraft(orderId: string, items: import('./contracts').InspectionResultInput[]) {
-    this.retiredTradeFeature();
-    return this.writeInspection(orderId, items, false);
-  }
-
-  async submitInspection(orderId: string, items: import('./contracts').InspectionResultInput[]) {
-    this.retiredTradeFeature();
-    return this.writeInspection(orderId, items, true);
-  }
-
-  async proposeMeeting(orderId: string, input: import('./contracts').MeetingProposalInput) {
-    this.retiredTradeFeature();
-    rejectUnknownKeys(input, ['meetingPointId', 'startsAtIso', 'endsAtIso', 'note']);
-    const { order, me } = this.participant(orderId);
-    this.requireSchedulable(order);
-    const product = this.db.market.products.find((p) => p.id === order.productId);
-    const points = await this.listMeetingPoints();
-    const point = points.find((p) => p.id === input.meetingPointId);
-    if (!point) throw ApiError.mock({ code: 400, message: '面交点不存在' });
-    if (this.db.inactiveMeetingPoints.includes(point.id)) throw ApiError.mock({ code: 400, message: '该面交点已停用，请选择其他面交点' });
-    if (point.campus !== product?.campus) throw ApiError.mock({ code: 400, message: '请选择商品所在校区的面交点' });
-    const starts = slot(input.startsAtIso, '开始时间');
-    const ends = slot(input.endsAtIso, '结束时间');
-    const now = Date.now();
-    if (ends <= starts) throw ApiError.mock({ code: 400, message: '结束时间必须晚于开始时间' });
-    if (ends > starts + 2 * 3_600_000) throw ApiError.mock({ code: 400, message: '单次面交时段最长 2 小时' });
-    if (starts <= now) throw ApiError.mock({ code: 400, message: '不能选择已经过去的时间' });
-    if (starts > now + 30 * 86_400_000) throw ApiError.mock({ code: 400, message: '只能约 30 天内的时间' });
-    if (this.db.meetingProposals.some((p) => p.orderId === orderId && p.status === 'PENDING')) {
-      throw ApiError.mock({ code: 409, message: '已有待处理的档期提议，请先接受、拒绝或撤回' });
-    }
-    this.db.meetingProposals.push({
-      id: uid('mp'), orderId, proposerId: me.id, meetingPointId: point.id, startsAt: starts, endsAt: ends,
-      note: note(input.note, 100), status: 'PENDING', revision: null, createdAt: now, respondedAt: null, respondedBy: null,
-    });
-    this.recordEvent(orderId, me.id, 'MEETING_PROPOSED');
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  private requireSchedulable(order: Order): void {
-    const status = canonicalOf(order);
-    if (TERMINAL.includes(status)) throw ApiError.mock({ code: 409, message: '订单已结束，不能再约时间' });
-    if (status === 'PENDING_SELLER_CONFIRM') throw ApiError.mock({ code: 409, message: '卖家接受预约后，才能约定正式面交档期' });
-    if (!SCHEDULABLE.includes(status)) throw ApiError.mock({ code: 409, message: '当前订单状态不能再改约' });
-  }
-
-  private proposalOf(orderId: string, proposalId: string): MockMeetingProposal {
-    const p = this.db.meetingProposals.find((x) => x.id === proposalId && x.orderId === orderId);
-    if (!p) throw ApiError.mock({ code: 404, message: '提议不存在' });
-    return p;
-  }
-
-  async acceptMeeting(orderId: string, proposalId: string) {
-    this.retiredTradeFeature();
-    const { order, me } = this.participant(orderId);
-    const p = this.proposalOf(orderId, proposalId);
-    if (p.proposerId === me.id) throw ApiError.mock({ code: 403, message: '不能接受自己提出的档期' });
-    if (p.status === 'ACCEPTED' && p.respondedBy === me.id) return this.getOrderFlow(orderId);
-    if (p.status !== 'PENDING') throw ApiError.mock({ code: 409, message: '该提议已经处理过了' });
-    this.requireSchedulable(order);
-    if (this.db.inactiveMeetingPoints.includes(p.meetingPointId)) throw ApiError.mock({ code: 409, message: '该面交点已停用，请对方重新提议' });
-    if (p.startsAt <= Date.now()) throw ApiError.mock({ code: 409, message: '该档期已经过去，请重新提议' });
-
-    const revision = (order.meetingRevision ?? 0) + 1;
-    for (const other of this.db.meetingProposals) {
-      if (other.orderId === orderId && other.status === 'ACCEPTED') other.status = 'SUPERSEDED';
-    }
-    Object.assign(p, { status: 'ACCEPTED', revision, respondedAt: Date.now(), respondedBy: me.id });
-    order.meetingPointId = p.meetingPointId;
-    order.meetingAtIso = new Date(p.startsAt).toISOString();
-    order.meetingEndsAtIso = new Date(p.endsAt).toISOString();
-    order.meetingRevision = revision;
-    const now = Date.now();
-    order.expiresAtIso = new Date(canonicalOf(order) === 'PENDING_MEETING'
-      ? p.startsAt + 86_400_000
-      : Math.min(p.startsAt, now + 86_400_000)).toISOString();
-    order.updatedAt = now;
-    this.recordEvent(orderId, me.id, 'MEETING_ACCEPTED', revision, now);
-    this.recordSlot(order, 'PROPOSAL_ACCEPTED', now);
-    // 模块 7：改约生效后，旧档期上尚未确认的爽约报告失效
-    this.expireNoShows(orderId, revision);
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  async rejectMeeting(orderId: string, proposalId: string) {
-    this.retiredTradeFeature();
-    const { order, me } = this.participant(orderId);
-    const p = this.proposalOf(orderId, proposalId);
-    if (p.proposerId === me.id) throw ApiError.mock({ code: 403, message: '不能拒绝自己提出的档期，请改为撤回' });
-    if (p.status === 'REJECTED' && p.respondedBy === me.id) return this.getOrderFlow(orderId);
-    if (p.status !== 'PENDING') throw ApiError.mock({ code: 409, message: '该提议已经处理过了' });
-    if (TERMINAL.includes(canonicalOf(order))) throw ApiError.mock({ code: 409, message: '订单已结束' });
-    Object.assign(p, { status: 'REJECTED', respondedAt: Date.now(), respondedBy: me.id });
-    this.recordEvent(orderId, me.id, 'MEETING_REJECTED');
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  async withdrawMeeting(orderId: string, proposalId: string) {
-    this.retiredTradeFeature();
-    const { order, me } = this.participant(orderId);
-    const p = this.proposalOf(orderId, proposalId);
-    if (p.proposerId !== me.id) throw ApiError.mock({ code: 403, message: '只能撤回自己提出的档期' });
-    if (p.status === 'WITHDRAWN') return this.getOrderFlow(orderId);
-    if (p.status !== 'PENDING') throw ApiError.mock({ code: 409, message: '该提议已经处理过了' });
-    if (TERMINAL.includes(canonicalOf(order))) throw ApiError.mock({ code: 409, message: '订单已结束' });
-    Object.assign(p, { status: 'WITHDRAWN', respondedAt: Date.now(), respondedBy: me.id });
-    this.recordEvent(orderId, me.id, 'MEETING_WITHDRAWN');
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  async updatePresence(orderId: string, action: 'DEPART' | 'ARRIVE') {
-    this.retiredTradeFeature();
-    if (action !== 'DEPART' && action !== 'ARRIVE') throw ApiError.mock({ code: 400, message: '动作无效' });
-    const { order, me } = this.participant(orderId);
-    const status = canonicalOf(order);
-    if (TERMINAL.includes(status)) throw ApiError.mock({ code: 409, message: '订单已结束' });
-    if (!PRESENCE_ALLOWED.includes(status)) throw ApiError.mock({ code: 409, message: '卖家接单、档期确定后才能同步到达状态' });
-    const revision = order.meetingRevision ?? 0;
-    let row = this.db.presence.find((p) => p.orderId === orderId && p.userId === me.id && p.revision === revision);
-    const current = row?.status ?? 'NOT_STARTED';
-    const now = Date.now();
-    if (action === 'DEPART') {
-      if (current === 'DEPARTED') return this.getOrderFlow(orderId);
-      if (current === 'ARRIVED') throw ApiError.mock({ code: 409, message: '已经到达，不能退回「已出发」' });
-      this.db.presence.push({ orderId, userId: me.id, revision, status: 'DEPARTED', departedAt: now, arrivedAt: null });
-      this.recordEvent(orderId, me.id, 'PRESENCE_DEPARTED', revision);
-    } else {
-      if (current === 'ARRIVED') return this.getOrderFlow(orderId);
-      if (!row) {
-        // 允许直接「已到」；不伪造出发时间
-        row = { orderId, userId: me.id, revision, status: 'ARRIVED', departedAt: null, arrivedAt: now };
-        this.db.presence.push(row);
-      } else {
-        row.status = 'ARRIVED';
-        row.arrivedAt = now;
-      }
-      this.recordEvent(orderId, me.id, 'PRESENCE_ARRIVED', revision);
-    }
-    this.persist();
-    return this.getOrderFlow(orderId);
-  }
-
-  async getOwnTradeHistory(): Promise<import('./contracts').OwnTradeHistory> {
-    this.retiredTradeFeature();
-    const me = this.currentUser();
-    const mine = this.db.market.orders.filter((o) => o.buyerId === me.id || o.sellerId === me.id);
-    const by = (s: string) => mine.filter((o) => canonicalOf(o) === s);
-    return {
-      completed: by('COMPLETED').length,
-      completedAsBuyer: by('COMPLETED').filter((o) => o.buyerId === me.id).length,
-      completedAsSeller: by('COMPLETED').filter((o) => o.sellerId === me.id).length,
-      cancelled: by('CANCELLED').length,
-      expired: by('EXPIRED').length,
-      disputed: mine.filter((o) => this.db.orderInspections[o.id]?.hasMismatch).length,
-      active: mine.filter((o) => !TERMINAL.includes(canonicalOf(o))).length,
-      recent: [...mine]
-        .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
-        .slice(0, 10)
-        .map((o) => ({
-          orderId: o.id,
-          productTitle: this.db.market.products.find((p) => p.id === o.productId)?.title ?? '',
-          role: o.buyerId === me.id ? 'BUYER' as const : 'SELLER' as const,
-          status: canonicalOf(o),
-          updatedAt: o.updatedAt,
-        })),
-    };
-  }
-
-  /** 公共履历白名单：与后端 TradeHistoryService.publicSummary 相同，评价少于 3 条不给均分。 */
-  async getPublicTradeSummary(userId: string): Promise<import('./contracts').PublicTradeSummary> {
-    this.retiredTradeFeature();
-    const me = this.currentUser();
-    const user = this.db.users.find((u) => u.id === userId);
-    if (!user || this.schoolOf(user.campus) !== this.schoolOf(me.campus)) throw ApiError.mock({ code: 404, message: '用户不存在' });
-    const orders = this.db.market.orders.filter((o) => o.buyerId === userId || o.sellerId === userId);
-    // 只统计「对方给该用户」的评价
-    const ratings = orders.flatMap((o) => {
-      const review = o.buyerId === userId ? o.sellerReview : o.buyerReview;
-      return review ? [review.rating] : [];
-    });
-    const average = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
-    return {
-      completedCount: orders.filter((o) => canonicalOf(o) === 'COMPLETED').length,
-      joinedAt: user.createdAt,
-      reviewCount: ratings.length,
-      averageRating: ratings.length >= 3 && average !== null ? Math.round(average * 10) / 10 : null,
     };
   }
 
@@ -1773,7 +1674,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const now = Date.now();
     const status = self ? 'LEFT' as const : 'REMOVED' as const;
     Object.assign(theirs, { status, role: 'MEMBER', endedAt: now, updatedAt: now });
-    // 离开后：圈子订阅停用、匹配失效（未读随之清零），私密商品立即不可见；已成立的订单不受影响
+    // 离开后：圈子订阅停用、匹配失效（未读随之清零），私密商品立即不可见，这些商品上的联系申请随之从列表中消失
     const subs = this.db.demandSubscriptions.filter((s) => s.circleId === id && s.userId === userId);
     for (const s of subs) if (s.active) { s.active = false; s.updatedAt = now }
     for (const m of this.db.demandMatches) if (m.invalidatedAt === null && subs.some((s) => s.id === m.subscriptionId)) m.invalidatedAt = now;
@@ -1819,6 +1720,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
   private draftView(d: MockListingDraft, access: 'OWNER' | 'ASSISTANT'): ListingDraft {
     const payload: ListingPayload = JSON.parse(JSON.stringify(d.payload));
     if (access === 'ASSISTANT') { delete payload.contact; delete payload.contactPublic; }
+    // 与后端相同：草稿响应里的上传图片是可显示的地址（Mock 为 data: 地址），保存时再还原成 upload:<id>
+    if (Array.isArray(payload.images)) payload.images = payload.images.map((image) => this.draftImageUrlOf(image));
     return {
       id: d.id, draftType: d.draftType, status: d.status, version: d.version, payload, access,
       editedByAssistant: d.editorId !== d.ownerId, batchId: this.activeBatchOf(d.id)?.id ?? null,
@@ -1832,7 +1735,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     rejectUnknownKeys(input, ['draftType', 'payload'], '草稿');
     const type = input.draftType ?? 'SINGLE';
     if (type !== 'SINGLE' && type !== 'BUNDLE') throw ApiError.mock({ code: 400, message: '草稿类型无效' });
-    const payload = sanitizePayload(input.payload, false);
+    const payload = sanitizePayload(this.draftPayloadIn(input.payload), false);
     this.supplyLimit('draft', user.id, 120, 3_600_000);
     const now = Date.now();
     const draft: MockListingDraft = {
@@ -1884,7 +1787,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     }
     if (this.expireDraft(draft)) { this.persist(); throw ApiError.mock({ code: 409, message: '草稿已过期，不能再修改' }) }
     if (draft.status !== 'DRAFT' && draft.status !== 'READY') throw ApiError.mock({ code: 409, message: '草稿已发布、已丢弃或已过期，不能再修改' });
-    const payload = 'payload' in input ? sanitizePayload(input.payload, access === 'ASSISTANT') : JSON.parse(JSON.stringify(draft.payload)) as ListingPayload;
+    const payload = 'payload' in input ? sanitizePayload(this.draftPayloadIn(input.payload), access === 'ASSISTANT') : JSON.parse(JSON.stringify(draft.payload)) as ListingPayload;
     if (access === 'ASSISTANT') {
       // 与 REST 一致：协助人只能整理白名单字段，其余字段必须原样保留
       const before = draft.payload as Record<string, unknown>;
@@ -2240,37 +2143,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
       .map((e) => ({ code: e.code, byOwner: e.actorId === user.id, draftId: e.draftId, at: e.at }));
   }
 
-  /** 历史成交价格参考：与 PriceGuidanceService 同一口径、同一取整与防差分规则。 */
-  async getPriceGuidance(query: PriceGuidanceQuery): Promise<PriceGuidance> {
-    this.retiredTradeFeature();
-    const user = this.currentUser();
-    rejectUnknownKeys(query, ['category', 'condition', 'textbookEditionId'], '统计维度');
-    const { category } = query;
-    const condition = query.condition || null;
-    const edition = query.textbookEditionId || null;
-    if (!category || !CATEGORIES.includes(category)) throw ApiError.mock({ code: 400, message: '请选择有效的分类' });
-    if (condition && !(['全新', '几乎全新', '轻微使用痕迹', '明显使用痕迹'] as string[]).includes(condition)) throw ApiError.mock({ code: 400, message: '成色无效' });
-    if (edition && category !== '教材书籍') throw ApiError.mock({ code: 400, message: '只有教材书籍可以按教材版本统计' });
-    this.supplyLimit('guidance', user.id, 60, 600_000);
-    const school = this.schoolOf(user.campus);
-    // 5.7：只读订单上的不可变快照，不看商品当前的分类、成色、校区或教材关联
-    const samples = this.db.market.orders.filter((o) => canonicalOf(o) === 'COMPLETED' && typeof o.priceSnapshot === 'number'
-      && o.listingKindSnapshot === 'SINGLE' && o.visibilitySnapshot !== 'CIRCLE_ONLY' && !!school && o.schoolIdSnapshot === school && o.categorySnapshot === category
-      && (!condition || o.conditionSnapshot === condition) && (!edition || o.textbookEditionIdSnapshot === edition));
-    const base: PriceGuidance = {
-      basis: { category, condition, textbookEditionId: edition }, minimumSample: PRICE_GUIDANCE_MIN_SAMPLE, note: PRICE_GUIDANCE_NOTE,
-      sufficient: false, sampleCount: null,
-    };
-    if (samples.length < PRICE_GUIDANCE_MIN_SAMPLE) return base;
-    const values = samples.map((o) => o.priceSnapshot as number);
-    const months = samples.map((o) => new Date(o.updatedAt).toISOString().slice(0, 7)).sort();
-    return {
-      ...base, sufficient: true, sampleCount: sampleBucket(samples.length), sampleCountIsLowerBound: true,
-      median: roundGuidance(percentileCont(values, 0.5)), lowerQuartile: roundGuidance(percentileCont(values, 0.25)),
-      upperQuartile: roundGuidance(percentileCont(values, 0.75)), periodStart: months[0], periodEnd: months[months.length - 1],
-    };
-  }
-
   private static readonly TERMS: readonly string[] = ['SPRING', 'SUMMER', 'AUTUMN', 'WINTER'];
   private static readonly TERM_ORDER: Record<string, number> = { AUTUMN: 0, SUMMER: 1, SPRING: 2, WINTER: 3 };
   private static readonly USAGE_ORDER: Record<string, number> = { REQUIRED: 0, RECOMMENDED: 1, REFERENCE: 2 };
@@ -2609,211 +2481,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
     this.persist();
     return desired;
   }
-  /** 与 REST 同一投影：确认码错误次数只在服务端内部使用，不返回给客户端。 */
-  /** 与后端 ReferenceMapper.selectTradeDimensions 同一口径 */
-  private tradeDimensions(product: Product): Pick<Order, 'schoolIdSnapshot' | 'categorySnapshot' | 'conditionSnapshot' | 'listingKindSnapshot' | 'textbookEditionIdSnapshot'> {
-    const kind = product.listingKind ?? 'SINGLE';
-    return {
-      schoolIdSnapshot: this.schoolOf(product.campus), categorySnapshot: product.category, conditionSnapshot: product.condition,
-      listingKindSnapshot: kind,
-      textbookEditionIdSnapshot: kind === 'SINGLE' && product.category === '教材书籍' ? this.db.productTextbooks[product.id]?.textbookEditionId ?? null : null,
-    };
-  }
-
-  private orderView(order: Order): Order {
-    // 与 REST 一致：确认码错误次数、成交价与统计维度快照都只在服务端内部使用
-    const { codeAttempts: _internal, priceSnapshot: _snapshot, currency: _currency, schoolIdSnapshot: _s, categorySnapshot: _c,
-      conditionSnapshot: _d, listingKindSnapshot: _k, textbookEditionIdSnapshot: _t, visibilitySnapshot: _v, ...view } = order;
-    return { ...view, meetingEndsAtIso: order.meetingEndsAtIso ?? null, slotAgreed: !!this.slotOf(order.id, order.meetingRevision ?? 0), flow: this.flowSummary(order) };
-  }
-
-  /** 与 REST 订单列表同一份摘要（后端 OrderActionability.summary），逐单计算但不额外读存储。 */
-  private flowSummary(order: Order): import('./contracts').OrderFlowSummary {
-    const status = canonicalOf(order);
-    const inspection = this.db.orderInspections[order.id];
-    const inspectionStatus = inspection?.status ?? null;
-    const reason = buyerConfirmBlockReason(status, inspectionStatus);
-    const me = this.db.currentUserId ?? null;
-    const counterpart = order.buyerId === me ? order.sellerId : order.buyerId;
-    const revision = order.meetingRevision ?? 0;
-    const presenceOf = (userId: string | null) =>
-      this.db.presence.find((p) => p.orderId === order.id && p.userId === userId && p.revision === revision)?.status ?? 'NOT_STARTED';
-    return {
-      inspectionRequired: inspectionStatus === 'PENDING' || inspectionStatus === 'SUBMITTED' || inspectionStatus === 'NEEDS_RESOLUTION',
-      inspectionStatus: inspectionStatus ?? 'LEGACY_NONE',
-      buyerConfirmAllowed: reason === null,
-      buyerConfirmBlockReason: reason,
-      currentMeetingStatus: meetingStatus(status, this.db.meetingProposals.some((p) => p.orderId === order.id && p.status === 'PENDING')),
-      myPresenceStatus: presenceOf(me),
-      counterpartyPresenceStatus: presenceOf(counterpart),
-    };
-  }
-  async createOrder(input: CreateOrderInput): Promise<Order> {
-    this.retiredTradeFeature();
-    const user = this.currentUser();
-    const duplicate = this.db.idempotency[input.idempotencyKey];
-    if (duplicate) return this.orderView(this.db.market.orders.find((o) => o.id === duplicate.id) ?? duplicate);
-    const product = this.db.market.products.find((p) => p.id === input.productId);
-    if (!product) throw ApiError.mock({ code: 404, message: '商品不存在' });
-    if (product.sellerId === user.id) throw ApiError.mock({ code: 403, message: '不能购买自己的商品' });
-    // 模块 6：圈子商品只有在籍成员能买，与商品不存在同一个 404（6.1A 起包括他校商品与被隐藏的商品）
-    if (!this.visibleTo(product, user.id)) throw ApiError.mock({ code: 404, message: '商品不存在' });
-    // 模块 7：预约受限时不能创建新订单
-    this.requireUnrestricted(user.id, 'BOOKING');
-    // 活跃订单判定只看 canonical status，不看中文文案
-    const hasActive = this.db.market.orders.some(
-      (o) => o.productId === product.id && !isTerminalStatus(canonicalOf(o)),
-    );
-    if (product.status !== '在售' || hasActive) throw ApiError.mock({ code: 409, message: '商品已被其他订单锁定' });
-    const now = Date.now();
-    const meetingAt = Date.parse(input.meetingAtIso);
-    if (Number.isNaN(meetingAt)) throw ApiError.mock({ code: 400, message: '面交时间格式无效' });
-    if (meetingAt <= now + 60_000 || meetingAt > now + 30 * 86_400_000) {
-      throw ApiError.mock({ code: 400, message: '请选择一分钟后至 30 天内的面交时间' });
-    }
-    // 7.1A：明确的结束时间（与后端 OrderService.slotEnd 同一规则）；不提交时默认 60 分钟并明确写入
-    let meetingEndsAt = meetingAt + SLOT_DEFAULT_MINUTES * 60_000;
-    if (input.meetingEndsAtIso !== undefined) {
-      const raw: unknown = input.meetingEndsAtIso;
-      const parsed = typeof raw === 'string' && raw.trim() && raw.length <= 80 ? Date.parse(raw) : Number.NaN;
-      if (Number.isNaN(parsed)) throw ApiError.mock({ code: 400, message: '结束时间格式无效' });
-      if (parsed <= meetingAt) throw ApiError.mock({ code: 400, message: '结束时间必须晚于开始时间' });
-      const minutes = Math.floor((parsed - meetingAt) / 60_000);
-      if (minutes < SLOT_MIN_MINUTES || minutes > SLOT_MAX_MINUTES) throw ApiError.mock({ code: 400, message: '单次面交时长应为 15～120 分钟' });
-      meetingEndsAt = parsed;
-    }
-    // 与 REST 的 countMeetingPoint 一致：必须是商品所在校区、且仍启用的面交点
-    const point = (await this.listMeetingPoints()).find((p) => p.id === input.meetingPointId);
-    if (!point || point.campus !== product.campus || !point.active) {
-      throw ApiError.mock({ code: 400, message: '请选择商品所在校区的公共交易点' });
-    }
-    const order: Order = {
-      id: uid('o'), productId: product.id, buyerId: user.id, sellerId: product.sellerId,
-      price: product.price,
-      // 模块 5：下单时写入成交价快照，之后改价不改写
-      priceSnapshot: product.price, currency: 'CNY',
-      // 5.7：统计维度与成交价同一时刻冻结，来自下单瞬间的商品记录
-      ...this.tradeDimensions(product),
-      visibilitySnapshot: product.visibility ?? 'PUBLIC',
-      canonicalStatus: 'PENDING_SELLER_CONFIRM',
-      status: statusLabel('PENDING_SELLER_CONFIRM'),
-      confirmationCode: String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'),
-      meetingPointId: input.meetingPointId,
-      meetingAtIso: new Date(meetingAt).toISOString(),
-      meetingEndsAtIso: new Date(meetingEndsAt).toISOString(),
-      meetingRevision: 0,
-      codeAttempts: 0,
-      contact: input.contact,
-      expiresAtIso: new Date(Math.min(meetingAt, now + 86_400_000)).toISOString(),
-      createdAt: now, updatedAt: now,
-    };
-    product.status = '预约中';   // 与 REST 一致：下单只锁定，不视为成交
-    this.db.market.orders.unshift(order);
-    // 与 REST 同一「事务」：订单与验货快照一起生成，之后商品再改也不影响快照
-    this.snapshotInspection(order.id, product.id);
-    this.recordEvent(order.id, user.id, 'ORDER_CREATED', null, now);
-    this.db.idempotency[input.idempotencyKey] = order;
-    this.persist();
-    return this.orderView(order);
-  }
-  async transitionOrder(id: string, input: OrderTransitionInput): Promise<Order> {
-    this.retiredTradeFeature();
-    this.syncFromStorage();
-    const user = this.currentUser();
-    rejectUnknownKeys(input, ['to', 'reason', 'confirmationCode', 'reasonCode', 'note'], '订单操作');
-    this.sweepExpired();
-    const order = this.db.market.orders.find((item) => item.id === id);
-    if (!order) throw ApiError.mock({ code: 404, message: '订单不存在' });
-    const buyer = user.id === order.buyerId;
-    if (!buyer && user.id !== order.sellerId) throw ApiError.mock({ code: 403, message: '无权操作该订单' });
-
-    const from = canonicalOf(order);
-    const to = input.to;
-    // 模块 7：结构化取消原因的格式（与 REST 相同的白名单与长度）
-    const reasonCode = input.reasonCode ?? null;
-    if (reasonCode !== null && (to !== 'CANCELLED' || !(CANCELLATION_REASONS as readonly string[]).includes(reasonCode))) {
-      throw ApiError.mock({ code: 400, message: '取消原因无效' });
-    }
-    const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null;
-    if (note !== null && (to !== 'CANCELLED' || note.length > CANCELLATION_NOTE_MAX || /[<>]/.test(note))) {
-      throw ApiError.mock({ code: 400, message: '说明格式无效' });
-    }
-    // 幂等取消：订单已经取消时（包括另一方先取消），重复请求返回同一结果，不重复记录
-    if (to === 'CANCELLED' && from === 'CANCELLED') return this.orderView(order);
-    // 与后端 OrderTransitionExecutor 的 allowed 判定逐条对应
-    const buyerCancelFromConfirmed = to === 'CANCELLED' && buyer && from === 'BUYER_CONFIRMED';
-    const allowed =
-      (to === 'CANCELLED' && (from === 'PENDING_SELLER_CONFIRM' || from === 'PENDING_MEETING' || from === 'DISPUTED')) ||
-      buyerCancelFromConfirmed ||
-      (to === 'PENDING_MEETING' && !buyer && from === 'PENDING_SELLER_CONFIRM') ||
-      (to === 'BUYER_CONFIRMED' && buyer && from === 'PENDING_MEETING') ||
-      (to === 'COMPLETED' && !buyer && from === 'BUYER_CONFIRMED');
-    if (!allowed) throw ApiError.mock({ code: 409, message: '当前角色或订单状态不允许此操作' });
-    void buyerCancelFromConfirmed;
-    const phase = to === 'CANCELLED' ? this.cancellationPhase(order) : null;
-    if (phase && phase !== 'BEFORE_SELLER_CONFIRM' && !reasonCode) throw ApiError.mock({ code: 400, message: '请选择取消原因' });
-    if (reasonCode === 'OTHER' && !note) throw ApiError.mock({ code: 400, message: '选择「其他」时请写一句说明' });
-    // 验货闸门先于确认码：被拦下时不消耗确认码尝试次数（与 REST 一致）
-    if (to === 'BUYER_CONFIRMED' || to === 'COMPLETED') {
-      const blocked = this.inspectionBlock(order.id);
-      if (blocked) throw ApiError.mock({ code: 409, message: blocked });
-    }
-    if (to === 'COMPLETED') {
-      if ((order.codeAttempts ?? 0) >= MAX_CODE_ATTEMPTS) {
-        throw ApiError.mock({ code: 409, message: '确认码错误次数过多，已锁定，请联系买家取消后重新下单' });
-      }
-      const code = input.confirmationCode;
-      if (!code?.trim()) throw ApiError.mock({ code: 400, message: '请提供 6 位确认码' });
-      if (!/^\d{6}$/.test(code)) throw ApiError.mock({ code: 400, message: '确认码格式无效' });
-      if (code !== order.confirmationCode) {
-        order.codeAttempts = (order.codeAttempts ?? 0) + 1;
-        this.persist();
-        throw ApiError.mock({ code: 400, message: '确认码错误，请重新输入' });
-      }
-    }
-
-    const now = Date.now();
-    order.canonicalStatus = to;
-    order.status = statusLabel(to);
-    order.updatedAt = now;
-    if (to === 'PENDING_MEETING' && order.meetingAtIso) {
-      order.expiresAtIso = new Date(Date.parse(order.meetingAtIso) + 86_400_000).toISOString();
-    }
-    const eventCodes: Record<string, string[]> = {
-      PENDING_MEETING: ['SELLER_ACCEPTED'],
-      BUYER_CONFIRMED: ['BUYER_CONFIRMED'],
-      COMPLETED: ['SELLER_VERIFIED', 'ORDER_COMPLETED'],
-      CANCELLED: ['ORDER_CANCELLED'],
-    };
-    for (const code of eventCodes[to] ?? []) this.recordEvent(order.id, user.id, code, null, now);
-    // 7.1A：卖家接单时冻结原始预约的档期快照（与后端触发器一致；没有结束时间的旧预约不写）
-    if (to === 'PENDING_MEETING' && (order.meetingRevision ?? 0) === 0) this.recordSlot(order, 'SELLER_ACCEPTED_BOOKING', now);
-    const product = this.db.market.products.find((item) => item.id === order.productId);
-    if (to === 'CANCELLED' && product?.status === '预约中') { product.status = '在售'; product.soldAt = undefined }
-    if (to === 'COMPLETED' && product) { product.status = '已售出'; product.soldAt = Date.now() }
-    if (to === 'CANCELLED' && phase && !this.db.cancellationRecords.some((c) => c.orderId === order.id)) {
-      this.db.cancellationRecords.push({ orderId: order.id, schoolId: this.schoolOf(product?.campus) ?? 'pilot', actorId: user.id, phase, reasonCode: reasonCode as CancellationReason | null, note, createdAt: now });
-    }
-    if (to === 'BUYER_CONFIRMED' || to === 'COMPLETED') this.expireNoShows(order.id, Number.MAX_SAFE_INTEGER);
-    this.persist();
-    return this.orderView(order);
-  }
-  /**
-   * 本人参与的订单。改造前 role='all' 会返回<b>所有用户</b>的订单（含种子数据），
-   * 与 REST 只返回本人订单的语义不一致，也让任何演示用户都能看到别人的交易。
-   */
-  async listOrders(role: 'buyer'|'seller'|'all'): Promise<Order[]> {
-    this.retiredTradeFeature();
-    const user = this.currentUser();
-    this.sweepExpired();
-    return this.db.market.orders
-      .filter((o) => role === 'all'
-        ? o.buyerId === user.id || o.sellerId === user.id
-        : role === 'buyer' ? o.buyerId === user.id : o.sellerId === user.id)
-      .map((o) => this.orderView(o));
-  }
-  async addReview(orderId: string, input: ReviewInput): Promise<Review> {
-    this.retiredTradeFeature(); rejectUnknownKeys(input, ['rating', 'comment'], '评价'); const user = this.currentUser(); const order = this.db.market.orders.find((o) => o.id === orderId); if (!order || (user.id !== order.buyerId && user.id !== order.sellerId)) throw ApiError.mock({ code: 403, message: '无权评价该订单' }); if (input.rating < 1 || input.rating > 5) throw ApiError.mock({ code: 400, message: '评分应为 1-5 分' }); const review = { rating: input.rating, comment: input.comment.trim(), createdAt: Date.now() }; if (user.id === order.buyerId) order.buyerReview = review; else order.sellerReview = review; this.persist(); return review }
   /** 7.1E：被隐藏的评论对任何人都不返回正文（作者额外看到可申诉的提示）；原文仍在库里 */
   private commentView(c: Comment, viewerId: string): Comment {
     const { moderationHiddenAt, moderationHiddenActionId: _a, ...rest } = c;
@@ -2821,14 +2488,14 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return { ...rest, content: hidden ? '' : c.content, moderationHidden: hidden, hiddenForAuthor: hidden && c.userId === viewerId };
   }
   async listComments(productId: string): Promise<Comment[]> { const me = this.currentUser(); this.readableProduct(productId); return this.db.market.comments.filter((c) => c.productId === productId).sort((a, b) => b.createdAt - a.createdAt).map((c) => this.commentView(c, me.id)) }
-  async addComment(input: CommentInput): Promise<Comment> { const user = this.currentUser(); this.readableProduct(input.productId); if (!input.content.trim()) throw ApiError.mock({ code: 400, message: '留言内容不能为空' }); const comment: Comment = { id: uid('c'), productId: input.productId, userId: user.id, content: input.content.trim(), parentId: input.parentId ?? null, createdAt: Date.now(), moderationHiddenAt: null }; this.db.market.comments.unshift(comment); this.persist(); return this.commentView(comment, user.id) }
+  async addComment(input: CommentInput): Promise<Comment> { const user = this.currentUser(); this.readableProduct(input.productId); if (!input.content.trim()) throw ApiError.mock({ code: 400, message: '留言内容不能为空' }); requireSafeText(input.content); const comment: Comment = { id: uid('c'), productId: input.productId, userId: user.id, content: input.content.trim(), parentId: input.parentId ?? null, createdAt: Date.now(), moderationHiddenAt: null }; this.db.market.comments.unshift(comment); this.persist(); return this.commentView(comment, user.id) }
   async listConversations(): Promise<Conversation[]> { const user = this.currentUser(); return this.db.market.conversations.filter((c) => this.conversationAccessible(c, user.id)).sort((a, b) => b.updatedAt - a.updatedAt).map((c) => ({ ...c })) }
   async getOrCreateConversation(productId: string): Promise<Conversation> { const user = this.currentUser(); const product = await this.getProduct(productId); if (product.sellerId === user.id) throw ApiError.mock({ code: 400, message: '不能与自己的商品创建会话' }); const found = this.db.market.conversations.find((c) => c.productId === productId && c.buyerId === user.id); if (found) return { ...found }; const now = Date.now(); const conversation: Conversation = { id: uid('conv'), productId, buyerId: user.id, sellerId: product.sellerId, createdAt: now, updatedAt: now }; this.db.market.conversations.unshift(conversation); this.persist(); return { ...conversation } }
   /** 与后端 ConversationMapper.countMember 同一条件：卖家，或仍能读取这件商品的买家 */
   private conversationAccessible(c: Conversation, userId: string): boolean {
     if (c.sellerId === userId) return true;
     const p = this.db.market.products.find((x) => x.id === c.productId);
-    return c.buyerId === userId && !!p && this.readableBy(p, userId);
+    return c.buyerId === userId && !!p && this.visibleTo(p, userId);
   }
   async listMessages(conversationId: string): Promise<ChatMessage[]> { const user = this.currentUser(); const c = this.db.market.conversations.find((item) => item.id === conversationId); if (!c || !this.conversationAccessible(c, user.id)) throw ApiError.mock({ code: 404, message: '会话不存在' }); return this.db.market.messages.filter((m) => m.conversationId === conversationId).sort((a, b) => a.createdAt - b.createdAt).map((m) => this.messageView(m)) }
   /** 7.1E：被隔离的单条私信对双方都只返回占位；会话与其他消息照常 */
@@ -2836,42 +2503,36 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const { moderationQuarantinedAt, moderationQuarantineActionId: _a, ...rest } = m;
     return { ...rest, content: moderationQuarantinedAt ? '' : m.content, quarantined: !!moderationQuarantinedAt };
   }
-  async sendMessage(conversationId: string, content: string): Promise<ChatMessage> { const user = this.currentUser(); await this.listMessages(conversationId); const message: ChatMessage = { id: uid('m'), conversationId, senderId: user.id, content: content.trim(), createdAt: Date.now(), moderationQuarantinedAt: null }; this.db.market.messages.push(message); const c = this.db.market.conversations.find((item) => item.id === conversationId); if (c) c.updatedAt = message.createdAt; this.persist(); return this.messageView(message) }
+  async sendMessage(conversationId: string, content: string): Promise<ChatMessage> { const user = this.currentUser(); await this.listMessages(conversationId); requireSafeText(content); const message: ChatMessage = { id: uid('m'), conversationId, senderId: user.id, content: content.trim(), createdAt: Date.now(), moderationQuarantinedAt: null }; this.db.market.messages.push(message); const c = this.db.market.conversations.find((item) => item.id === conversationId); if (c) c.updatedAt = message.createdAt; this.persist(); return this.messageView(message) }
   async getUnreadCount(): Promise<number> { const user = this.currentUser(); const convs = await this.listConversations(); return convs.filter((c) => { const messages = this.db.market.messages.filter((m) => m.conversationId === c.id); const last = messages[messages.length - 1]; return Boolean(last && last.senderId !== user.id) }).length }
 
   // ======================================================================
-  // 模块 7：交易承诺与可信治理（与后端 governance 包逐条对应）
+  // 模块 7：可信治理（与后端 governance 包逐条对应）。
+  // 阶段 1（V16）：站内交易已停用——订单与爽约复核只作为历史数据保留（只读），不能再被举报或立案；
+  // 爽约确认、爽约自动限制与「预约新订单」限制都不再产生；新的限制范围是「申请联系方式」（CONTACT）。
   // ======================================================================
 
-  private static readonly NO_SHOW_REASONS: readonly string[] = ['DID_NOT_ARRIVE', 'ARRIVED_TOO_LATE', 'UNREACHABLE_AT_MEETING', 'OTHER'];
-  private static readonly REPORT_TARGETS: readonly string[] = ['PRODUCT', 'USER', 'CIRCLE', 'COMMENT', 'MESSAGE', 'ORDER', 'NO_SHOW'];
-  private static readonly REPORT_REASONS: readonly string[] = ['PROHIBITED_ITEM', 'MISLEADING', 'FRAUD_SUSPECTED', 'HARASSMENT', 'SPAM', 'IMPERSONATION', 'NO_SHOW_REVIEW', 'OTHER'];
-  private static readonly DECISION_ACTIONS: readonly string[] = ['HIDE_PRODUCT', 'RESTORE_PRODUCT', 'ARCHIVE_CIRCLE', 'RESTRICT_BOOKING', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION', 'CONFIRM_NO_SHOW', 'REJECT_NO_SHOW', 'NO_ACTION',
+  /** 可以举报 / 立案的对象（后端 ModerationService.TARGETS） */
+  private static readonly REPORT_TARGETS: readonly string[] = MODERATION_REPORT_TARGETS;
+  /** 案件列表可以筛选的对象：另含历史上的订单与爽约复核案件（后端 ALL_TARGETS，只读） */
+  private static readonly CASE_FILTER_TARGETS: readonly string[] = [...MODERATION_REPORT_TARGETS, 'ORDER', 'NO_SHOW'];
+  private static readonly REPORT_REASONS: readonly string[] = MODERATION_REPORT_REASONS;
+  /** 后端 StaffModerationService.ACTIONS：RESTRICT_BOOKING / CONFIRM_NO_SHOW / REJECT_NO_SHOW 不再被接受 */
+  private static readonly DECISION_ACTIONS: readonly string[] = ['HIDE_PRODUCT', 'RESTORE_PRODUCT', 'ARCHIVE_CIRCLE', 'RESTRICT_CONTACT', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION', 'NO_ACTION',
     'HIDE_COMMENT', 'RESTORE_COMMENT', 'QUARANTINE_MESSAGE', 'RELEASE_MESSAGE'];
-  private static readonly DECISION_REASONS: readonly string[] = ['POLICY_VIOLATION', 'PROHIBITED_ITEM', 'HARASSMENT', 'FRAUD_RISK', 'CONFIRMED_NO_SHOW', 'INSUFFICIENT_EVIDENCE', 'DUPLICATE', 'OTHER'];
+  private static readonly DECISION_REASONS: readonly string[] = MODERATION_DECISION_REASONS;
   private static readonly HOUR = 3_600_000;
-
-  // ---------------- 7.1A 明确档期 ----------------
-
-  private slotOf(orderId: string, revision: number) {
-    return this.db.slotAgreements.find((a) => a.orderId === orderId && a.revision === revision) ?? null;
-  }
-
-  /** 与后端 orders_record_slot_agreement 触发器相同：有结束时间才写；同一版本只写一次；之后不再改动 */
-  private recordSlot(order: Order, source: import('./mockMigrations').MockSlotAgreement['source'], at: number): void {
-    const revision = order.meetingRevision ?? 0;
-    if (!order.meetingEndsAtIso || !order.meetingAtIso || this.slotOf(order.id, revision)) return;
-    this.db.slotAgreements.push({ orderId: order.id, revision, meetingPointId: order.meetingPointId ?? '', startsAt: Date.parse(order.meetingAtIso),
-      endsAt: Date.parse(order.meetingEndsAtIso), source, agreedAt: at });
-  }
-
   // ---------------- 7.1C 利益回避（与后端 staff_case_conflict / staff_appeal_conflict 相同的判断） ----------------
 
   private caseConflict(c: import('./mockMigrations').MockModerationCase, staffId: string): import('./contracts').ConflictReason | null {
     const m = this.db.market;
     switch (c.targetType) {
       case 'USER': if (c.targetId === staffId) return 'SELF_TARGET'; break;
-      case 'PRODUCT': if (m.products.find((p) => p.id === c.targetId)?.sellerId === staffId) return 'OWN_CONTENT'; break;
+      case 'PRODUCT':
+        if (m.products.find((p) => p.id === c.targetId)?.sellerId === staffId) return 'OWN_CONTENT';
+        // 阶段 2（V17）：申请过这件商品联系方式的工作人员回避
+        if (this.db.contactRequests.some((r) => r.productId === c.targetId && r.buyerId === staffId)) return 'CONTACT_PARTY';
+        break;
       case 'COMMENT': if (m.comments.find((x) => x.id === c.targetId)?.userId === staffId) return 'OWN_CONTENT'; break;
       case 'MESSAGE': {
         const msg = m.messages.find((x) => x.id === c.targetId);
@@ -2931,87 +2592,30 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return raw as T;
   }
 
-  /** 与后端 OrderTransitionExecutor.cancellationPhase 相同的判定 */
-  private cancellationPhase(order: Order): import('./contracts').CancellationPhase {
-    const status = canonicalOf(order);
-    if (status === 'PENDING_SELLER_CONFIRM') return 'BEFORE_SELLER_CONFIRM';
-    if (status === 'DISPUTED') return 'INSPECTION_MISMATCH';
-    const revision = order.meetingRevision ?? 0;
-    if (this.db.presence.some((p) => p.orderId === order.id && p.revision === revision && p.status === 'ARRIVED')) return 'AFTER_ARRIVAL_REPORTED';
-    return revision > 0 ? 'AFTER_MEETING_AGREED' : 'AFTER_SELLER_CONFIRM';
-  }
-
-  private expireNoShows(orderId: string, beforeRevision: number): void {
-    for (const r of this.db.noShowReports) {
-      if (r.orderId === orderId && r.meetingRevision < beforeRevision && (r.status === 'PENDING' || r.status === 'DISPUTED')) r.status = 'EXPIRED';
-    }
-  }
-
-  /** 7.5：限制的唯一检查点（BOOKING / PUBLISHING / CIRCLE_CREATION） */
-  private requireUnrestricted(userId: string, scope: import('./contracts').RestrictionScope): void {
+  /**
+   * 7.5：限制的唯一检查点（CONTACT / PUBLISHING / CIRCLE_CREATION），与后端 RestrictionGuard.require 相同。
+   * 历史上的 BOOKING（限制预约新订单）在到期前按 CONTACT 处理（GovernanceMapper.selectActiveRestriction）。
+   */
+  private requireUnrestricted(userId: string, scope: 'CONTACT' | 'PUBLISHING' | 'CIRCLE_CREATION'): void {
     const now = Date.now();
-    const active = this.db.userRestrictions.filter((r) => r.userId === userId && r.scope === scope && !r.revokedAt && r.startsAt <= now && r.endsAt > now)
+    const active = this.db.userRestrictions.filter((r) => r.userId === userId && (r.scope === scope || (scope === 'CONTACT' && r.scope === 'BOOKING'))
+      && !r.revokedAt && r.startsAt <= now && r.endsAt > now)
       .sort((a, b) => b.endsAt - a.endsAt)[0];
     if (!active) return;
-    const what = scope === 'BOOKING' ? '预约新订单' : scope === 'PUBLISHING' ? '发布商品' : '创建圈子';
-    throw ApiError.mock({ code: 403, message: `你的「${what}」功能暂时受限，至 ${new Date(active.endsAt).toLocaleString('zh-CN')} 自动恢复。可以在「我的限制」里查看原因或提交申诉。`,
+    const what = scope === 'CONTACT' ? '申请联系方式' : scope === 'PUBLISHING' ? '发布商品' : '创建圈子';
+    throw ApiError.mock({ code: 403, message: `你的「${what}」功能暂时受限，至 ${formatRestrictionEnd(active.endsAt)} 自动恢复。可以在「我的限制」里查看原因或提交申诉。`,
       details: { code: 'RESTRICTED', scope, endsAt: active.endsAt } });
   }
 
-  private createRestriction(userId: string, schoolId: string, scope: import('./contracts').RestrictionScope, source: import('./contracts').RestrictionSource,
-                            caseId: string | null, noShowReportId: string | null, createdBy: string | null, reasonCode: string, hours: number,
-                            basis: Array<{ reportId: string; confirmedAt: number }> = []): import('./mockMigrations').MockUserRestriction {
+  /** 只有工作人员在案件里的决定能产生限制（V16 守卫：不再接受 BOOKING 范围与 SYSTEM_RULE 来源） */
+  private createRestriction(userId: string, schoolId: string, scope: 'CONTACT' | 'PUBLISHING' | 'CIRCLE_CREATION', caseId: string,
+                            createdBy: string, reasonCode: string, hours: number): import('./mockMigrations').MockUserRestriction {
     const now = Date.now();
-    const r = { id: uid('restr'), userId, schoolId, scope, source, caseId, noShowReportId, createdBy, reasonCode,
+    const r = { id: uid('restr'), userId, schoolId, scope, source: 'CASE' as const, caseId, noShowReportId: null, createdBy, reasonCode,
       startsAt: now, endsAt: now + hours * MockCampusMarketApi.HOUR, createdAt: now, revokedAt: null, revokedBy: null, revokeReason: null,
-      ruleVersion: source === 'SYSTEM_RULE' ? NO_SHOW_RULE_VERSION : null, decidedAt: now, basis, lastCorrectionId: null };
+      ruleVersion: null, decidedAt: now, basis: [], lastCorrectionId: null };
     this.db.userRestrictions.push(r);
     return r;
-  }
-
-  /** 30 天窗口内已确认、且有明确档期快照的爽约（按确认时间计；与后端 selectConfirmedNoShowsInWindow 相同） */
-  private confirmedInWindow(userId: string) {
-    const since = Date.now() - 30 * 86_400_000;
-    return this.db.noShowReports.filter((r) => r.reportedId === userId && (r.status === 'ACKNOWLEDGED' || r.status === 'CONFIRMED')
-      && (r.confirmedAt ?? 0) > since && !!this.slotOf(r.orderId, r.meetingRevision));
-  }
-
-  private confirmedNoShows(userId: string): number {
-    return this.confirmedInWindow(userId).length;
-  }
-
-  private static ruleHours(n: number): number {
-    return n >= 3 ? 72 : n === 2 ? 24 : 0;
-  }
-
-  /** 公开规则：30 天内第 1 次只提醒；第 2 次限制预约 24 小时；第 3 次及以上 72 小时（SYSTEM_RULE，保存规则版本与依据） */
-  private applyNoShowRule(report: import('./mockMigrations').MockNoShowReport, caseId: string | null, staff: string | null) {
-    if (this.db.userRestrictions.some((r) => r.noShowReportId === report.id)) return null;
-    const basis = this.confirmedInWindow(report.reportedId).map((x) => ({ reportId: x.id, confirmedAt: x.confirmedAt ?? 0 }));
-    const hours = MockCampusMarketApi.ruleHours(basis.length);
-    return hours ? this.createRestriction(report.reportedId, report.schoolId, 'BOOKING', 'SYSTEM_RULE', caseId, report.id, staff, 'CONFIRMED_NO_SHOW', hours, basis) : null;
-  }
-
-  /** 7.1B：与后端 RestrictionGuard.recomputeAfterOverturn 相同：只缩短或撤销、已到期不动、人工限制不受影响、追加纠正记录 */
-  private recomputeAfterOverturn(causeReportId: string, appealId: string | null, decidedBy: string): void {
-    const now = Date.now();
-    const affected = this.db.userRestrictions.filter((r) => r.source === 'SYSTEM_RULE' && !r.revokedAt && r.basis.some((b) => b.reportId === causeReportId))
-      .sort((a, b) => a.createdAt - b.createdAt);
-    for (const r of affected) {
-      if (r.endsAt <= now) continue;
-      const remaining = r.basis.filter((b) => { const x = this.db.noShowReports.find((y) => y.id === b.reportId); return x?.status === 'ACKNOWLEDGED' || x?.status === 'CONFIRMED' }).length;
-      const hours = r.noShowReportId === causeReportId ? 0 : MockCampusMarketApi.ruleHours(remaining);
-      const currentHours = Math.round((r.endsAt - r.startsAt) / MockCampusMarketApi.HOUR);
-      if (hours > 0 && hours >= currentHours) continue;
-      const newEnds = r.startsAt + hours * MockCampusMarketApi.HOUR;
-      const outcome = hours === 0 || newEnds <= now ? 'REVOKED' as const : 'SHORTENED' as const;
-      if (this.db.restrictionCorrections.some((c) => c.restrictionId === r.id && c.causeReportId === causeReportId)) continue;
-      const correction = { id: uid('corr'), restrictionId: r.id, schoolId: r.schoolId, causeReportId, appealId, decidedBy, outcome,
-        ruleVersion: r.ruleVersion ?? NO_SHOW_RULE_VERSION, remainingCount: remaining, previousEndsAt: r.endsAt, newEndsAt: outcome === 'REVOKED' ? now : newEnds, createdAt: now };
-      this.db.restrictionCorrections.push(correction);
-      if (outcome === 'REVOKED') Object.assign(r, { revokedAt: now, revokedBy: decidedBy, revokeReason: 'RULE_RECOMPUTED', lastCorrectionId: correction.id });
-      else Object.assign(r, { endsAt: newEnds, lastCorrectionId: correction.id });
-    }
   }
 
   private openCaseFor(schoolId: string, targetType: string, targetId: string) {
@@ -3019,114 +2623,15 @@ export class MockCampusMarketApi implements CampusMarketApi {
       && (c.status === 'OPEN' || c.status === 'UNDER_REVIEW' || c.status === 'APPEALED')) ?? null;
   }
 
-  private ensureCase(schoolId: string, targetType: import('./contracts').ModerationTargetType, targetId: string, noShowReportId: string | null) {
+  private ensureCase(schoolId: string, targetType: import('./contracts').ReportableTargetType, targetId: string) {
     const open = this.openCaseFor(schoolId, targetType, targetId);
     if (open) return open;
     const now = Date.now();
     const c = { id: uid('case'), schoolId, targetType, targetId, status: 'OPEN' as const, assignedStaffId: null, resolutionCode: null,
-      reportCount: 0, createdAt: now, updatedAt: now, resolvedAt: null, noShowReportId };
+      reportCount: 0, createdAt: now, updatedAt: now, resolvedAt: null, noShowReportId: null };
     this.db.moderationCases.push(c);
     return c;
   }
-
-  // ---------------- 爽约报告 ----------------
-
-  private noShowEligibility(order: Order, me: string): import('./contracts').NoShowEligibility {
-    const status = canonicalOf(order);
-    // 7.1A：只认接受时冻结的档期快照；没有快照（旧原始预约）不推断结束时间
-    const slot = this.slotOf(order.id, order.meetingRevision ?? 0);
-    const reportable = slot ? slot.endsAt + NO_SHOW_GRACE_MINUTES * 60_000 : 0;
-    const deadline = reportable + NO_SHOW_REPORT_WINDOW_DAYS * 86_400_000;
-    const sellerConfirmed = this.db.flowEvents.some((e) => e.orderId === order.id && e.code === 'SELLER_ACCEPTED');
-    const now = Date.now();
-    let code: import('./contracts').NoShowEligibility['code'];
-    if (['BUYER_CONFIRMED', 'SELLER_CONFIRMED', 'COMPLETED', 'DISPUTED'].includes(status)) code = 'MET';
-    else if (status === 'PENDING_SELLER_CONFIRM' || !sellerConfirmed) code = 'NO_AGREED_MEETING';
-    else if (!slot) code = 'NO_EXPLICIT_SLOT';
-    else if (now < reportable) code = 'TOO_EARLY';
-    else if (now > deadline) code = 'WINDOW_CLOSED';
-    else if (status === 'CANCELLED' && (this.db.cancellationRecords.find((c) => c.orderId === order.id)?.createdAt ?? order.updatedAt) < reportable) code = 'CANCELLED_BEFORE_MEETING';
-    else if (this.db.noShowReports.some((r) => r.orderId === order.id && r.reporterId === me && r.meetingRevision === (order.meetingRevision ?? 0)
-      && ['PENDING', 'ACKNOWLEDGED', 'DISPUTED', 'CONFIRMED'].includes(r.status))) code = 'ALREADY_REPORTED';
-    else code = 'OK';
-    const agreed = !!slot && code !== 'NO_AGREED_MEETING' && code !== 'MET';
-    return { canReport: code === 'OK', code, reportableAt: agreed ? reportable : null, deadline: agreed ? deadline : null,
-      slot: slot ? { revision: slot.revision, startsAt: slot.startsAt, endsAt: slot.endsAt, agreedAt: slot.agreedAt } : null };
-  }
-
-  private noShowView(r: import('./mockMigrations').MockNoShowReport, me: string): import('./contracts').NoShowReport {
-    const byMe = r.reporterId === me;
-    const aboutMe = r.reportedId === me;
-    return {
-      id: r.id, orderId: r.orderId, meetingRevision: r.meetingRevision, status: r.status, reasonCode: r.reasonCode,
-      note: r.note, responseNote: r.responseNote, byMe, aboutMe, createdAt: r.createdAt, respondedAt: r.respondedAt, decidedAt: r.decidedAt,
-      canRespond: aboutMe && r.status === 'PENDING',
-      canEscalate: byMe && r.status === 'PENDING' && !this.openCaseFor(r.schoolId, 'NO_SHOW', r.id),
-    };
-  }
-
-  async getOrderNoShow(orderId: string): Promise<import('./contracts').OrderNoShowView> {
-    this.retiredTradeFeature();
-    const { order, me } = this.participant(orderId);
-    return {
-      reports: this.db.noShowReports.filter((r) => r.orderId === orderId).sort((a, b) => a.createdAt - b.createdAt).map((r) => this.noShowView(r, me.id)),
-      eligibility: this.noShowEligibility(order, me.id),
-    };
-  }
-
-  async reportNoShow(orderId: string, input: { reasonCode: import('./contracts').NoShowReason; note?: string }): Promise<import('./contracts').NoShowReport> {
-    this.retiredTradeFeature();
-    rejectUnknownKeys(input, ['reasonCode', 'note'], '爽约报告');
-    const reason = this.govCode<import('./contracts').NoShowReason>(input.reasonCode, MockCampusMarketApi.NO_SHOW_REASONS, '爽约原因');
-    const note = this.govNote(input.note, 200);
-    if (reason === 'OTHER' && !note) throw ApiError.mock({ code: 400, message: '选择「其他」时请写一句说明' });
-    const { order, me } = this.participant(orderId);
-    this.supplyLimit('noShowReport', me.id, 10, 86_400_000);
-    const e = this.noShowEligibility(order, me.id);
-    if (!e.canReport) throw ApiError.mock({ code: 409, message: e.code === 'NO_EXPLICIT_SLOT' ? NO_EXPLICIT_SLOT_MESSAGE : '现在不能报告爽约', details: e });
-    const product = this.db.market.products.find((p) => p.id === order.productId);
-    const r = { id: uid('noshow'), orderId, meetingRevision: order.meetingRevision ?? 0, schoolId: this.schoolOf(product?.campus) ?? 'pilot',
-      reporterId: me.id, reportedId: me.id === order.buyerId ? order.sellerId : order.buyerId, status: 'PENDING' as const, reasonCode: reason,
-      note, responseNote: null, createdAt: Date.now(), respondedAt: null, decidedAt: null, decidedBy: null, confirmedAt: null };
-    this.db.noShowReports.push(r);
-    this.persist();
-    return this.noShowView(r, me.id);
-  }
-
-  private noShowForResponse(reportId: string) {
-    this.syncFromStorage();
-    const me = this.currentUser();
-    const r = this.db.noShowReports.find((x) => x.id === reportId);
-    if (!r || r.reportedId !== me.id) throw ApiError.mock({ code: 404, message: '报告不存在' });
-    if (r.status !== 'PENDING') throw ApiError.mock({ code: 409, message: '这份报告已经处理过' });
-    return { r, me };
-  }
-
-  async acknowledgeNoShow(reportId: string, note?: string): Promise<import('./contracts').NoShowReport> {
-    this.retiredTradeFeature();
-    const clean = this.govNote(note, 200);
-    const { r, me } = this.noShowForResponse(reportId);
-    if (!this.slotOf(r.orderId, r.meetingRevision)) throw ApiError.mock({ code: 409, message: NO_EXPLICIT_SLOT_MESSAGE, details: { code: 'NO_EXPLICIT_SLOT' } });
-    const now = Date.now();
-    Object.assign(r, { status: 'ACKNOWLEDGED', responseNote: clean, respondedAt: now, confirmedAt: now });
-    const open = this.openCaseFor(r.schoolId, 'NO_SHOW', r.id);
-    this.applyNoShowRule(r, open?.id ?? null, null);
-    if (open) Object.assign(open, { status: 'RESOLVED', resolutionCode: 'CONFIRM_NO_SHOW', resolvedAt: now, updatedAt: now });
-    this.persist();
-    return this.noShowView(r, me.id);
-  }
-
-  async disputeNoShow(reportId: string, note: string): Promise<import('./contracts').NoShowReport> {
-    this.retiredTradeFeature();
-    const clean = this.govNote(note, 200);
-    if (!clean) throw ApiError.mock({ code: 400, message: '请写一句说明，方便工作人员复核' });
-    const { r, me } = this.noShowForResponse(reportId);
-    Object.assign(r, { status: 'DISPUTED', responseNote: clean, respondedAt: Date.now() });
-    this.ensureCase(r.schoolId, 'NO_SHOW', r.id, r.id);
-    this.persist();
-    return this.noShowView(r, me.id);
-  }
-
   // ---------------- 举报 ----------------
 
   private reportSnapshot(me: User, school: string, type: string, target: string): string | null {
@@ -3135,7 +2640,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     switch (type) {
       case 'PRODUCT': {
         const p = this.db.market.products.find((x) => x.id === target);
-        if (!p || !this.readableBy(p, me.id)) throw notFound();
+        if (!p || !this.visibleTo(p, me.id)) throw notFound();
         if (p.sellerId === me.id) throw ApiError.mock({ code: 400, message: '不能举报自己发布的商品' });
         return clip(p.title);
       }
@@ -3155,7 +2660,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
       case 'COMMENT': {
         const c = this.db.market.comments.find((x) => x.id === target);
         const p = c && this.db.market.products.find((x) => x.id === c.productId);
-        if (!c || !p || !this.readableBy(p, me.id)) throw notFound();
+        if (!c || !p || !this.visibleTo(p, me.id)) throw notFound();
         if (c.userId === me.id) throw ApiError.mock({ code: 400, message: '不能举报自己的留言' });
         return clip(c.content);
       }
@@ -3166,17 +2671,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
         if (m.senderId === me.id) throw ApiError.mock({ code: 400, message: '不能举报自己发送的消息' });
         return clip(m.content);
       }
-      case 'ORDER': {
-        const o = this.db.market.orders.find((x) => x.id === target);
-        if (!o || (o.buyerId !== me.id && o.sellerId !== me.id)) throw notFound();
-        return null;
-      }
-      default: {
-        const r = this.db.noShowReports.find((x) => x.id === target);
-        if (!r || r.reporterId !== me.id) throw notFound();
-        if (r.status !== 'PENDING' && r.status !== 'DISPUTED') throw ApiError.mock({ code: 409, message: '这份爽约报告已经有结果，不需要再复核' });
-        return null;
-      }
+      default: throw notFound();
     }
   }
 
@@ -3196,17 +2691,17 @@ export class MockCampusMarketApi implements CampusMarketApi {
     this.syncFromStorage();
     const me = this.currentUser();
     rejectUnknownKeys(input, ['targetType', 'targetId', 'reasonCode', 'note'], '举报');
-    const type = this.govCode<import('./contracts').ModerationTargetType>(input.targetType, MockCampusMarketApi.REPORT_TARGETS, '举报对象类型');
+    // V16：订单与爽约复核只作为历史保留，不能再被举报（与后端 TARGETS 一致，400）
+    const type = this.govCode<import('./contracts').ReportableTargetType>(input.targetType, MockCampusMarketApi.REPORT_TARGETS, '举报对象类型');
     const reason = this.govCode<import('./contracts').ModerationReportReason>(input.reasonCode, MockCampusMarketApi.REPORT_REASONS, '举报原因');
     const note = this.govNote(input.note, 500);
     if (reason === 'OTHER' && !note) throw ApiError.mock({ code: 400, message: '选择「其他」时请写一句说明' });
-    if ((type === 'NO_SHOW') !== (reason === 'NO_SHOW_REVIEW')) throw ApiError.mock({ code: 400, message: '举报原因与对象不匹配' });
     const school = this.schoolOf(me.campus) ?? 'pilot';
     const snapshot = this.reportSnapshot(me, school, type, String(input.targetId));
     const existing = this.db.moderationReports.find((r) => r.reporterId === me.id && r.targetType === type && r.targetId === input.targetId);
     if (existing) return this.myReportView(existing);
     this.supplyLimit('moderationReport', me.id, 20, 86_400_000);
-    const c = this.ensureCase(school, type, String(input.targetId), type === 'NO_SHOW' ? String(input.targetId) : null);
+    const c = this.ensureCase(school, type, String(input.targetId));
     const r = { id: uid('report'), schoolId: school, caseId: c.id, reporterId: me.id, targetType: type, targetId: String(input.targetId),
       reasonCode: reason, note, snapshot, createdAt: Date.now() };
     this.db.moderationReports.push(r);
@@ -3231,7 +2726,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
   /** 与我有关、可以申诉的处理：与后端 selectMyActionNotices 相同的四类与「仍在生效」口径 */
   private myNotices(meId: string) {
-    const now = Date.now();
     const codes = ['HIDE_PRODUCT', 'HIDE_COMMENT', 'QUARANTINE_MESSAGE', 'CONFIRM_NO_SHOW'];
     return this.db.moderationActions.filter((a) => a.subjectId === meId && a.effective && codes.includes(a.actionCode))
       .sort((x, y) => y.createdAt - x.createdAt).slice(0, 50)
@@ -3251,9 +2745,9 @@ export class MockCampusMarketApi implements CampusMarketApi {
           active = !!m?.moderationQuarantinedAt && m.moderationQuarantineActionId === a.id;
           label = '你发送的一条私信';
         } else {
-          const n = this.db.noShowReports.find((x) => x.id === a.targetId);
-          active = n?.status === 'CONFIRMED' && (n.confirmedAt ?? 0) > now - 30 * 86_400_000;
-          label = '一次爽约确认';
+          // 历史上的爽约确认：爽约规则已停用（V16），只展示，不再生效、不能申诉
+          active = false;
+          label = '一次爽约确认（历史，已不再生效）';
         }
         const appeal = this.db.moderationAppeals.find((x) => x.actionId === a.id);
         return { actionId: a.id, actionCode: a.actionCode as import('./contracts').MyNoticeActionCode, targetId: a.targetId, targetLabel: label,
@@ -3276,9 +2770,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
         corrections: this.db.restrictionCorrections.filter((c) => c.restrictionId === r.id).sort((a, b) => a.createdAt - b.createdAt)
           .map((c) => ({ outcome: c.outcome, remainingCount: c.remainingCount, previousEndsAt: c.previousEndsAt, newEndsAt: c.newEndsAt, createdAt: c.createdAt })) };
     });
-    const notices = this.myNotices(me.id);
-    const confirmed = this.confirmedNoShows(me.id);
-    return { restrictions, notices, noShowWarning: confirmed ? { confirmedCount: confirmed, windowDays: 30 } : null };
+    // 阶段 1：不再有爽约提醒（noShowWarning 已从 /v1/me/governance 移除）
+    return { restrictions, notices: this.myNotices(me.id) };
   }
 
   async submitAppeal(input: import('./contracts').AppealInput): Promise<import('./contracts').MyAppealSummary> {
@@ -3364,7 +2857,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
 
   /** 目标摘要：与后端 StaffModerationService.targetSummary 相同的最少字段 */
-  private caseTarget(type: string, id: string): { target: import('./contracts').ModerationTarget; subject: string | null; school: string | null; hidden?: boolean; archived?: boolean; explicitSlot?: boolean } {
+  private caseTarget(type: string, id: string): { target: import('./contracts').ModerationTarget; subject: string | null; school: string | null; hidden?: boolean; archived?: boolean } {
     const none = { target: { type: type as import('./contracts').ModerationTargetType, exists: false, label: '', fields: {} }, subject: null, school: null };
     const nick = (uid2: string) => this.db.users.find((u) => u.id === uid2)?.nickname ?? '';
     switch (type) {
@@ -3406,14 +2899,15 @@ export class MockCampusMarketApi implements CampusMarketApi {
         const o = this.db.market.orders.find((x) => x.id === id);
         const p = o && this.db.market.products.find((x) => x.id === o.productId);
         if (!o || !p) return none;
-        return { target: { type: 'ORDER', exists: true, label: '订单', fields: { status: canonicalOf(o), price: o.price, meetingAt: Date.parse(o.meetingAtIso ?? '') || null,
+        // 历史订单（只读）：站内交易已停用
+        return { target: { type: 'ORDER', exists: true, label: '订单（历史）', fields: { status: o.canonicalStatus ?? 'PENDING_SELLER_CONFIRM', price: o.price, meetingAt: Date.parse(o.meetingAtIso ?? '') || null,
           buyerNickname: nick(o.buyerId), sellerNickname: nick(o.sellerId) } }, subject: null, school: this.schoolOf(p.campus) };
       }
       default: {
         const r = this.db.noShowReports.find((x) => x.id === id);
         if (!r) return none;
-        return { target: { type: 'NO_SHOW', exists: true, label: '爽约复核', fields: { status: r.status } }, subject: r.reportedId, school: r.schoolId,
-          explicitSlot: !!this.slotOf(r.orderId, r.meetingRevision) };
+        // 历史上的爽约复核（只读）：只给出报告状态
+        return { target: { type: 'NO_SHOW', exists: true, label: '爽约复核（历史）', fields: { status: r.status } }, subject: r.reportedId, school: r.schoolId };
       }
     }
   }
@@ -3422,15 +2916,11 @@ export class MockCampusMarketApi implements CampusMarketApi {
     if (!t.target.exists) return ['NO_ACTION'];
     const a: import('./contracts').ModerationActionCode[] = [];
     if (type === 'PRODUCT') a.push(t.hidden ? 'RESTORE_PRODUCT' : 'HIDE_PRODUCT', 'RESTRICT_PUBLISHING');
-    else if (type === 'COMMENT') a.push(t.hidden ? 'RESTORE_COMMENT' : 'HIDE_COMMENT', 'RESTRICT_BOOKING', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
-    else if (type === 'MESSAGE') a.push(t.hidden ? 'RELEASE_MESSAGE' : 'QUARANTINE_MESSAGE', 'RESTRICT_BOOKING', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
-    else if (type === 'USER') a.push('RESTRICT_BOOKING', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
+    else if (type === 'COMMENT') a.push(t.hidden ? 'RESTORE_COMMENT' : 'HIDE_COMMENT', 'RESTRICT_CONTACT', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
+    else if (type === 'MESSAGE') a.push(t.hidden ? 'RELEASE_MESSAGE' : 'QUARANTINE_MESSAGE', 'RESTRICT_CONTACT', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
+    else if (type === 'USER') a.push('RESTRICT_CONTACT', 'RESTRICT_PUBLISHING', 'RESTRICT_CIRCLE_CREATION');
     else if (type === 'CIRCLE') { if (senior && !t.archived) a.push('ARCHIVE_CIRCLE'); a.push('RESTRICT_CIRCLE_CREATION') }
-    if (type === 'NO_SHOW') {
-      const status = String(t.target.fields.status);
-      // 7.1A：没有明确档期快照的旧预约只能驳回，不能确认为爽约
-      if (status === 'PENDING' || status === 'DISPUTED') return t.explicitSlot ? ['CONFIRM_NO_SHOW', 'REJECT_NO_SHOW'] : ['REJECT_NO_SHOW'];
-    }
+    // 历史上的订单 / 爽约复核案件：只能「不采取措施」（与后端 allowedActions 的 default 分支一致）
     a.push('NO_ACTION');
     return a;
   }
@@ -3438,8 +2928,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
   private caseDetail(c: import('./mockMigrations').MockModerationCase, staff: import('./mockMigrations').MockStaffMember): import('./contracts').ModerationCaseDetail {
     const t = this.caseTarget(c.targetType, c.targetId);
     const decidable = (c.status === 'OPEN' || c.status === 'UNDER_REVIEW') && (!c.assignedStaffId || c.assignedStaffId === staff.userId);
-    const noShow = c.targetType === 'NO_SHOW' ? this.db.noShowReports.find((r) => r.id === c.targetId) : undefined;
-    const order = noShow && this.db.market.orders.find((o) => o.id === noShow.orderId);
     return {
       ...this.caseSummary(c, staff.userId),
       target: t.target,
@@ -3447,15 +2935,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
         .map((r) => ({ id: r.id, reasonCode: r.reasonCode, note: r.note, snapshot: r.snapshot, createdAt: r.createdAt })),
       actions: this.db.moderationActions.filter((a) => a.caseId === c.id).sort((a, b) => a.createdAt - b.createdAt)
         .map((a) => ({ id: a.id, actionCode: a.actionCode, reasonCode: a.reasonCode, note: a.note, createdAt: a.createdAt, byMe: a.staffId === staff.userId, expiresAt: a.expiresAt, effective: a.effective })),
-      noShow: noShow && order ? {
-        report: { ...this.noShowView(noShow, ''), byMe: false, aboutMe: false, canRespond: false, canEscalate: false },
-        meeting: (() => {
-          const s = this.slotOf(order.id, noShow.meetingRevision);
-          return { startsAt: s ? s.startsAt : Date.parse(order.meetingAtIso ?? '') || 0, endsAt: s ? s.endsAt : null, revision: noShow.meetingRevision, explicit: !!s };
-        })(),
-        presence: this.db.presence.filter((p) => p.orderId === order.id && p.revision === noShow.meetingRevision)
-          .map((p) => ({ party: p.userId === noShow.reporterId ? 'REPORTER' as const : 'REPORTED' as const, status: p.status, at: p.arrivedAt ?? p.departedAt })),
-      } : null,
       allowedActions: decidable ? this.allowedActionsFor(c.targetType, staff.role === 'SENIOR_MODERATOR', t) : [],
     };
   }
@@ -3478,6 +2957,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const staff = this.requireStaff();
     rejectUnknownKeys(query, ['status', 'targetType', 'page', 'size'], '查询');
     const { page, size } = this.pageArgs(query.page, query.size);
+    if (query.targetType !== undefined) this.govCode(query.targetType, MockCampusMarketApi.CASE_FILTER_TARGETS, '目标类型');
     // 7.1C：与本人有利益冲突的案件不进入本人的队列
     const all = this.db.moderationCases.filter((c) => c.schoolId === staff.schoolId && (!query.status || c.status === query.status)
       && (!query.targetType || c.targetType === query.targetType) && !this.caseConflict(c, staff.userId))
@@ -3495,17 +2975,17 @@ export class MockCampusMarketApi implements CampusMarketApi {
     return this.caseDetail(c, staff);
   }
 
-  async openModerationCase(input: { targetType: import('./contracts').ModerationTargetType; targetId: string }): Promise<import('./contracts').ModerationCaseDetail> {
+  async openModerationCase(input: { targetType: import('./contracts').ReportableTargetType; targetId: string }): Promise<import('./contracts').ModerationCaseDetail> {
     const staff = this.requireStaff();
     rejectUnknownKeys(input, ['targetType', 'targetId'], '立案');
-    const type = this.govCode<import('./contracts').ModerationTargetType>(input.targetType, MockCampusMarketApi.REPORT_TARGETS, '目标类型');
+    const type = this.govCode<import('./contracts').ReportableTargetType>(input.targetType, MockCampusMarketApi.REPORT_TARGETS, '目标类型');
     const t = this.caseTarget(type, String(input.targetId));
     if (!t.target.exists || t.school !== staff.schoolId) throw ApiError.mock({ code: 404, message: '目标不存在' });
     const existing = this.openCaseFor(staff.schoolId, type, String(input.targetId));
     const probe = existing ?? { id: '', schoolId: staff.schoolId, targetType: type, targetId: String(input.targetId) } as import('./mockMigrations').MockModerationCase;
     // 利益冲突时不立案（与后端事务回滚一致）
     this.requireNoConflict(this.caseConflict(probe, staff.userId), MockCampusMarketApi.CASE_CONFLICT);
-    const c = this.ensureCase(staff.schoolId, type, String(input.targetId), type === 'NO_SHOW' ? String(input.targetId) : null);
+    const c = this.ensureCase(staff.schoolId, type, String(input.targetId));
     this.persist();
     return this.caseDetail(c, staff);
   }
@@ -3561,34 +3041,20 @@ export class MockCampusMarketApi implements CampusMarketApi {
       if (typeof hours !== 'number' || !Number.isInteger(hours)) throw ApiError.mock({ code: 400, message: '请填写限制时长（小时）' });
       if (hours < 1 || hours > RESTRICTION_MAX_HOURS) throw ApiError.mock({ code: 400, message: '限制时长应为 1～720 小时（最长 30 天）' });
       if (hours > 168 && staff.role !== 'SENIOR_MODERATOR') throw ApiError.mock({ code: 403, message: '超过 7 天的限制需要高级工作人员处理' });
-      const r = this.createRestriction(t.subject!, staff.schoolId, action.slice('RESTRICT_'.length) as import('./contracts').RestrictionScope, 'CASE', c.id, null, staff.userId, reason, hours);
+      const r = this.createRestriction(t.subject!, staff.schoolId, action.slice('RESTRICT_'.length) as 'CONTACT' | 'PUBLISHING' | 'CIRCLE_CREATION', c.id, staff.userId, reason, hours);
       act(action, r.id, r.endsAt, true);
     } else if (action === 'ARCHIVE_CIRCLE') {
       const circle = this.db.circles.find((x) => x.id === c.targetId)!;
       const effective = circle.status === 'ACTIVE';
       if (effective) this.archiveCircleRecord(circle, staff.userId);
       act(action, null, null, effective);
-    } else if (action === 'CONFIRM_NO_SHOW' || action === 'REJECT_NO_SHOW') {
-      const r = this.db.noShowReports.find((x) => x.id === c.targetId)!;
-      if (r.status !== 'PENDING' && r.status !== 'DISPUTED') throw ApiError.mock({ code: 409, message: '爽约报告已经有结果' });
-      Object.assign(r, { status: action === 'CONFIRM_NO_SHOW' ? 'CONFIRMED' : 'REJECTED', decidedAt: now, decidedBy: staff.userId, confirmedAt: action === 'CONFIRM_NO_SHOW' ? now : null });
-      const restriction = action === 'CONFIRM_NO_SHOW' ? this.applyNoShowRule(r, c.id, staff.userId) : null;
-      act(action, restriction?.id ?? null, restriction?.endsAt ?? null, true);
     } else {
       act('NO_ACTION', null, null, false);
     }
-    Object.assign(c, { status: action === 'NO_ACTION' || action === 'REJECT_NO_SHOW' ? 'DISMISSED' : 'RESOLVED', resolutionCode: action, resolvedAt: now,
+    Object.assign(c, { status: action === 'NO_ACTION' ? 'DISMISSED' : 'RESOLVED', resolutionCode: action, resolvedAt: now,
       assignedStaffId: c.assignedStaffId ?? staff.userId, updatedAt: now });
     this.persist();
     return { ...this.caseDetail(c, staff), requestId: `mock-${uid('req')}` };
-  }
-
-  /** 申诉成功推翻一次已确认的爽约：改为 REJECTED，不再计数 */
-  private overturnNoShow(reportId: string, staffId: string, now: number): boolean {
-    const report = this.db.noShowReports.find((x) => x.id === reportId);
-    if (!report || (report.status !== 'ACKNOWLEDGED' && report.status !== 'CONFIRMED')) return false;
-    Object.assign(report, { status: 'REJECTED', confirmedAt: null, decidedAt: now, decidedBy: staffId });
-    return true;
   }
 
   private staffAppealView(a: import('./mockMigrations').MockModerationAppeal, staffId: string): import('./contracts').StaffAppeal {
@@ -3640,7 +3106,6 @@ export class MockCampusMarketApi implements CampusMarketApi {
         Object.assign(r, { revokedAt: now, revokedBy: staff.userId, revokeReason: 'APPEAL_ACCEPTED' });
         effective = true;
       }
-      if (input.accept && r.noShowReportId && this.overturnNoShow(r.noShowReportId, staff.userId, now)) this.recomputeAfterOverturn(r.noShowReportId, appeal.id, staff.userId);
       act(input.accept ? 'ACCEPT_APPEAL' : 'REJECT_APPEAL', 'RESTRICTION', r.id, r.id, effective);
     } else {
       const original = this.db.moderationActions.find((x) => x.id === appeal.actionId)!;
@@ -3662,9 +3127,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
           const still = !!m?.moderationQuarantinedAt && m.moderationQuarantineActionId === original.id;
           const release = act('RELEASE_MESSAGE', 'MESSAGE', original.targetId, null, still);
           if (m && still) Object.assign(m, { moderationQuarantinedAt: null, moderationQuarantineActionId: release.id });
-        } else if (original.actionCode === 'CONFIRM_NO_SHOW') {
-          if (this.overturnNoShow(original.targetId, staff.userId, now)) this.recomputeAfterOverturn(original.targetId, appeal.id, staff.userId);
         }
+        // 历史上的爽约确认：爽约规则已停用，申诉结论只记录，不再有可撤回的效果（与后端 undo 一致）
       }
     }
     Object.assign(appeal, { status: input.accept ? 'ACCEPTED' : 'REJECTED', decidedBy: staff.userId, decidedAt: now });

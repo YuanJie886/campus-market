@@ -64,7 +64,10 @@ export default function MyListingsPage() {
   const [editingDisclosure, setEditingDisclosure] = useState<ProductDisclosure | null | undefined>(undefined);
   const [disclosureError, setDisclosureError] = useState<string | null>(null);
   const [editingTextbook, setEditingTextbook] = useState<ProductTextbook | null>(null);
+  // 保存失败时服务端的原话（例如内容安全拦截）显示在编辑表单里
+  const [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
+    setEditError(null);
     if (!editing) return;
     let active = true;
     setEditingDisclosure(undefined);
@@ -95,6 +98,7 @@ export default function MyListingsPage() {
   );
 
   const handleEditSubmit = async (data: Omit<ProductInput, "sellerId">) => {
+    setEditError(null);
     try {
       if (!editing) return;
       await updateProduct(editing.id, {
@@ -119,7 +123,9 @@ export default function MyListingsPage() {
       setEditing(null);
       success("商品信息已更新");
     } catch (e) {
-      error(toUserMessage(e));
+      const message = toUserMessage(e);
+      setEditError(message);
+      error(message);
     }
   };
 
@@ -358,6 +364,7 @@ export default function MyListingsPage() {
               submitLabel="保存修改"
               onSubmit={handleEditSubmit}
               onCancel={() => setEditing(null)}
+              submitError={editError}
             />
           )}
         </DialogContent>

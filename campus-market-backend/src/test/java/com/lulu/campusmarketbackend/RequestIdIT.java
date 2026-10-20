@@ -147,12 +147,14 @@ class RequestIdIT {
         String token = tokenOf(account);
         assertThat(token).as("前置条件：首次登录应成功并返回令牌").isNotEqualTo("not-a-valid-token");
 
-        // 404：已登录但订单不存在（不泄漏订单是否存在，统一 404）
-        assertRequestIdPresent(mockMvc.perform(
-                post("/v1/orders/" + UUID.randomUUID() + "/transitions")
+        // 404：已登录但联系申请不存在（不泄漏是否存在，统一 404；业务层的 404，不是「接口不存在」）
+        MvcResult missing = mockMvc.perform(
+                post("/v1/contact-requests/" + UUID.randomUUID() + "/decision")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"to\":\"CANCELLED\",\"reason\":\"x\"}")).andReturn(), 404);
+                        .content("{\"status\":\"REJECTED\"}")).andReturn();
+        assertRequestIdPresent(missing, 404);
+        assertThat(missing.getResponse().getContentAsString()).contains("联系申请不存在");
 
         // 409：重复注册同一账号
         assertRequestIdPresent(registerRaw(account), 409);

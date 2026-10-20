@@ -202,8 +202,6 @@ export interface Order {
   textbookEditionIdSnapshot?: string | null;
   /** 模块 6（Mock v9）：下单瞬间商品是否仅圈子可见；旧订单为空 */
   visibilitySnapshot?: "PUBLIC" | "CIRCLE_ONLY" | null;
-  /** 服务端给出的流程摘要（3.8A）。旧缓存数据可能没有，界面据此保守处理 */
-  flow?: import("../../src/api/contracts").OrderFlowSummary;
   /** 买家对卖家的评价 */
   buyerReview?: Review;
   /** 卖家对买家的评价 */

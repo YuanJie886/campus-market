@@ -26,16 +26,20 @@ import java.util.UUID;
  *   <li>消息举报只保存那一条消息的内容作快照，不复制整段会话；</li>
  *   <li>举报人只看到状态摘要（已收到 / 处理中 / 已结束，是否采取了措施），看不到处理细节、工作人员或被举报人的处罚；</li>
  *   <li>被举报的人看不到举报人是谁；限制与隐藏只对本人可见，从不公开；</li>
- *   <li>每条限制 / 每次处理（商品隐藏、评论隐藏、私信隔离、工作人员确认的爽约）只能申诉一次；</li>
+ *   <li>每条限制 / 每次处理（商品隐藏、评论隐藏、私信隔离）只能申诉一次；</li>
+ *   <li>站内交易已停用（V16）：订单与爽约报告只作为历史保留，不能再被举报；历史上的爽约确认不再生效、不能申诉。</li>
  *   <li>7.1C：本校暂时没有可以回避利益冲突的工作人员时，举报与申诉保持待处理并明确告知（不会被自动驳回）。</li>
  * </ul>
  */
 @Service
 public class ModerationService {
 
-    public static final Set<String> TARGETS = Set.of("PRODUCT", "USER", "CIRCLE", "COMMENT", "MESSAGE", "ORDER", "NO_SHOW");
+    /** 可以举报 / 立案的对象。 */
+    public static final Set<String> TARGETS = Set.of("PRODUCT", "USER", "CIRCLE", "COMMENT", "MESSAGE");
+    /** 案件列表可以筛选的对象：另含历史上的订单与爽约复核案件（只读）。 */
+    public static final Set<String> ALL_TARGETS = Set.of("PRODUCT", "USER", "CIRCLE", "COMMENT", "MESSAGE", "ORDER", "NO_SHOW");
     public static final Set<String> REASONS = Set.of("PROHIBITED_ITEM", "MISLEADING", "FRAUD_SUSPECTED", "HARASSMENT", "SPAM",
-            "IMPERSONATION", "NO_SHOW_REVIEW", "OTHER");
+            "IMPERSONATION", "OTHER");
     private static final Set<String> REPORT_FIELDS = Set.of("targetType", "targetId", "reasonCode", "note");
     private static final Set<String> APPEAL_FIELDS = Set.of("restrictionId", "actionId", "reason");
     private static final String NOT_FOUND = "举报对象不存在或你没有权限查看";
@@ -61,11 +65,10 @@ public class ModerationService {
     public Map<String, Object> report(String uid, Map<String, Object> body) {
         JsonFieldPolicy.rejectUnknown(body, REPORT_FIELDS);
         UUID me = UUID.fromString(uid);
-        String type = NoShowService.code(body.get("targetType"), TARGETS, "举报对象类型");
-        String reason = NoShowService.code(body.get("reasonCode"), REASONS, "举报原因");
+        String type = GovernanceInput.code(body.get("targetType"), TARGETS, "举报对象类型");
+        String reason = GovernanceInput.code(body.get("reasonCode"), REASONS, "举报原因");
         String note = noteOf(body.get("note"));
         if ("OTHER".equals(reason) && note == null) throw ApiException.badRequest("选择「其他」时请写一句说明");
-        if ("NO_SHOW".equals(type) != "NO_SHOW_REVIEW".equals(reason)) throw ApiException.badRequest("举报原因与对象不匹配");
         UUID target;
         try {
             target = UUID.fromString(String.valueOf(body.get("targetId")));
@@ -78,7 +81,7 @@ public class ModerationService {
         Map<String, Object> existing = governance.selectReport(me, type, target);
         if (existing != null) return mine(existing, governance.selectCase((UUID) existing.get("case_id")));
         rateLimit.consume(RateLimitService.Scope.MODERATION_REPORT, uid);
-        Map<String, Object> c = "NO_SHOW".equals(type) ? cases.ensureNoShowCase(school, target) : cases.ensure(school, type, target, null);
+        Map<String, Object> c = cases.ensure(school, type, target);
         UUID id = UUID.randomUUID();
         if (governance.insertReport(id, school, (UUID) c.get("id"), me, type, target, reason, note, snapshot) == 1) {
             governance.bumpCase((UUID) c.get("id"));
@@ -119,7 +122,7 @@ public class ModerationService {
                 if (me.equals(cm.get("user_id"))) throw ApiException.badRequest("不能举报自己的留言");
                 return clip(DomainMapper.text(cm.get("content")));
             }
-            case "MESSAGE" -> {
+            default -> {
                 Map<String, Object> msg = governance.selectMessageTarget(target);
                 if (msg == null) throw ApiException.notFound(NOT_FOUND);
                 boolean seller = me.equals(msg.get("seller_id"));
@@ -127,20 +130,6 @@ public class ModerationService {
                 if (!seller && !buyer) throw ApiException.notFound(NOT_FOUND);
                 if (me.equals(msg.get("sender_id"))) throw ApiException.badRequest("不能举报自己发送的消息");
                 return clip(DomainMapper.text(msg.get("content")));
-            }
-            case "ORDER" -> {
-                Map<String, Object> o = governance.selectOrderTarget(target);
-                if (o == null || (!me.equals(o.get("buyer_id")) && !me.equals(o.get("seller_id")))) throw ApiException.notFound(NOT_FOUND);
-                return null;
-            }
-            default -> {
-                // NO_SHOW：报告人请求工作人员复核自己提交的爽约报告
-                Map<String, Object> r = governance.selectNoShow(target);
-                if (r == null || !me.equals(r.get("reporter_user_id"))) throw ApiException.notFound(NOT_FOUND);
-                if (!Set.of("PENDING", "DISPUTED").contains(DomainMapper.text(r.get("status")))) {
-                    throw ApiException.conflict("这份爽约报告已经有结果，不需要再复核");
-                }
-                return null;
             }
         }
     }
@@ -241,7 +230,7 @@ public class ModerationService {
                 case "HIDE_PRODUCT" -> DomainMapper.text(a.get("title"));
                 case "HIDE_COMMENT" -> "你的一条商品留言";
                 case "QUARANTINE_MESSAGE" -> "你发送的一条私信";
-                default -> "一次爽约确认";
+                default -> "一次爽约确认（历史，已不再生效）";
             });
             m.put("reasonCode", DomainMapper.text(a.get("reason_code")));
             m.put("createdAt", DomainMapper.epoch(a.get("created_at")));
@@ -250,11 +239,9 @@ public class ModerationService {
             m.put("canAppeal", active && a.get("appeal_id") == null);
             notices.add(m);
         }
-        long confirmed = governance.countConfirmedNoShows(me);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("restrictions", restrictions);
         result.put("notices", notices);
-        result.put("noShowWarning", confirmed == 0 ? null : Map.of("confirmedCount", confirmed, "windowDays", 30));
         return result;
     }
 
@@ -286,7 +273,7 @@ public class ModerationService {
         UUID restrictionId = null, actionId = null, caseId;
         String school;
         if (byRestriction) {
-            restrictionId = NoShowService.parse(String.valueOf(body.get("restrictionId")));
+            restrictionId = GovernanceInput.parse(String.valueOf(body.get("restrictionId")));
             Map<String, Object> r = governance.lockRestriction(restrictionId);
             if (r == null || !me.equals(r.get("user_id"))) throw ApiException.notFound("限制不存在");
             if (r.get("revoked_at") != null || DomainMapper.epoch(r.get("ends_at")) <= System.currentTimeMillis()) {
@@ -295,7 +282,7 @@ public class ModerationService {
             caseId = (UUID) r.get("case_id");
             school = DomainMapper.text(r.get("school_id"));
         } else {
-            actionId = NoShowService.parse(String.valueOf(body.get("actionId")));
+            actionId = GovernanceInput.parse(String.valueOf(body.get("actionId")));
             Map<String, Object> a = governance.selectAction(actionId);
             // 只能申诉与本人有关、仍在生效的处理：同一条「我的限制」查询给出 active，口径一致
             Map<String, Object> notice = null;

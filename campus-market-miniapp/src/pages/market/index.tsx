@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import { CAMPUSES, CATEGORIES, CATEGORY_EMOJI, CONDITIONS, type Campus, type Category, type Condition, type Product, type Query, type Sort } from '../../model';
 import { ErrorState, LoginGate, ProductGrid, Empty } from '../../components';
-import { notify, useMarket } from '../../state';
+import { notify, useMarket, useUnread } from '../../state';
+import { badgeText } from '../../contacts';
 
 type SortKey = 'latest' | 'price' | 'views';
 const SORTS: { key: SortKey; label: string }[] = [
@@ -20,7 +21,8 @@ export default function MarketPage() {
   const [query, setQuery] = useState<Query>({ sort: 'latest', page: 1, pageSize: 12 });
   const [products, setProducts] = useState<Product[]>([]), [total, setTotal] = useState(0), [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false), [error, setError] = useState(''), [expanded, setExpanded] = useState(false);
-  const [min, setMin] = useState(''), [max, setMax] = useState(''), [pending, setPending] = useState(0);
+  const [min, setMin] = useState(''), [max, setMax] = useState('');
+  const pending = badgeText(useUnread().total);
   const generation = useRef(0), busy = useRef(false), identity = useRef(user?.id);
   identity.current = user?.id;
 
@@ -37,21 +39,8 @@ export default function MarketPage() {
     finally { if (request === generation.current) { busy.current = false; setLoading(false); } }
   };
 
-  const loadPending = async () => {
-    if (!user) { setPending(0); return; }
-    try {
-      const values = await api.contacts();
-      const count = values.filter((r) => r.sellerId === user.id && r.status === 'PENDING').length;
-      setPending(count);
-      if (process.env.TARO_ENV === 'weapp') {
-        if (count > 0) void Taro.setTabBarBadge({ index: 2, text: String(count) }).catch(() => undefined);
-        else void Taro.removeTabBarBadge({ index: 2 }).catch(() => undefined);
-      }
-    } catch { /* 未读数失败不影响主流程 */ }
-  };
-
   useEffect(() => { generation.current++; busy.current = false; setProducts([]); setTotal(0); setPage(0); void load(); }, [user?.id, ready, query, category]);
-  useDidShow(() => { void load(); void loadPending(); });
+  useDidShow(() => { void load(); });
   usePullDownRefresh(() => { void load().finally(() => Taro.stopPullDownRefresh()); });
   useReachBottom(() => { if (page * query.pageSize < total) void load(false); });
 
@@ -73,7 +62,7 @@ export default function MarketPage() {
         <View className='campus-pill'><Text>{user?.campus ?? '本校'}</Text><View className='i-chevron' /></View>
         <View className='bell' onClick={() => void Taro.switchTab({ url: '/pages/notifications/index' })}>
           <View className='i-bell' />
-          {pending > 0 && <Text className='badge'>{pending > 99 ? '99+' : pending}</Text>}
+          {pending ? <Text className='badge'>{pending}</Text> : null}
         </View>
       </View>
     </View>

@@ -130,7 +130,9 @@ describe('6 圈子页面', () => {
     const dialog = await screen.findByRole('dialog', { name: '退出「要退出的圈子」？' });
     expect(dialog.textContent).toContain('圈子订阅将停用');
     expect(dialog.textContent).toContain('私密商品将不可见');
-    expect(dialog.textContent).toContain('已经成立的订单不受影响');
+    // REWRITTEN（阶段 1 联系模型）：不再提「已经成立的订单」，改为说明联系申请随之失效
+    expect(dialog.textContent).toContain('联系申请会从列表中消失，已获同意的联系方式也不再向你展示');
+    expect(dialog.textContent).not.toContain('订单');
     expect(await axeViolations(document.body)).toEqual([]);
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -240,7 +242,9 @@ describe('6 圈子管理', () => {
     fireEvent.click(screen.getByRole('button', { name: '管理成员 bob' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '移出圈子' }));
     const dialog = await screen.findByRole('dialog', { name: '把 bob 移出圈子？' });
-    expect(dialog.textContent).toContain('已经成立的订单不受影响');
+    // REWRITTEN（阶段 1 联系模型）：移出成员的后果写联系申请，不再提订单
+    expect(dialog.textContent).toContain('对方在这些商品上的联系申请会从列表中消失');
+    expect(dialog.textContent).not.toContain('订单');
     fireEvent.click(within(dialog).getByRole('button', { name: '确认' }));
     await screen.findByText('已移除 bob');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

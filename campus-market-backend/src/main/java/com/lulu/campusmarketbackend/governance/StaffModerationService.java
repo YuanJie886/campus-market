@@ -3,7 +3,6 @@ package com.lulu.campusmarketbackend.governance;
 import com.lulu.campusmarketbackend.api.ApiException;
 import com.lulu.campusmarketbackend.api.JsonFieldPolicy;
 import com.lulu.campusmarketbackend.circle.CircleService;
-import com.lulu.campusmarketbackend.mapper.FlowMapper;
 import com.lulu.campusmarketbackend.mapper.GovernanceMapper;
 import com.lulu.campusmarketbackend.mapper.ProductMapper;
 import com.lulu.campusmarketbackend.service.DomainMapper;
@@ -27,21 +26,22 @@ import java.util.UUID;
  *   <li>每个动作都写入只增不改的 moderation_actions（工作人员、原因码、说明、期限、是否实际生效）；</li>
  *   <li>强制归档圈子、超过 7 天的限制需要 SENIOR_MODERATOR；限制最长 30 天，没有永久限制；</li>
  *   <li>7.1C 利益回避由数据库函数 staff_case_conflict / staff_appeal_conflict 判断（{@link ConflictGuard}）：
- *       以本人为目标、本人的商品 / 评论 / 消息 / 圈子、本人参与的订单、本人提交的举报、本人做出的处理，
+ *       以本人为目标、本人的商品 / 评论 / 消息 / 圈子、本人参与的历史订单、本人提交的举报、本人做出的处理，
  *       本人都不能查看详情、领取、结案或决定申诉；这些案件不出现在本人的队列里。没有其他合适的工作人员时保持待处理；</li>
- *   <li>申诉成功撤销未到期的限制（爽约来源的同时推翻那次确认，并重算以它为依据的其他自动限制）、恢复商品 / 评论、解除私信隔离；</li>
+ *   <li>申诉成功撤销未到期的限制、恢复商品 / 评论、解除私信隔离；</li>
  *   <li>目标摘要只有处理所需的最少字段：没有联系方式、确认码、账号、密码、Token 或会话全文；</li>
+ *   <li>站内交易已停用（V16）：以订单 / 爽约为对象的案件只作为历史查看，不能新建；爽约确认与自动限制规则已移除。</li>
  *   <li>平台不做资金赔付，也不对商品真伪下结论——这里没有这类动作。</li>
  * </ul>
  */
 @Service
 public class StaffModerationService {
 
-    public static final Set<String> ACTIONS = Set.of("HIDE_PRODUCT", "RESTORE_PRODUCT", "ARCHIVE_CIRCLE", "RESTRICT_BOOKING",
-            "RESTRICT_PUBLISHING", "RESTRICT_CIRCLE_CREATION", "CONFIRM_NO_SHOW", "REJECT_NO_SHOW", "NO_ACTION",
+    public static final Set<String> ACTIONS = Set.of("HIDE_PRODUCT", "RESTORE_PRODUCT", "ARCHIVE_CIRCLE", "RESTRICT_CONTACT",
+            "RESTRICT_PUBLISHING", "RESTRICT_CIRCLE_CREATION", "NO_ACTION",
             "HIDE_COMMENT", "RESTORE_COMMENT", "QUARANTINE_MESSAGE", "RELEASE_MESSAGE");
     public static final Set<String> DECISION_REASONS = Set.of("POLICY_VIOLATION", "PROHIBITED_ITEM", "HARASSMENT", "FRAUD_RISK",
-            "CONFIRMED_NO_SHOW", "INSUFFICIENT_EVIDENCE", "DUPLICATE", "OTHER");
+            "INSUFFICIENT_EVIDENCE", "DUPLICATE", "OTHER");
     private static final Set<String> CASE_STATUSES = Set.of("OPEN", "UNDER_REVIEW", "RESOLVED", "DISMISSED", "APPEALED");
     private static final Set<String> DECISION_FIELDS = Set.of("action", "reasonCode", "note", "durationHours");
     private static final Set<String> OPEN_FIELDS = Set.of("targetType", "targetId");
@@ -54,12 +54,11 @@ public class StaffModerationService {
     private final ModerationCases cases;
     private final CircleService circleService;
     private final ProductMapper products;
-    private final FlowMapper flow;
     private final ConflictGuard conflicts;
     private final com.lulu.campusmarketbackend.mapper.UserMapper users;
 
     public StaffModerationService(StaffGuard staffGuard, GovernanceMapper governance, RestrictionGuard restrictions,
-                                  ModerationCases cases, CircleService circleService, ProductMapper products, FlowMapper flow,
+                                  ModerationCases cases, CircleService circleService, ProductMapper products,
                                   ConflictGuard conflicts, com.lulu.campusmarketbackend.mapper.UserMapper users) {
         this.conflicts = conflicts;
         this.users = users;
@@ -69,7 +68,6 @@ public class StaffModerationService {
         this.cases = cases;
         this.circleService = circleService;
         this.products = products;
-        this.flow = flow;
     }
 
     // ================= 案件列表与详情 =================
@@ -77,8 +75,8 @@ public class StaffModerationService {
     public Map<String, Object> list(String uid, Map<String, String> query) {
         StaffGuard.Staff staff = staffGuard.require(uid);
         rejectUnknownQuery(query, Set.of("status", "targetType", "page", "size"));
-        String status = blank(query.get("status")) ? null : NoShowService.code(query.get("status"), CASE_STATUSES, "案件状态");
-        String type = blank(query.get("targetType")) ? null : NoShowService.code(query.get("targetType"), ModerationService.TARGETS, "目标类型");
+        String status = blank(query.get("status")) ? null : GovernanceInput.code(query.get("status"), CASE_STATUSES, "案件状态");
+        String type = blank(query.get("targetType")) ? null : GovernanceInput.code(query.get("targetType"), ModerationService.ALL_TARGETS, "目标类型");
         int page = pageParam(query.get("page"), "page", 10000, 1);
         int size = pageParam(query.get("size"), "size", 100, 20);
         List<Map<String, Object>> items = new ArrayList<>();
@@ -104,12 +102,11 @@ public class StaffModerationService {
     public Map<String, Object> open(String uid, Map<String, Object> body) {
         StaffGuard.Staff staff = staffGuard.require(uid);
         JsonFieldPolicy.rejectUnknown(body, OPEN_FIELDS);
-        String type = NoShowService.code(body.get("targetType"), ModerationService.TARGETS, "目标类型");
-        UUID target = NoShowService.parse(String.valueOf(body.get("targetId")));
+        String type = GovernanceInput.code(body.get("targetType"), ModerationService.TARGETS, "目标类型");
+        UUID target = GovernanceInput.parse(String.valueOf(body.get("targetId")));
         Map<String, Object> summary = targetSummary(type, target);
         if (summary == null || !staff.schoolId().equals(summary.get("__school"))) throw ApiException.notFound("目标不存在");
-        Map<String, Object> c = "NO_SHOW".equals(type) ? cases.ensureNoShowCase(staff.schoolId(), target)
-                : cases.ensure(staff.schoolId(), type, target, null);
+        Map<String, Object> c = cases.ensure(staff.schoolId(), type, target);
         // 利益冲突时整个事务回滚：本人不能为自己的内容立案并处理
         conflicts.requireNoCaseConflict((UUID) c.get("id"), staff.userId());
         return detail(staff, governance.selectCase((UUID) c.get("id")));
@@ -139,23 +136,13 @@ public class StaffModerationService {
         conflicts.requireNoCaseConflict((UUID) probe.get("id"), staff.userId());
         if (!Set.of("OPEN", "UNDER_REVIEW").contains(DomainMapper.text(probe.get("status")))) throw ApiException.conflict("案件已经有处理结果");
         JsonFieldPolicy.rejectUnknown(body, DECISION_FIELDS);
-        String action = NoShowService.code(body.get("action"), ACTIONS, "处理动作");
-        String reason = NoShowService.code(body.get("reasonCode"), DECISION_REASONS, "处理原因");
+        String action = GovernanceInput.code(body.get("action"), ACTIONS, "处理动作");
+        String reason = GovernanceInput.code(body.get("reasonCode"), DECISION_REASONS, "处理原因");
         String note = ModerationService.noteOf(body.get("note"));
         if ("OTHER".equals(reason) && note == null) throw ApiException.badRequest("选择「其他」时请写一句说明");
         UUID caseId = (UUID) probe.get("id");
         String type = DomainMapper.text(probe.get("target_type"));
         UUID target = (UUID) probe.get("target_id");
-
-        // 加锁顺序与爽约回应相同：订单 → 报告 → 案件，避免与「对方承认」互相死锁
-        Map<String, Object> noShow = null;
-        if ("NO_SHOW".equals(type)) {
-            Map<String, Object> r = governance.selectNoShow(target);
-            if (r != null) {
-                flow.lockOrder((UUID) r.get("order_id"));
-                noShow = governance.lockNoShow(target);
-            }
-        }
         Map<String, Object> c = governance.lockCase(caseId);
         String status = DomainMapper.text(c.get("status"));
         if (!Set.of("OPEN", "UNDER_REVIEW").contains(status)) throw ApiException.conflict("案件已经有处理结果");
@@ -163,7 +150,7 @@ public class StaffModerationService {
             throw ApiException.conflict("案件已由其他工作人员领取");
         }
         Map<String, Object> summary = targetSummary(type, target);
-        if (!allowedActions(type, staff, summary, noShow).contains(action)) throw ApiException.badRequest("这个动作不适用于该案件");
+        if (!allowedActions(type, staff, summary).contains(action)) throw ApiException.badRequest("这个动作不适用于该案件");
 
         UUID actionId = UUID.randomUUID();
         UUID restrictionId = null;
@@ -194,9 +181,9 @@ public class StaffModerationService {
                 if (effective && "QUARANTINE_MESSAGE".equals(action)) governance.quarantineMessage(target, actionId);
                 if (effective && "RELEASE_MESSAGE".equals(action)) governance.releaseMessage(target, actionId);
             }
-            case "RESTRICT_BOOKING", "RESTRICT_PUBLISHING", "RESTRICT_CIRCLE_CREATION" -> {
+            case "RESTRICT_CONTACT", "RESTRICT_PUBLISHING", "RESTRICT_CIRCLE_CREATION" -> {
                 int hours = duration(body.get("durationHours"), staff);
-                restrictionId = restrictions.create(subject, school, action.substring("RESTRICT_".length()), "CASE", caseId, null,
+                restrictionId = restrictions.create(subject, school, action.substring("RESTRICT_".length()), caseId,
                         staff.userId(), reason, hours);
                 expiresAt = offset(governance.selectRestriction(restrictionId).get("ends_at"));
                 governance.insertAction(actionId, school, caseId, null, staff.userId(), action, reason, note, type, target, restrictionId, expiresAt, true, subject);
@@ -205,20 +192,9 @@ public class StaffModerationService {
                 effective = circleService.archiveAsStaff(target, staff.userId());
                 governance.insertAction(actionId, school, caseId, null, staff.userId(), action, reason, note, type, target, null, null, effective, subject);
             }
-            case "CONFIRM_NO_SHOW" -> {
-                if (governance.decideNoShow(target, "CONFIRMED", staff.userId()) != 1) throw ApiException.conflict("爽约报告已经有结果");
-                restrictionId = restrictions.applyNoShowRule((UUID) noShow.get("reported_user_id"), school, target, caseId, staff.userId());
-                if (restrictionId != null) expiresAt = offset(governance.selectRestriction(restrictionId).get("ends_at"));
-                governance.insertAction(actionId, school, caseId, null, staff.userId(), action, reason, note, type, target, restrictionId, expiresAt, true, subject);
-            }
-            case "REJECT_NO_SHOW" -> {
-                if (governance.decideNoShow(target, "REJECTED", staff.userId()) != 1) throw ApiException.conflict("爽约报告已经有结果");
-                governance.insertAction(actionId, school, caseId, null, staff.userId(), action, reason, note, type, target, null, null, true, subject);
-            }
             default -> governance.insertAction(actionId, school, caseId, null, staff.userId(), action, reason, note, type, target, null, null, false, subject);
         }
-        String finalStatus = Set.of("NO_ACTION", "REJECT_NO_SHOW").contains(action) ? "DISMISSED" : "RESOLVED";
-        // 爽约确认的依据是接受时冻结的档期快照：没有快照的旧预约在 allowedActions 里就不提供 CONFIRM_NO_SHOW
+        String finalStatus = "NO_ACTION".equals(action) ? "DISMISSED" : "RESOLVED";
         if (governance.resolveCase(caseId, finalStatus, action, staff.userId()) != 1) throw ApiException.conflict("案件已经有处理结果");
         return detail(staff, governance.selectCase(caseId));
     }
@@ -242,7 +218,7 @@ public class StaffModerationService {
     public Map<String, Object> appeals(String uid, Map<String, String> query) {
         StaffGuard.Staff staff = staffGuard.require(uid);
         rejectUnknownQuery(query, Set.of("status", "page", "size"));
-        String status = blank(query.get("status")) ? null : NoShowService.code(query.get("status"), Set.of("PENDING", "ACCEPTED", "REJECTED"), "申诉状态");
+        String status = blank(query.get("status")) ? null : GovernanceInput.code(query.get("status"), Set.of("PENDING", "ACCEPTED", "REJECTED"), "申诉状态");
         int page = pageParam(query.get("page"), "page", 10000, 1);
         int size = pageParam(query.get("size"), "size", 100, 20);
         List<Map<String, Object>> items = new ArrayList<>();
@@ -260,16 +236,16 @@ public class StaffModerationService {
         StaffGuard.Staff staff = staffGuard.require(uid);
         JsonFieldPolicy.rejectUnknown(body, APPEAL_DECISION_FIELDS);
         if (!(body.get("accept") instanceof Boolean accept)) throw ApiException.badRequest("请选择接受或驳回");
-        String reason = NoShowService.code(body.get("reasonCode"), Set.of("APPEAL_ACCEPTED", "APPEAL_REJECTED"), "处理原因");
+        String reason = GovernanceInput.code(body.get("reasonCode"), Set.of("APPEAL_ACCEPTED", "APPEAL_REJECTED"), "处理原因");
         if (accept != "APPEAL_ACCEPTED".equals(reason)) throw ApiException.badRequest("处理原因与决定不一致");
         String note = ModerationService.noteOf(body.get("note"));
-        UUID appealId = NoShowService.parse(id);
+        UUID appealId = GovernanceInput.parse(id);
         Map<String, Object> appeal = governance.lockAppeal(appealId);
         if (appeal == null || !staff.schoolId().equals(appeal.get("school_id"))) throw ApiException.notFound("申诉不存在");
         if (!"PENDING".equals(appeal.get("status"))) throw ApiException.conflict("申诉已经有结果");
-        // 7.1C：申诉人本人、原处理人、爽约报告人 / 订单双方、原案件的利益相关人都不能决定（数据库函数判断）
+        // 7.1C：申诉人本人、原处理人、原案件的利益相关人都不能决定（数据库函数判断）
         conflicts.requireNoAppealConflict(appealId, staff.userId());
-        // 固定加锁顺序：申诉 → 用户 → 限制 / 内容 → 报告。与「新建限制」「下单检查」在用户行上串行化，
+        // 固定加锁顺序：申诉 → 用户 → 限制 / 内容。与「新建限制」「申请联系前的检查」在用户行上串行化，
         // 两条针对同一用户的申诉并发决定时也不会互相等待对方已锁的限制
         users.lockById((UUID) appeal.get("user_id"));
         UUID caseId = (UUID) appeal.get("case_id");
@@ -277,15 +253,11 @@ public class StaffModerationService {
         UUID appellant = (UUID) appeal.get("user_id");
         if (appeal.get("restriction_id") != null) {
             UUID restrictionId = (UUID) appeal.get("restriction_id");
-            Map<String, Object> r = governance.lockRestriction(restrictionId);
+            governance.lockRestriction(restrictionId);
             boolean effective = false;
             if (accept) {
-                // 已自然到期的限制不需要撤销（撤销为 0 行），但申诉结论照常记录
+                // 已自然到期或已撤销（例如 V16 撤销的自动限制）的限制撤销为 0 行，但申诉结论照常记录
                 effective = governance.revokeRestriction(restrictionId, staff.userId(), "APPEAL_ACCEPTED") == 1;
-                UUID report = (UUID) r.get("no_show_report_id");
-                if (report != null && governance.overturnNoShow(report, staff.userId()) == 1) {
-                    restrictions.recomputeAfterOverturn(report, appealId, staff.userId());
-                }
             }
             governance.insertAction(actionId, staff.schoolId(), caseId, appealId, staff.userId(), accept ? "ACCEPT_APPEAL" : "REJECT_APPEAL",
                     reason, note, "RESTRICTION", restrictionId, restrictionId, null, effective, appellant);
@@ -333,10 +305,7 @@ public class StaffModerationService {
                 if (still) governance.releaseMessage(target, restore);
             }
             case "CONFIRM_NO_SHOW" -> {
-                // 推翻这次确认：报告改为 REJECTED（不再计数），以它为依据的自动限制按规则重算（来源于它的直接撤销）
-                if (governance.overturnNoShow(target, staff.userId()) == 1) {
-                    restrictions.recomputeAfterOverturn(target, appealId, staff.userId());
-                }
+                // 历史上的爽约确认：爽约规则已停用（V16 撤销了它产生的自动限制、历史表只读），申诉结论只记录，不再有可撤回的效果
             }
             default -> throw new IllegalStateException("unsupported appeal action " + code);
         }
@@ -373,7 +342,7 @@ public class StaffModerationService {
     // ================= 投影 =================
 
     private Map<String, Object> visibleCase(StaffGuard.Staff staff, String id) {
-        UUID caseId = NoShowService.parse(id);
+        UUID caseId = GovernanceInput.parse(id);
         Map<String, Object> c = governance.selectCase(caseId);
         if (c == null || !staff.schoolId().equals(c.get("school_id"))) throw ApiException.notFound("案件不存在");
         return c;
@@ -432,54 +401,10 @@ public class StaffModerationService {
             actions.add(x);
         }
         m.put("actions", actions);
-        Map<String, Object> noShow = "NO_SHOW".equals(type) ? governance.selectNoShow(target) : null;
-        m.put("noShow", noShow == null ? null : noShowDetail(noShow));
         String status = DomainMapper.text(c.get("status"));
         boolean decidable = Set.of("OPEN", "UNDER_REVIEW").contains(status)
                 && (c.get("assigned_staff_id") == null || staff.userId().equals(c.get("assigned_staff_id")));
-        m.put("allowedActions", decidable ? allowedActions(type, staff, raw, noShow) : List.of());
-        return m;
-    }
-
-    /** 爽约复核：档期、报告与回应、双方的到达记录（本人手动声明，不是定位证据）。 */
-    private Map<String, Object> noShowDetail(Map<String, Object> r) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        Map<String, Object> report = new LinkedHashMap<>();
-        report.put("id", DomainMapper.text(r.get("id")));
-        report.put("orderId", DomainMapper.text(r.get("order_id")));
-        report.put("meetingRevision", ((Number) r.get("meeting_revision")).intValue());
-        report.put("status", DomainMapper.text(r.get("status")));
-        report.put("reasonCode", DomainMapper.text(r.get("reason_code")));
-        report.put("note", DomainMapper.nullableText(r.get("note")));
-        report.put("responseNote", DomainMapper.nullableText(r.get("response_note")));
-        report.put("byMe", false);
-        report.put("aboutMe", false);
-        report.put("createdAt", DomainMapper.epoch(r.get("created_at")));
-        report.put("respondedAt", r.get("responded_at") == null ? null : DomainMapper.epoch(r.get("responded_at")));
-        report.put("decidedAt", r.get("decided_at") == null ? null : DomainMapper.epoch(r.get("decided_at")));
-        report.put("canRespond", false);
-        report.put("canEscalate", false);
-        m.put("report", report);
-        Map<String, Object> order = governance.selectOrderTarget((UUID) r.get("order_id"));
-        int revision = ((Number) r.get("meeting_revision")).intValue();
-        // 复核依据：报告所针对档期版本的快照（接受时冻结）；没有快照时 explicit=false，不补任何结束时间
-        Map<String, Object> slot = governance.selectSlotAgreement((UUID) r.get("order_id"), revision);
-        Map<String, Object> meeting = new LinkedHashMap<>();
-        meeting.put("startsAt", slot == null ? DomainMapper.epoch(order.get("meeting_at")) : DomainMapper.epoch(slot.get("starts_at")));
-        meeting.put("endsAt", slot == null ? null : DomainMapper.epoch(slot.get("ends_at")));
-        meeting.put("revision", revision);
-        meeting.put("explicit", slot != null);
-        m.put("meeting", meeting);
-        List<Map<String, Object>> presence = new ArrayList<>();
-        for (Map<String, Object> p : governance.selectPresence((UUID) r.get("order_id"), revision)) {
-            Map<String, Object> x = new LinkedHashMap<>();
-            x.put("party", p.get("user_id").equals(r.get("reporter_user_id")) ? "REPORTER" : "REPORTED");
-            x.put("status", DomainMapper.text(p.get("status")));
-            Object at = p.get("arrived_at") != null ? p.get("arrived_at") : p.get("departed_at");
-            x.put("at", at == null ? null : DomainMapper.epoch(at));
-            presence.add(x);
-        }
-        m.put("presence", presence);
+        m.put("allowedActions", decidable ? allowedActions(type, staff, raw) : List.of());
         return m;
     }
 
@@ -561,23 +486,23 @@ public class StaffModerationService {
                 m.put("meetingAt", DomainMapper.epoch(o.get("meeting_at")));
                 m.put("buyerNickname", DomainMapper.text(o.get("buyer_nickname")));
                 m.put("sellerNickname", DomainMapper.text(o.get("seller_nickname")));
-                m.put("__label", "订单");
+                m.put("__label", "订单（历史）");
                 m.put("__school", o.get("school_id"));
             }
             default -> {
+                // 历史上的爽约复核（只读）：只给出报告状态
                 Map<String, Object> r = governance.selectNoShow(target);
                 if (r == null) return null;
                 m.put("status", DomainMapper.text(r.get("status")));
-                m.put("__label", "爽约复核");
+                m.put("__label", "爽约复核（历史）");
                 m.put("__school", r.get("school_id"));
                 m.put("__subject", r.get("reported_user_id"));
-                m.put("__explicitSlot", governance.selectSlotAgreement((UUID) r.get("order_id"), ((Number) r.get("meeting_revision")).intValue()) != null);
             }
         }
         return m;
     }
 
-    private static List<String> allowedActions(String type, StaffGuard.Staff staff, Map<String, Object> summary, Map<String, Object> noShow) {
+    private static List<String> allowedActions(String type, StaffGuard.Staff staff, Map<String, Object> summary) {
         List<String> a = new ArrayList<>();
         if (summary == null) {
             a.add("NO_ACTION");
@@ -591,26 +516,18 @@ public class StaffModerationService {
             case "COMMENT", "MESSAGE" -> {
                 if ("COMMENT".equals(type)) a.add(Boolean.TRUE.equals(summary.get("__hidden")) ? "RESTORE_COMMENT" : "HIDE_COMMENT");
                 else a.add(Boolean.TRUE.equals(summary.get("__quarantined")) ? "RELEASE_MESSAGE" : "QUARANTINE_MESSAGE");
-                a.add("RESTRICT_BOOKING");
+                a.add("RESTRICT_CONTACT");
                 a.add("RESTRICT_PUBLISHING");
                 a.add("RESTRICT_CIRCLE_CREATION");
             }
             case "USER" -> {
-                a.add("RESTRICT_BOOKING");
+                a.add("RESTRICT_CONTACT");
                 a.add("RESTRICT_PUBLISHING");
                 a.add("RESTRICT_CIRCLE_CREATION");
             }
             case "CIRCLE" -> {
                 if (staff.senior() && !Boolean.TRUE.equals(summary.get("__archived"))) a.add("ARCHIVE_CIRCLE");
                 a.add("RESTRICT_CIRCLE_CREATION");
-            }
-            case "NO_SHOW" -> {
-                if (noShow != null && Set.of("PENDING", "DISPUTED").contains(DomainMapper.text(noShow.get("status")))) {
-                    // 7.1A：没有明确档期快照的旧预约只能驳回，不能确认为爽约
-                    if (Boolean.TRUE.equals(summary.get("__explicitSlot"))) a.add("CONFIRM_NO_SHOW");
-                    a.add("REJECT_NO_SHOW");
-                    return a;
-                }
             }
             default -> { }
         }

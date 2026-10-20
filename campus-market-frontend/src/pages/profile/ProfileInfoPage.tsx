@@ -33,6 +33,8 @@ export default function ProfileInfoPage() {
   const { success, error, info } = useNotify();
 
   const [busy, setBusy] = useState(false);
+  // 保存失败时服务端的原话（例如昵称被内容安全拦截）显示在保存按钮旁
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [nickname, setNickname] = useState(currentUser?.nickname ?? "");
   const [campus, setCampus] = useState<Campus>(currentUser?.campus ?? "东校区");
   const [contact, setContact] = useState(currentUser?.contact ?? "");
@@ -58,6 +60,7 @@ export default function ProfileInfoPage() {
   const handleSave = async () => {
     if (busy) return;
     setBusy(true);
+    setSaveError(null);
     try {
       const name = nickname.trim();
       if (!name) {
@@ -87,7 +90,9 @@ export default function ProfileInfoPage() {
       });
       success("资料已更新");
     } catch (e) {
-      error(toUserMessage(e));
+      const message = toUserMessage(e);
+      setSaveError(message);
+      error(message);
     } finally {
       setBusy(false);
     }
@@ -193,6 +198,9 @@ export default function ProfileInfoPage() {
           </div>
         </div>
 
+        {saveError && (
+          <p role="alert" className="mt-4 text-sm text-red-700">{saveError}</p>
+        )}
         <div className="mt-5 flex justify-end">
           <Button
             variant="contained"
@@ -210,7 +218,7 @@ export default function ProfileInfoPage() {
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-card md:p-6">
         <h2 className="text-base font-bold text-slate-800">账户管理</h2>
         <p className="mt-1 text-xs text-slate-400">
-          资料和交易记录保存在服务端，退出登录后可在其他设备继续使用。
+          资料和发布记录保存在服务端，退出登录后可在其他设备继续使用。修改密码与注销账号在「账号与安全」。
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           {import.meta.env.VITE_API_MODE === "mock" && (

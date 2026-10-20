@@ -39,11 +39,14 @@ public class ListingValidator {
     private final BundleService bundles;
     private final com.lulu.campusmarketbackend.circle.ProductVisibility visibility;
     private final com.lulu.campusmarketbackend.school.SchoolScope schools;
+    private final com.lulu.campusmarketbackend.image.ImagePolicy images;
 
     public ListingValidator(BuildingMapper buildings, CatalogMapper catalog, SupplyMapper supply,
                             InspectionService inspections, BundleService bundles,
                             com.lulu.campusmarketbackend.circle.ProductVisibility visibility,
-                            com.lulu.campusmarketbackend.school.SchoolScope schools) {
+                            com.lulu.campusmarketbackend.school.SchoolScope schools,
+                            com.lulu.campusmarketbackend.image.ImagePolicy images) {
+        this.images = images;
         this.visibility = visibility;
         this.schools = schools;
         this.buildings = buildings;
@@ -145,7 +148,8 @@ public class ListingValidator {
             if (campusSchool == null || (lookups.ownerSchool != null && !campusSchool.equals(lookups.ownerSchool))) {
                 throw ApiException.badRequest("校区无效");
             }
-            MarketService.images(payload.get("images"));
+            // 与发布相同的图片规则（含外部地址开关）：草稿里留着的旧外部地址在开关关闭后同样不能发布
+            images.productImages(payload.get("images"), List.of());
             if (payload.get("contact") != null) AuthService.optional(payload, "contact", 100);
         } catch (ApiException e) {
             return new Result("INVALID_FIELD", null, e.getMessage());

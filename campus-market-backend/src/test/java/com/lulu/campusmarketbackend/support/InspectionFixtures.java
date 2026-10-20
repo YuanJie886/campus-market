@@ -35,37 +35,6 @@ public final class InspectionFixtures {
         return disclosure(category, "NORMAL");
     }
 
-    /**
-     * 以买家身份把订单验货清单逐项标为 MATCH 并最终提交。
-     *
-     * <p>模块 3 起，有结构化声明的订单必须先验货，买家才能确认。与验货无关的既有订单测试
-     * 在「买家确认」之前调用它，走的是真实接口，而不是绕开闸门。
-     * 条目直接取自订单自己的快照，与商品分类无关；没有清单（NOT_PROVIDED）时什么也不做。
-     */
-    public static void submitAllMatch(org.springframework.test.web.servlet.MockMvc mockMvc,
-                                      com.fasterxml.jackson.databind.ObjectMapper json,
-                                      String buyerToken, String orderId) throws Exception {
-        String flow = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .get("/v1/orders/" + orderId + "/flow").header("Authorization", "Bearer " + buyerToken))
-                .andReturn().getResponse().getContentAsString();
-        com.fasterxml.jackson.databind.JsonNode inspection = json.readTree(flow).path("data").path("inspection");
-        if (!"PENDING".equals(inspection.path("status").asText())) return;
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (com.fasterxml.jackson.databind.JsonNode item : inspection.path("items")) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("itemCode", item.path("code").asText());
-            row.put("result", "MATCH");
-            items.add(row);
-        }
-        int status = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/v1/orders/" + orderId + "/inspection/submit")
-                        .header("Authorization", "Bearer " + buyerToken)
-                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("items", items))))
-                .andReturn().getResponse().getStatus();
-        if (status != 200) throw new AssertionError("验货提交失败：HTTP " + status);
-    }
-
     /** 每一项都声明为指定状态的完整清单。 */
     public static List<Map<String, Object>> disclosure(String category, String condition) {
         List<Map<String, Object>> items = new ArrayList<>();

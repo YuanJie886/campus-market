@@ -57,7 +57,7 @@ export default function VisibilityPicker({ visibility, circleIds, onChange, erro
         {visibility === 'PUBLIC'
           ? '本校登录的同学都能看到（未登录的访客与他校同学看不到）。'
           : selectedNames.length
-            ? `只有「${selectedNames.join('」「')}」的在籍成员和你自己能看到；已经成立的订单不受之后的成员变化影响。`
+            ? `只有「${selectedNames.join('」「')}」的在籍成员和你自己能看到；成员退出或被移出后立即看不到，联系申请与已获同意的联系方式也随之失效。`
             : `请选择 1～${CIRCLE_MAX_PER_PRODUCT} 个圈子；只有所选圈子的在籍成员和你自己能看到。`}
       </p>
       {visibility === 'CIRCLE_ONLY' && (

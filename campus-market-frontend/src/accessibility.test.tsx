@@ -12,10 +12,8 @@ import { setApiClient } from './api/client';
 import { MockCampusMarketApi } from './api/mockCampusMarketApi';
 import BuildingScopeBar from './components/BuildingScopeBar';
 import BuildingSelect from './components/BuildingSelect';
-import CampusMap from './components/CampusMap';
 import DemandSubscribeDialog from './components/demand/DemandSubscribeDialog';
 import { RouteErrorBoundary, RouteLoading } from './components/RouteFallback';
-import { seedBuildings, seedMeetingPointCoordinates } from './data/buildings';
 import type { BuildingFeedState } from './hooks/useBuildingFeed';
 import { axeAllViolations, axeViolations } from './test-axe';
 import { fullDisclosure } from './test/inspectionFixtures';
@@ -50,10 +48,6 @@ const readyFeed = (overrides: Partial<BuildingFeedState> = {}): BuildingFeedStat
   ...overrides,
 });
 
-const east = seedBuildings.filter((b) => b.campusId === '东校区' && b.active);
-const eastPoints = Object.entries(seedMeetingPointCoordinates)
-  .filter(([id]) => id.startsWith('东校区'))
-  .map(([id, c]) => ({ id, campus: '东校区' as const, name: id, ...c }));
 
 beforeEach(async () => {
   window.localStorage.clear();
@@ -113,13 +107,6 @@ describe('axe-core：关键页面与组件没有严重违规', () => {
   it('3. 楼栋级联选择', async () => {
     const { container } = shell(<BuildingSelect campus="东校区" value={null} onChange={() => {}} />);
     await screen.findByLabelText('楼栋');
-    expect(await axeViolations(container)).toEqual([]);
-  });
-
-  it('4. 校园示意地图', async () => {
-    const { container } = render(
-      <CampusMap buildings={east} meetingPoints={eastPoints} productBuildingId="east-songyuan-4" viewerBuildingId="east-qinyuan-1" />,
-    );
     expect(await axeViolations(container)).toEqual([]);
   });
 
@@ -183,30 +170,6 @@ describe('键盘与读屏语义', () => {
     const keyword = screen.getByLabelText('关键词');
     expect(keyword.getAttribute('aria-describedby')).toContain(message.id);
     expect(screen.getByRole('button', { name: '确认订阅' }).getAttribute('aria-describedby')).toBe(message.id);
-  });
-
-  it('11. 地图有文字替代；纯装饰色块对读屏隐藏', () => {
-    const { container } = render(
-      <CampusMap buildings={east} meetingPoints={eastPoints} productBuildingId="east-songyuan-4" viewerBuildingId="east-qinyuan-1" />,
-    );
-    const svg = screen.getByRole('img', { name: '楼栋与稳定面交点的相对位置示意' });
-    const description = document.getElementById(svg.getAttribute('aria-describedby')!)!;
-    expect(description.textContent).toContain('推荐面交点为');
-    const swatches = container.querySelectorAll('figcaption span > span');
-    expect(swatches.length).toBeGreaterThan(0);
-    swatches.forEach((s) => expect(s.getAttribute('aria-hidden')).toBe('true'));
-  });
-
-  it('12. 面交点可用键盘选择（原生按钮，Tab 可达，状态以 aria-pressed 表达）', () => {
-    const onPick = vi.fn();
-    render(<CampusMap buildings={east} meetingPoints={eastPoints} productBuildingId="east-songyuan-4"
-      viewerBuildingId="east-qinyuan-1" selectedMeetingPointId={eastPoints[0].id} onPick={onPick} />);
-    const buttons = within(screen.getByRole('list', { name: '稳定面交点' })).getAllByRole('button');
-    buttons.forEach((b) => expect(b.tagName).toBe('BUTTON'));
-    expect(buttons.some((b) => b.getAttribute('aria-pressed') === 'true')).toBe(true);
-    buttons[1].focus();
-    fireEvent.click(buttons[1]);   // Enter / 空格在原生按钮上即触发 click
-    expect(onPick).toHaveBeenCalledTimes(1);
   });
 
   it('13. 懒加载中以 status 播报；加载失败时焦点移到错误标题', async () => {

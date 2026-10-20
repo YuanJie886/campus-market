@@ -15,7 +15,6 @@ export default defineConfig({
   defineConstants: {
     __API_MODE__: JSON.stringify(process.env.MINIAPP_API_MODE === 'rest' ? 'rest' : 'mock'),
     __API_BASE_URL__: JSON.stringify(process.env.MINIAPP_API_BASE_URL ?? 'http://127.0.0.1:3000'),
-    __UPLOAD_URL__: JSON.stringify(process.env.MINIAPP_UPLOAD_URL ?? ''),
   },
   mini: {
     postcss: { pxtransform: { enable: true }, url: { enable: true, config: { limit: 1024 } } },

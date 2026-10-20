@@ -40,11 +40,6 @@ public interface BuildingMapper {
             + "FROM buildings WHERE id = #{id}")
     Map<String, Object> selectById(@Param("id") String id);
 
-    /** 列出某校区的稳定面交点（含坐标）。 */
-    @Select("SELECT id, campus_id, name, latitude, longitude FROM meeting_points "
-            + "WHERE campus_id = #{campus} ORDER BY id")
-    List<Map<String, Object>> selectMeetingPointsByCampus(@Param("campus") String campus);
-
     /** 全部楼栋（参考数据，几十行）。批量发布校验一次取回，逐条在内存里检查。 */
     @Select("SELECT id, campus_id, zone, name, latitude, longitude, sort_order, active FROM buildings ORDER BY id")
     List<Map<String, Object>> selectAllBuildings();

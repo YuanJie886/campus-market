@@ -1,14 +1,33 @@
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Input, Picker, Text, View } from '@tarojs/components';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, isDemo } from '../../api';
+import type { WechatStatus } from '../../model';
 import { LoginGate, PageTitle } from '../../components';
+import { PRIVACY_PAGE, TERMS_PAGE } from '../../legal';
 import { CAMPUSES, type Campus } from '../../model';
-import { goLogin, notify, notifyError, useMarket } from '../../state';
+import { goLogin, notify, notifyError, useMarket, useUnread } from '../../state';
 
 export default function ProfilePage() {
   const { user, setUser, favorites } = useMarket();
+  const unreadCount = useUnread().total;
+  const [wechat, setWechat] = useState<WechatStatus | null>(null), identity = useRef(user?.id); identity.current = user?.id;
   const [editing, setEditing] = useState(false), [busy, setBusy] = useState(false), [nickname, setNickname] = useState(''), [campus, setCampus] = useState<Campus>('东校区'), [contact, setContact] = useState('');
+
+  const loadWechat = () => {
+    const uid = user?.id; if (!uid) { setWechat(null); return; }
+    api.wechatStatus().then((status) => { if (uid === identity.current) setWechat(status); }).catch(() => { if (uid === identity.current) setWechat(null); });
+  };
+  useEffect(loadWechat, [user?.id]);
+  useDidShow(loadWechat);
+
+  const unbindWechat = async () => {
+    if (busy) return;
+    const answer = await Taro.showModal({ title: '解除微信绑定？', content: '解除后不能再用这个微信一键登录，需要用账号密码登录；之后可以在登录页重新绑定。', confirmText: '解除绑定', confirmColor: '#b4432f' });
+    if (!answer.confirm) return; setBusy(true);
+    try { await api.wechatUnbind(); notify('已解除微信绑定'); loadWechat(); }
+    catch (e) { notifyError(e); } finally { setBusy(false); }
+  };
 
   const logout = async (switchDemo = false) => {
     if (busy) return;
@@ -49,7 +68,20 @@ export default function ProfilePage() {
       <View className='menu-panel'>
         <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/listings/index' })}><Text className='menu-text'>我的发布</Text><Text className='menu-value'>管理<View className='i-chevron-r' /></Text></View>
         <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/listings/index?kind=favorites' })}><Text className='menu-text'>我的收藏</Text><Text className='menu-value'>{favorites.length} 件<View className='i-chevron-r' /></Text></View>
-        <View className='menu-row' onClick={() => void Taro.switchTab({ url: '/pages/notifications/index' })}><Text className='menu-text'>联系申请</Text><Text className='menu-value'>查看和处理<View className='i-chevron-r' /></Text></View>
+        <View className='menu-row' onClick={() => void Taro.switchTab({ url: '/pages/notifications/index' })}><Text className='menu-text'>联系申请</Text><Text className='menu-value'>{unreadCount ? `${unreadCount} 条未读` : '查看和处理'}<View className='i-chevron-r' /></Text></View>
+      </View>
+
+      <View className='menu-panel'>
+        <View className='menu-row'>
+          <Text className='menu-text'>微信绑定</Text>
+          {!wechat ? <Text className='menu-value'>—</Text>
+            : !wechat.enabled ? <Text className='menu-value'>{wechat.bound ? '已绑定（微信登录暂未开通）' : '微信登录尚未开通'}</Text>
+              : <Text className='menu-value'>{wechat.bound ? '已绑定' : '未绑定'}</Text>}
+          {wechat?.bound && <Text className='text-action danger-text' onClick={() => void unbindWechat()}>解除绑定</Text>}
+        </View>
+        {wechat?.enabled && !wechat.bound && <Text className='muted menu-note'>退出后在登录页选择「微信一键登录」，按提示用账号密码登录一次即可绑定。</Text>}
+        <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/password/index' })}><Text className='menu-text'>修改密码</Text><Text className='menu-value'>其他设备会退出<View className='i-chevron-r' /></Text></View>
+        <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/account-deletion/index' })}><Text className='menu-text danger-text'>注销账号</Text><Text className='menu-value'>不可恢复<View className='i-chevron-r' /></Text></View>
       </View>
 
       {isDemo && <View className='demo-card'>
@@ -61,5 +93,9 @@ export default function ProfilePage() {
       <Button className='quiet-button' disabled={busy} onClick={() => void logout()}>退出登录</Button>
       <Text className='footnote'>只和本校同学交易。平台目前不核验学籍或身份，联系方式按卖家的公开选择与申请审批展示。</Text>
     </LoginGate>
+    <View className='menu-panel'>
+      <View className='menu-row' onClick={() => void Taro.navigateTo({ url: TERMS_PAGE })}><Text className='menu-text'>用户协议</Text><Text className='menu-value'>草案<View className='i-chevron-r' /></Text></View>
+      <View className='menu-row' onClick={() => void Taro.navigateTo({ url: PRIVACY_PAGE })}><Text className='menu-text'>隐私政策</Text><Text className='menu-value'>草案<View className='i-chevron-r' /></Text></View>
+    </View>
   </View>;
 }

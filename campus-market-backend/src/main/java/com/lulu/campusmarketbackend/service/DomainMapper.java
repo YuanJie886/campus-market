@@ -8,19 +8,28 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class DomainMapper {
     private final ObjectMapper objectMapper;
+    /** 阶段 4：商品里存的 upload:<id> 在响应里换成短时签名地址；外部示例图原样返回 */
+    private final com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls;
 
-    public DomainMapper(ObjectMapper objectMapper) {
+    public DomainMapper(ObjectMapper objectMapper, com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls) {
         this.objectMapper = objectMapper;
+        this.imageUrls = imageUrls;
+    }
+
+    /** 把存储的图片引用列表转成可直接显示的地址。只在已经确认查看者能看到这件商品之后调用。 */
+    public List<String> imageUrls(Object stored) {
+        return jsonArray(stored).stream().map(imageUrls::publicUrl).toList();
+    }
+
+    public String imageUrl(Object stored) {
+        return stored == null ? null : imageUrls.publicUrl(String.valueOf(stored));
     }
 
     public Map<String, Object> user(Map<String, Object> row, boolean privateFields) {
@@ -52,7 +61,7 @@ public class DomainMapper {
         result.put("category", text(row.get("category")));
         result.put("condition", text(row.get("condition")));
         result.put("campus", text(row.get("campus")));
-        result.put("images", jsonArray(row.get("images")));
+        result.put("images", imageUrls(row.get("images")));
         boolean contactPublic = Boolean.TRUE.equals(row.get("contact_public"));
         result.put("contactPublic", contactPublic);
         result.put("contact", owner || contactPublic ? text(row.get("contact")) : "");
@@ -121,19 +130,6 @@ public class DomainMapper {
         return result;
     }
 
-    /** 面交点投影，含 V3 补充的演示坐标。 */
-    public Map<String, Object> meetingPoint(Map<String, Object> row) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("id", text(row.get("id")));
-        result.put("campus", text(row.get("campus_id")));
-        result.put("name", text(row.get("name")));
-        result.put("latitude", row.get("latitude"));
-        result.put("longitude", row.get("longitude"));
-        // V5：停用点仍返回（历史订单要显示名称），前端只在新提议里提供启用的点
-        result.put("active", !Boolean.FALSE.equals(row.get("active")));
-        return result;
-    }
-
     /** 可空文本：缺失时返回 null 而不是空串，让「未指定」与「空字符串」可区分。 */
     public static String nullableText(Object value) {
         return value == null ? null : String.valueOf(value);
@@ -178,40 +174,6 @@ public class DomainMapper {
         return m;
     }
 
-    public Map<String, Object> review(Map<String, Object> row) {
-        return map("rating", number(row.get("rating")), "comment", text(row.get("comment")),
-                "createdAt", epoch(row.get("created_at")));
-    }
-
-    public Map<String, Object> order(Map<String, Object> row, String viewer, List<Map<String, Object>> reviews) {
-        String status = text(row.get("status"));
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("id", text(row.get("id")));
-        result.put("conversationId", nullableText(row.get("conversation_id")));
-        result.put("productId", text(row.get("product_id")));
-        result.put("buyerId", text(row.get("buyer_id")));
-        result.put("sellerId", text(row.get("seller_id")));
-        result.put("price", decimal(row.get("price")));
-        result.put("status", statusLabel(status));
-        result.put("canonicalStatus", status);
-        result.put("meetingPointId", text(row.get("meeting_point_id")));
-        result.put("meetingAtIso", iso(row.get("meeting_at")));
-        // 7.1A：明确的结束时间（V11 之前的原始预约没有，保持 null，不推断）；slotAgreed = 当前档期已有双方确认的快照
-        result.put("meetingEndsAtIso", row.get("meeting_ends_at") == null ? null : iso(row.get("meeting_ends_at")));
-        result.put("slotAgreed", Boolean.TRUE.equals(row.get("summary_slot_agreed")));
-        result.put("contact", text(row.get("contact")));
-        if (viewer.equals(text(row.get("buyer_id")))) result.put("confirmationCode", text(row.get("confirmation_code")));
-        result.put("expiresAtIso", iso(row.get("expires_at")));
-        result.put("createdAt", epoch(row.get("created_at")));
-        result.put("updatedAt", epoch(row.get("updated_at")));
-        for (Map<String, Object> review : reviews) {
-            String reviewer = text(review.get("reviewer_id"));
-            if (reviewer.equals(text(row.get("buyer_id")))) result.put("buyerReview", review(review));
-            if (reviewer.equals(text(row.get("seller_id")))) result.put("sellerReview", review(review));
-        }
-        return result;
-    }
-
     public static String text(Object value) { return value == null ? "" : String.valueOf(value); }
     public static int number(Object value) { return value instanceof Number n ? n.intValue() : Integer.parseInt(text(value)); }
     public static BigDecimal decimal(Object value) { return value instanceof BigDecimal b ? b : new BigDecimal(text(value)); }
@@ -222,20 +184,6 @@ public class DomainMapper {
         if (value instanceof Instant i) return i.toEpochMilli();
         if (value instanceof OffsetDateTime odt) return odt.toInstant().toEpochMilli();
         return OffsetDateTime.parse(text(value)).toInstant().toEpochMilli();
-    }
-    public static String iso(Object value) {
-        if (value instanceof Timestamp t) return t.toInstant().toString();
-        if (value instanceof Instant i) return i.toString();
-        if (value instanceof OffsetDateTime odt) return odt.toInstant().toString();
-        return OffsetDateTime.parse(text(value)).toInstant().toString();
-    }
-    public static String statusLabel(String status) {
-        return switch (status) {
-            case "PENDING_SELLER_CONFIRM" -> "待确认";
-            case "COMPLETED" -> "已完成";
-            case "CANCELLED", "EXPIRED" -> "已取消";
-            default -> "交易中";
-        };
     }
     public List<String> jsonArray(Object value) {
         if (value == null) return List.of();

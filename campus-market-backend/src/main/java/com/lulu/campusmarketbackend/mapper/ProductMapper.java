@@ -43,14 +43,12 @@ public interface ProductMapper extends BaseMapper<ProductEntity> {
 
     /** 单个商品，含楼栋与教材版本摘要（SQL 见 ProductMapper.xml，与列表共用同一片段）。 */
     Map<String, Object> selectRowById(@Param("id") UUID id);
-    /** 模块 6：面向查看者的单个商品；readable 列是 V9 的 product_readable_by。 */
+    /** 模块 6：面向查看者的单个商品；readable 列来自权威可见性函数 product_visible_to（没有订单参与者例外）。 */
     Map<String, Object> selectRowForViewer(@Param("id") UUID id, @Param("uid") UUID uid);
     @Select("SELECT EXISTS (SELECT 1 FROM contact_requests WHERE product_id=#{productId} AND buyer_id=#{uid} AND status='APPROVED')")
     boolean contactApproved(@Param("productId") UUID productId, @Param("uid") UUID uid);
-    @Select("SELECT id FROM orders WHERE product_id=#{productId} AND (buyer_id=#{uid} OR seller_id=#{uid})") List<UUID> selectRelatedOrderIds(@Param("productId") UUID productId, @Param("uid") UUID uid);
     @Select("SELECT * FROM products WHERE id=#{id} FOR UPDATE") Map<String, Object> selectForUpdate(@Param("id") UUID id);
     @Update("UPDATE products SET views=views+1 WHERE id=#{id}") int incrementViews(@Param("id") UUID id);
-    @Update("UPDATE products SET status='在售' WHERE id=#{id} AND status='预约中'") int releaseReservation(@Param("id") UUID id);
     @Update("UPDATE products SET status='已售出',sold_at=now() WHERE id=#{id}") int markSold(@Param("id") UUID id);
     int updateProductFields(@Param("id") UUID id, @Param("title") String title, @Param("titleSet") boolean titleSet,
                             @Param("description") String description, @Param("descriptionSet") boolean descriptionSet,

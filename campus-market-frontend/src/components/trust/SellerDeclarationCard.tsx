@@ -2,8 +2,8 @@ import type { ProductDisclosure } from '../../api/contracts';
 import { conditionLabel } from '../../utils/trustedFlow';
 
 /**
- * 商品页上的卖家当前声明。这是卖家本人的陈述，下单时会被复制进订单快照，
- * 之后商品再编辑也不会改写已生成的订单记录。
+ * 商品页上的卖家当前声明。这是卖家本人的陈述，不代表平台鉴定或担保；
+ * 卖家编辑商品时可以更新声明，商品页始终展示当前版本。
  */
 export default function SellerDeclarationCard({ disclosure }: { disclosure: ProductDisclosure | null | undefined }) {
   if (disclosure === undefined) return null;   // 尚未读到详情，不猜

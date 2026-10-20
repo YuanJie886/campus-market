@@ -10,10 +10,9 @@ import { DemandUnreadProvider } from './context/DemandUnreadContext';
 import { setApiClient } from './api/client';
 import { MockCampusMarketApi } from './api/mockCampusMarketApi';
 import { ApiError } from './api/errors';
-import { PRICE_GUIDANCE_NOTE, type ListingPayload } from './api/contracts';
+import type { ListingPayload } from './api/contracts';
 import { fullDisclosure } from './test/inspectionFixtures';
 import { axeViolations } from './test-axe';
-import PriceGuidanceCard from './components/supply/PriceGuidanceCard';
 import type { Category } from './types';
 
 /**
@@ -85,7 +84,13 @@ describe('5.3 毕业季快速发布工作台', () => {
     const radios = within(editor).getAllByRole('radio') as HTMLInputElement[];
     expect(radios.length).toBeGreaterThan(0);
     expect(radios.some((r) => r.checked)).toBe(false);
-    expect(container.querySelector('input[type="file"]')).toBeNull();
+    // REWRITTEN（阶段 4 图片上传）：现在有用户主动选择的文件输入框，但不自动读取相册、不强制拍照（没有 capture），
+    // 只接受 JPEG / PNG，有可见的标签；从不调用摄像头接口
+    const fileInputs = [...container.querySelectorAll('input[type="file"]')] as HTMLInputElement[];
+    expect(fileInputs).toHaveLength(1);
+    expect(fileInputs[0].hasAttribute('capture')).toBe(false);
+    expect(fileInputs[0].accept).toBe('image/jpeg,image/png');
+    expect(within(editor).getByLabelText('上传图片')).toBe(fileInputs[0]);
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(await axeViolations(container)).toEqual([]);
   });
@@ -185,12 +190,16 @@ describe('5.3 毕业季快速发布工作台', () => {
 });
 
 describe('5.4 整套打包', () => {
-  it('发布页切换到整套打包：写明不支持单独下单；默认 2 行且不预选分类；添加 / 删除行的焦点；空提交错误摘要获得焦点；axe 通过', async () => {
+  it('发布页切换到整套打包：写明整套展示、买家申请查看联系方式；不出现下单 / 面交 / 成交价参考；默认 2 行且不预选分类；添加 / 删除行的焦点；空提交错误摘要获得焦点；axe 通过', async () => {
     await user('seller');
     const { container } = renderApp('/publish');
     fireEvent.click(await screen.findByRole('button', { name: '整套打包' }, { timeout: 5000 }));
     expect(screen.getByRole('button', { name: '整套打包' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getAllByText(/整套出售，不支持单独下单/).length).toBeGreaterThan(0);
+    const note = screen.getByRole('note');
+    expect(note.textContent).toContain('整套展示，感兴趣的买家可申请查看联系方式');
+    expect(note.textContent).not.toMatch(/下单|面交|验货/);
+    expect(container.textContent).not.toMatch(/成交价|价格参考|交易和预约功能已移除/);
+    expect('getPriceGuidance' in api).toBe(false);
     expect(screen.getByLabelText('第 1 行名称')).toBeTruthy();
     expect(screen.getByLabelText('第 2 行名称')).toBeTruthy();
     expect(screen.getByRole('combobox', { name: '第 1 行分类' }).textContent?.replace(/\u200b/g, '').trim()).toBe('');
@@ -239,7 +248,8 @@ describe('5.4 整套打包', () => {
 
     const { container } = renderApp(`/product/${created.id}`);
     const section = await screen.findByRole('region', { name: '整套转让明细' }, { timeout: 5000 });
-    expect(section.textContent).toContain('整套出售，不支持单独下单');
+    expect(section.textContent).toContain('整套出售，不单独出售其中的物品');
+    expect(section.textContent).not.toMatch(/下单|订单/);
     expect(section.textContent).toContain('2 类 / 3 件');
     expect(section.textContent).toContain('平均每件约 ¥30.00（仅供参考，不能按件购买）');
     expect(within(section).getAllByRole('row')).toHaveLength(3);
@@ -310,31 +320,5 @@ describe('5.5 协助整理发布', () => {
     expect(stored.payload).toMatchObject({ title: '协助整理后的标题', contact: '13800000000', condition: '几乎全新' });
     expect(await axeViolations(container)).toEqual([]);
     void owner;
-  });
-});
-
-describe('5.6 价格参考', () => {
-  it('样本不足：不显示区间与样本数；样本足够：中位数与四分位区间；固定说明文字；没有「AI 估价 / 官方指导价 / 保证成交」', async () => {
-    await user('viewer');
-    const { container, unmount } = render(<PriceGuidanceCard category="生活用品" />);
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('不足 8 笔'));
-    expect(container.textContent).toContain(PRICE_GUIDANCE_NOTE);
-    expect(await axeViolations(container)).toEqual([]);
-    unmount();
-
-    const raw = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    for (let i = 1; i <= 10; i += 1) {
-      raw.market.products.push({ id: `g${i}`, title: 't', description: 'd', price: i * 10, category: '生活用品', condition: '全新', campus: '东校区', images: [], contact: '', sellerId: 's', status: '已售出', views: 0, createdAt: 1, listingKind: 'SINGLE' });
-      raw.market.orders.push({ id: `go${i}`, productId: `g${i}`, buyerId: 'b', sellerId: 's', price: i * 10, status: '已完成', canonicalStatus: 'COMPLETED', createdAt: 1, updatedAt: Date.now(), priceSnapshot: i * 10, currency: 'CNY',
-        schoolIdSnapshot: 'pilot', categorySnapshot: '生活用品', conditionSnapshot: '全新', listingKindSnapshot: 'SINGLE', textbookEditionIdSnapshot: null });
-    }
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(raw));
-    api = new MockCampusMarketApi();
-    setApiClient(api);
-    const second = render(<PriceGuidanceCard category="生活用品" />);
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('中位数约 ¥55'));
-    expect(second.container.textContent).toContain('¥33～¥78');
-    expect(second.container.textContent).toContain('至少 10 笔');
-    expect(second.container.textContent).not.toMatch(/AI 估价|官方指导价|保证成交|必须按此定价/);
   });
 });

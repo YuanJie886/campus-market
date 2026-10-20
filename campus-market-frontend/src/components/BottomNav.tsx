@@ -8,6 +8,7 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import { useAuth } from '../context/AuthContext';
 import { useMarket } from '../context/MarketContext';
+import { useContactUnreadCounts } from '../context/ContactUnreadContext';
 
 interface NavItem {
   label: string;
@@ -24,6 +25,12 @@ export default function BottomNav() {
   const { isAuthenticated, currentUser } = useAuth();
   const { getUnreadCount } = useMarket();
   const unread = currentUser ? getUnreadCount(currentUser.id) : 0;
+  // 联系申请未读数（与顶部导航、个人中心标签同一个轮询器）：角标挂在「我的」上
+  const { counts: contactUnread } = useContactUnreadCounts();
+  const contactCount = currentUser ? contactUnread.total : 0;
+  const badgeOf = (path: string) => (path === '/messages' ? unread : path === '/profile' ? contactCount : 0);
+  const labelOf = (item: NavItem) =>
+    item.path === '/profile' && contactCount > 0 ? `${item.label}，联系申请 ${contactCount} 条未读` : item.label;
 
   const items: NavItem[] = [
     { label: '首页', icon: <HomeIcon />, path: '/', requireAuth: false },
@@ -104,7 +111,7 @@ export default function BottomNav() {
               className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[11px] transition ${
                 active ? 'text-brand-600' : 'text-slate-400'
               }`}
-              aria-label={item.label}
+              aria-label={labelOf(item)}
               aria-current={active ? 'page' : undefined}
             >
               <span
@@ -114,7 +121,7 @@ export default function BottomNav() {
               >
                 <Badge
                   color="error"
-                  badgeContent={item.path === '/messages' ? unread : 0}
+                  badgeContent={badgeOf(item.path)}
                   max={99}
                   sx={{
                     '& .MuiBadge-badge': { fontSize: 10, height: 16, minWidth: 16 },

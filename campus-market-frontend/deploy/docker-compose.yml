@@ -1,3 +1,9 @@
+# 容器日志按大小轮转（每个容器最多 5 × 10 MB），避免日志写满磁盘；长期保存请接入日志服务（docs/operations-and-monitoring.md）
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,6 +21,7 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    logging: *default-logging
   api:
     build:
       context: ../..
@@ -36,15 +43,25 @@ services:
       # 详见 campus-market-backend/docs/database-migrations.md
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
       PORT: 3000
+      # 阶段 4：上传图片存放在持久卷（接入对象存储前）；微信登录与内容安全只在两个值都配置时启用
+      IMAGES_DIR: /data/images
+      WECHAT_APP_ID: ${WECHAT_APP_ID:-}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}
+      # 外部图片链接（过渡期的示例图）。生产默认关闭：新发布只能用本平台上传的图片；已有商品里的外部图片编辑时可以保留
+      ALLOW_EXTERNAL_IMAGES: ${ALLOW_EXTERNAL_IMAGES:-false}
+    volumes:
+      - uploaded_images:/data/images
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
   admin:
     build:
       context: ../..
       dockerfile: campus-market-admin/deploy/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
   web:
     build:
       context: ..
@@ -55,5 +72,7 @@ services:
       - api
       - admin
     restart: unless-stopped
+    logging: *default-logging
 volumes:
   postgres_data:
+  uploaded_images:

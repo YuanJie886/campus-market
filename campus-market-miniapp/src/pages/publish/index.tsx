@@ -1,11 +1,15 @@
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Image, Input, Picker, Switch, Text, Textarea, View } from '@tarojs/components';
 import { useEffect, useRef, useState } from 'react';
-import { api, isDemo, uploadConfigured } from '../../api';
-import { LoginGate, PageTitle } from '../../components';
+import { api, imageSrc, isDemo } from '../../api';
+import { LoginGate, PageTitle, PrivacyPopup } from '../../components';
+import { addPickedFiles, addReadySlot, IMAGE_TOO_LARGE, imagesForSubmit, MAX_IMAGES, moveSlot, photosError, removeSlot, slotFailed, slotProgress, slotRetrying, slotsFromImages, slotUploaded, type PhotoSlot } from '../../images';
+import { isPrivacyDenied, PRIVACY_REQUIRED_MESSAGE } from '../../privacy';
+import { requirePrivacy } from '../../privacyGuard';
 import { CAMPUSES, CATEGORIES, CONDITIONS, validateProduct, type ProductInput, type InspectionTemplate } from '../../model';
 import { takeEditingId } from '../../navigation';
-import { notify, notifyError, useMarket } from '../../state';
+import { CONTACT_PUBLIC_HELP } from '../../contacts';
+import { notify, notifyError, useMarket, useUnread } from '../../state';
 
 const BLANK: ProductInput = { title: '', description: '', price: 0, category: '生活用品', condition: '几乎全新', campus: '东校区', images: [], contact: '', contactPublic: false };
 const STATES = ['未测试', '正常', '存在问题', '不适用'];
@@ -15,15 +19,19 @@ const STEP_TITLES = ['添加照片', '描述你的闲置', '说明情况并留�
 
 export default function PublishPage() {
   const { user } = useMarket();
+  useUnread(); // 页面显示时刷新 tabBar 未读角标
   const [form, setForm] = useState<ProductInput>({ ...BLANK }), [editId, setEditId] = useState('');
   const [step, setStep] = useState(1);
-  const [price, setPrice] = useState(''), [original, setOriginal] = useState(''), [busy, setBusy] = useState(false), [uploading, setUploading] = useState(false);
-  const [url, setUrl] = useState(''), [template, setTemplate] = useState<InspectionTemplate | null>(null), [templateError, setTemplateError] = useState(''), [templateLoading, setTemplateLoading] = useState(false);
+  const [price, setPrice] = useState(''), [original, setOriginal] = useState(''), [busy, setBusy] = useState(false), [picking, setPicking] = useState(false);
+  // 照片：每张单独显示上传进度与失败原因；提交时按顺序取上传得到的引用（upload:<id>）放进 images
+  const [photos, setPhotos] = useState<PhotoSlot[]>([]), photosRef = useRef(photos); photosRef.current = photos;
+  const uploading = photos.some((photo) => photo.status === 'uploading');
+  const [template, setTemplate] = useState<InspectionTemplate | null>(null), [templateError, setTemplateError] = useState(''), [templateLoading, setTemplateLoading] = useState(false);
   const [declarations, setDeclarations] = useState<Record<string, { condition: typeof CODES[number]; note: string }>>({});
   const generation = useRef(0);
 
   const patch = (part: Partial<ProductInput>) => setForm((prev) => ({ ...prev, ...part }));
-  const clear = () => { setForm({ ...BLANK, campus: user?.campus ?? '东校区', contact: user?.contact ?? '', images: [] }); setEditId(''); setPrice(''); setOriginal(''); setDeclarations({}); setStep(1); };
+  const clear = () => { setForm({ ...BLANK, campus: user?.campus ?? '东校区', contact: user?.contact ?? '', images: [] }); setPhotos([]); setEditId(''); setPrice(''); setOriginal(''); setDeclarations({}); setStep(1); };
   useEffect(clear, [user?.id]);
 
   const loadTemplate = (category: string) => {
@@ -45,42 +53,58 @@ export default function PublishPage() {
     api.detail(requestedId).then((p) => {
       if (p.sellerId !== user.id) throw new Error('只能编辑自己的商品');
       if (p.listingKind === 'BUNDLE') throw new Error('整套打包商品请在网页版编辑');
-      setForm({ title: p.title, description: p.description, category: p.category, campus: p.campus, condition: p.condition, price: p.price, originalPrice: p.originalPrice, contact: p.contact, contactPublic: Boolean(p.contactPublic), images: p.images });
+      setForm({ title: p.title, description: p.description, category: p.category, campus: p.campus, condition: p.condition, price: p.price, originalPrice: p.originalPrice, contact: p.contact, contactPublic: Boolean(p.contactPublic), images: [] });
+      // 响应里是 1 小时有效的签名地址：显示用它，提交时换回 upload:<id>
+      setPhotos(slotsFromImages(p.images, (url) => api.imageRef(url)));
       setPrice(String(p.price)); setOriginal(p.originalPrice ? String(p.originalPrice) : ''); setEditId(p.id); setStep(2);
       setDeclarations(Object.fromEntries((p.inspection?.items ?? []).map((item) => [item.code, { condition: CODES.includes(item.condition as typeof CODES[number]) ? item.condition : 'NOT_TESTED', note: item.note ?? '' }])) as Record<string, { condition: typeof CODES[number]; note: string }>);
     }).catch(notifyError).finally(() => setBusy(false));
   });
 
-  const addPhoto = async () => {
-    if (uploading || busy) return;
-    if (!uploadConfigured) { notify('图片上传尚未配置，可先添加已有商品图片链接'); return; }
-    if (form.images.length >= 5) { notify('最多上传 5 张图片'); return; }
-    setUploading(true);
+  const uploadSlot = async (slot: PhotoSlot) => {
     try {
-      const selected = await Taro.chooseMedia({ count: 5 - form.images.length, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['compressed'] });
-      const completed: string[] = [];
-      for (const file of selected.tempFiles) {
-        if (file.size > 10 * 1024 * 1024) { notify('图片不能超过 10MB'); continue; }
-        try {
-          let path = file.tempFilePath;
-          if (isDemo && process.env.TARO_ENV !== 'h5') {
-            const saved = await Taro.saveFile({ tempFilePath: file.tempFilePath });
-            if (!('savedFilePath' in saved)) throw new Error('图片本地保存失败，请重新选择');
-            path = saved.savedFilePath;
-          }
-          completed.push(await api.upload(path));
-        } catch (e) { notifyError(e); }
+      let path = slot.filePath;
+      if (isDemo && process.env.TARO_ENV !== 'h5') {
+        // 演示模式不联网：把照片存成本机文件，演示库里只记路径
+        const saved = await Taro.saveFile({ tempFilePath: path });
+        if (!('savedFilePath' in saved)) throw new Error('图片本地保存失败，请重新选择');
+        path = saved.savedFilePath;
       }
-      setForm((previous) => ({ ...previous, images: [...previous.images, ...completed].slice(0, 5) }));
-    } catch (e) { if (!(e as { errMsg?: string })?.errMsg?.includes('cancel')) notifyError(e); }
-    finally { setUploading(false); }
+      const image = await api.upload(path, (percent) => setPhotos((prev) => slotProgress(prev, slot.key, percent)));
+      setPhotos((prev) => slotUploaded(prev, slot.key, image));
+    } catch (e) { setPhotos((prev) => slotFailed(prev, slot.key, e instanceof Error ? e : new Error('图片上传失败，请重试'))); }
+  };
+
+  const addPhoto = async () => {
+    if (picking || busy) return;
+    if (photosRef.current.length >= MAX_IMAGES) { notify(`最多 ${MAX_IMAGES} 张图片`); return; }
+    setPicking(true);
+    let queued: PhotoSlot[] = [];
+    try {
+      await requirePrivacy();
+      const selected = await Taro.chooseMedia({ count: MAX_IMAGES - photosRef.current.length, mediaType: ['image'], sourceType: ['album', 'camera'], sizeType: ['compressed'] });
+      const added = addPickedFiles(photosRef.current, selected.tempFiles.map((file) => ({ path: file.tempFilePath, size: file.size })));
+      photosRef.current = added.slots; setPhotos(added.slots); queued = added.queued;
+    } catch (e) {
+      const message = (e as { errMsg?: string })?.errMsg ?? '';
+      if (!message.includes('cancel')) notify(isPrivacyDenied(e) ? PRIVACY_REQUIRED_MESSAGE : e instanceof Error ? e.message : '没有选到照片，请重试');
+    } finally { setPicking(false); }
+    // 逐张上传（服务端按用户每小时 60 张限流），每张单独显示进度与失败原因
+    for (const slot of queued) await uploadSlot(slot);
+  };
+
+  const retryPhoto = (slot: PhotoSlot) => {
+    if (!slot.filePath || slot.error === IMAGE_TOO_LARGE) return;
+    setPhotos((prev) => slotRetrying(prev, slot.key));
+    void uploadSlot(slot);
   };
 
   const goStep = (next: number) => { setStep(next); void Taro.pageScrollTo({ scrollTop: 0, duration: 0 }); };
 
   const forward = () => {
     if (step === 1) {
-      if (!form.images.length) { notify('请至少添加 1 张商品图片'); return; }
+      const problem = photosError(photos); if (problem) { notify(problem); return; }
+      if (!imagesForSubmit(photos).length) { notify('请至少添加 1 张商品图片'); return; }
       goStep(2); return;
     }
     if (step === 2) {
@@ -93,7 +117,8 @@ export default function PublishPage() {
   const submit = async () => {
     if (busy || uploading) return;
     if (price.trim() === '') { notify('请输入出售价格'); return; }
-    const input: ProductInput = { ...form, title: form.title.trim(), description: form.description.trim(), contact: form.contact.trim(), price: Number(price), originalPrice: original === '' ? undefined : Number(original), ...(template ? { inspection: template.items.map((item) => ({ itemCode: item.code, condition: declarations[item.code]?.condition ?? 'NOT_TESTED', note: declarations[item.code]?.note || undefined })) } : {}) };
+    const problem = photosError(photos); if (problem) { notify(problem); return; }
+    const input: ProductInput = { ...form, images: imagesForSubmit(photos), title: form.title.trim(), description: form.description.trim(), contact: form.contact.trim(), price: Number(price), originalPrice: original === '' ? undefined : Number(original), ...(template ? { inspection: template.items.map((item) => ({ itemCode: item.code, condition: declarations[item.code]?.condition ?? 'NOT_TESTED', note: declarations[item.code]?.note || undefined })) } : {}) };
     const error = validateProduct(input); if (error) { notify(error); return; }
     if (templateLoading) { notify('请等待商品情况清单加载完成'); return; }
     setBusy(true);
@@ -110,20 +135,28 @@ export default function PublishPage() {
       {editId && <View className='notice'><Text>正在编辑已发布的商品</Text><Text className='text-action' onClick={clear}>改为新发布</Text></View>}
 
       {step === 1 && <View className='form-card'>
-        <Text className='field-label'>商品图片 <Text className='optional'>（{form.images.length}/5，第 1 张为主图）</Text></Text>
+        <Text className='field-label'>商品图片 <Text className='optional'>（{photos.length}/{MAX_IMAGES}，第 1 张为主图）</Text></Text>
         <View className='photo-grid'>
-          {form.images.map((src, i) => <View className='photo-item' key={`${src}-${i}`}>
-            <Image src={src} mode='aspectFill' onClick={() => void Taro.previewImage({ current: src, urls: form.images })} />
+          {photos.map((photo, i) => <View className={`photo-item ${photo.status}`} key={photo.key}>
+            <Image src={imageSrc(photo.preview)} mode='aspectFill' onClick={() => { const src = imageSrc(photo.preview); if (src) void Taro.previewImage({ current: src, urls: photos.map((p) => imageSrc(p.preview)).filter(Boolean) }); }} />
             {i === 0 && <Text className='photo-main'>主图</Text>}
-            <Text className='remove-photo' onClick={() => patch({ images: form.images.filter((_, index) => index !== i) })}>×</Text>
+            {photo.status === 'uploading' && <Text className='photo-state'>上传中 {photo.progress}%</Text>}
+            {photo.status === 'failed' && <View className='photo-state failed' onClick={() => retryPhoto(photo)}>
+              <Text>{photo.error}</Text>{photo.filePath && photo.error !== IMAGE_TOO_LARGE ? <Text className='photo-retry'>点此重试</Text> : null}
+            </View>}
+            <Text className='remove-photo' aria-label='移除这张照片' onClick={() => setPhotos((prev) => removeSlot(prev, photo.key))}>×</Text>
+            {photos.length > 1 && <View className='photo-order'>
+              {i > 0 ? <Text className='photo-move' onClick={() => setPhotos((prev) => moveSlot(prev, photo.key, -1))}>‹</Text> : <Text className='photo-move disabled' />}
+              {i < photos.length - 1 ? <Text className='photo-move' onClick={() => setPhotos((prev) => moveSlot(prev, photo.key, 1))}>›</Text> : <Text className='photo-move disabled' />}
+            </View>}
           </View>)}
-          {form.images.length < 5 && <View className='add-photo' onClick={() => void addPhoto()}>
+          {photos.length < MAX_IMAGES && <View className='add-photo' onClick={() => void addPhoto()}>
             <View className='i-camera' />
-            <Text>{uploading ? '正在上传' : '拍照 / 相册'}</Text>
+            <Text>{picking ? '正在选择' : uploading ? '继续添加' : '拍照 / 相册'}</Text>
           </View>}
         </View>
-        {isDemo && <><Text className='field-help'>演示版也可以直接选一张示意插画</Text><View className='sample-images'>{SAMPLE_IMAGES.map((name) => <Image key={name} src={`/assets/goods/${name}.png`} mode='aspectFill' onClick={() => { const src = `/assets/goods/${name}.png`; if (!form.images.includes(src) && form.images.length < 5) patch({ images: [...form.images, src] }); }} />)}</View></>}
-        {!uploadConfigured && <><Text className='field-help'>当前上传服务尚未配置，联调时可添加已有的 HTTP(S) 图片链接。</Text><View className='inline-input'><Input className='field-input' value={url} placeholder='https://…' onInput={(e) => setUrl(e.detail.value)} /><Button className='secondary small' onClick={() => { if (!/^https?:\/\//.test(url.trim()) || form.images.length >= 5) { notify('请输入有效链接，最多 5 张'); return; } patch({ images: [...form.images, url.trim()] }); setUrl(''); }}>添加</Button></View></>}
+        {isDemo && <><Text className='field-help'>演示版也可以直接选一张示意插画</Text><View className='sample-images'>{SAMPLE_IMAGES.map((name) => <Image key={name} src={`/assets/goods/${name}.png`} mode='aspectFill' onClick={() => setPhotos((prev) => addReadySlot(prev, `/assets/goods/${name}.png`))} />)}</View></>}
+        <Text className='field-help'>支持 JPEG / PNG，每张不超过 5 MB；上传后会去掉拍摄地点等信息。用 ‹ › 调整顺序。</Text>
         <Text className='field-help'>第一张图会作为列表封面，建议实拍、光线充足。</Text>
       </View>}
 
@@ -170,7 +203,7 @@ export default function PublishPage() {
           <Text className='field-label'>联系方式</Text>
           <Input className='field-input' value={form.contact} placeholder='微信号 / 手机号' maxlength={100} onInput={(e) => patch({ contact: e.detail.value })} />
           <View className='switch-row'>
-            <View className='switch-text'><Text>公开展示联系方式</Text><Text className='field-help'>关闭时，只有获你同意的同学能查看。</Text></View>
+            <View className='switch-text'><Text>公开展示联系方式</Text><Text className='field-help'>{CONTACT_PUBLIC_HELP}</Text></View>
             <Switch color='#194E41' checked={form.contactPublic} onChange={(e) => patch({ contactPublic: e.detail.value })} />
           </View>
         </View>
@@ -183,5 +216,6 @@ export default function PublishPage() {
       </View>
       <Text className='footnote'>请如实填写商品信息，联系方式默认不公开。</Text>
     </LoginGate>
+    <PrivacyPopup />
   </View>;
 }

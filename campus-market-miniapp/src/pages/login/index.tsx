@@ -1,16 +1,21 @@
 import Taro, { useRouter } from '@tarojs/taro';
 import { Button, Input, Picker, Text, View } from '@tarojs/components';
-import { useState } from 'react';
-import { api, isDemo } from '../../api';
+import { useEffect, useState } from 'react';
+import { api, isDemo, wechatLoginCode, wechatLoginSupported } from '../../api';
+import { bindPendingWechat, pendingWechatBind, registerAccount, registrationError, wechatLoginFailure } from '../../account';
 import { CAMPUSES, type Campus } from '../../model';
 import { notify, notifyError, useMarket } from '../../state';
-import { PageTitle } from '../../components';
+import { AgreementCheck, LegalLinks, PageTitle, PrivacyPopup } from '../../components';
 
 const tabs = ['/pages/market/index', '/pages/publish/index', '/pages/notifications/index', '/pages/profile/index'];
 
 export default function LoginPage() {
   const { setUser } = useMarket(), router = useRouter();
   const [register, setRegister] = useState(false), [busy, setBusy] = useState(false);
+  // 微信一键登录：服务端开通后才显示；未绑定时手里有一张内存里的绑定票据，等账号密码登录 / 注册成功后绑定
+  const [wechatEnabled, setWechatEnabled] = useState(false), [bindPending, setBindPending] = useState(pendingWechatBind.pending);
+  // 注册前必须勾选同意《用户协议》《隐私政策》；每次进入登录页都需要重新勾选
+  const [agreed, setAgreed] = useState(false);
   const [account, setAccount] = useState(''), [password, setPassword] = useState(''), [nickname, setNickname] = useState(''), [contact, setContact] = useState(''), [campus, setCampus] = useState<Campus>('东校区');
 
   const finish = async () => {
@@ -24,20 +29,52 @@ export default function LoginPage() {
     else await Taro.switchTab({ url: '/pages/market/index' });
   };
 
+  useEffect(() => {
+    if (!wechatLoginSupported) return;
+    let alive = true;
+    api.wechatStatus().then((status) => { if (alive) setWechatEnabled(status.enabled); }).catch(() => { if (alive) setWechatEnabled(false); });
+    return () => { alive = false; };
+  }, []);
+
   const login = async (demo?: 'buyer' | 'seller') => {
     if (busy) return;
-    if (!demo && (!account.trim() || !password || (register && (!nickname.trim() || password.length < 8)))) { notify('请填写账号、密码和注册资料'); return; }
+    if (!demo && !register && (!account.trim() || !password)) { notify('请填写账号和密码'); return; }
+    const registration = { account, password, nickname, campus, contact };
+    if (!demo && register) { const error = registrationError(registration, agreed); if (error) { notify(error); return; } }
     setBusy(true);
     try {
-      const user = demo ? await api.login(demo === 'buyer' ? 'buyer001' : 'seller001', 'demo12345')
-        : register ? await api.register({ account: account.trim(), password, nickname: nickname.trim(), campus, contact: contact.trim() }) : await api.login(account, password);
-      setUser(user); await finish();
+      // 演示账号只在演示构建里出现（__API_MODE__ 是构建期常量，REST 产物里这段会被删掉）
+      const user = demo && __API_MODE__ === 'mock' ? await api.login(demo === 'buyer' ? 'buyer001' : 'seller001', 'demo12345')
+        : register ? await registerAccount(api, registration, agreed) : await api.login(account, password);
+      setUser(user);
+      const hadTicket = bindPending, bound = await bindPendingWechat(api);
+      setBindPending(false);
+      if (bound) notify(bound); else if (hadTicket) notify('微信绑定已过期，请重新使用微信一键登录');
+      await finish();
     } catch (e) { notifyError(e); } finally { setBusy(false); }
+  };
+
+  const wechatLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await api.wechatLogin(await wechatLoginCode());
+      if (result.bound) { pendingWechatBind.clear(); setBindPending(false); setUser(result.user); await finish(); return; }
+      pendingWechatBind.hold(result.bindTicket); setBindPending(true);
+    } catch (e) {
+      const failure = wechatLoginFailure(e);
+      if (failure.hide) setWechatEnabled(false);
+      notify(failure.message);
+    } finally { setBusy(false); }
   };
 
   return <View className='page login-page'>
     <View className='login-mark'>集</View>
     <PageTitle title={register ? '加入校园集市' : '好物，就在身边'} subtitle='登录后浏览本校闲置，联系同学，约好面交。' />
+    {bindPending && <View className='notice bind-notice'>
+      <Text>这个微信还没有绑定校园集市账号。请用账号密码登录或注册，成功后会自动绑定，下次就能一键登录。</Text>
+      <Text className='text-action' onClick={() => { if (!busy) { pendingWechatBind.clear(); setBindPending(false); } }}>不绑定</Text>
+    </View>}
     <View className='form-card'>
       <Text className='field-label'>学号 / 手机号</Text>
       <Input className='field-input' placeholder='请输入你的平台账号' value={account} onInput={(e) => setAccount(e.detail.value)} maxlength={64} />
@@ -53,14 +90,22 @@ export default function LoginPage() {
         <Text className='field-label'>联系方式 <Text className='optional'>选填</Text></Text>
         <Input className='field-input' placeholder='微信号或手机号' value={contact} onInput={(e) => setContact(e.detail.value)} maxlength={100} />
       </>}
-      <Button className='primary' loading={busy} disabled={busy} onClick={() => void login()}>{register ? '注册并登录' : '登录'}</Button>
+      {register && <AgreementCheck checked={agreed} onChange={setAgreed} />}
+      <Button className='primary' loading={busy} disabled={busy || (register && !agreed)} onClick={() => void login()}>{register ? '注册并登录' : '登录'}</Button>
       <Text className='login-switch' onClick={() => { if (!busy) setRegister(!register); }}>{register ? '已有账号？去登录' : '还没有账号？注册'}</Text>
+      {!register && <Text className='login-switch forgot-link' onClick={() => { if (!busy) void Taro.navigateTo({ url: '/pages/password-reset/index' }); }}>忘记密码？</Text>}
     </View>
+    {wechatEnabled && !bindPending && <View className='form-card'>
+      <Button className='secondary' disabled={busy} onClick={() => void wechatLogin()}>微信一键登录</Button>
+      <Text className='muted wechat-hint'>首次使用需要用账号密码登录一次完成绑定。{isDemo ? '演示模式使用模拟的微信身份，不会调用微信。' : ''}</Text>
+    </View>}
     {isDemo && <View className='demo-card'>
       <Text className='section-title'>先体验一下</Text>
       <Text className='muted'>演示数据只保存在本机。用买家申请联系，再切换卖家审批，体验完整流程。</Text>
       <View className='button-row'><Button className='secondary' disabled={busy} onClick={() => void login('buyer')}>以买家体验</Button><Button className='secondary' disabled={busy} onClick={() => void login('seller')}>以卖家体验</Button></View>
     </View>}
+    {!register && <Text className='footnote legal-footnote'>登录即表示你已阅读并同意<LegalLinks /></Text>}
     <Text className='footnote'>学校信息由用户填写，平台目前不核验学籍或身份。</Text>
+    <PrivacyPopup />
   </View>;
 }

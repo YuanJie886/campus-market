@@ -42,7 +42,6 @@ const product = (title: string): ProductCreateInput => ({
   title, description: '治理界面测试', price: 30, category: '其他', condition: '几乎全新', campus: '东校区',
   images: ['https://example.invalid/a.png'], contact: '13800000000',
 } as ProductCreateInput);
-const meetingAt = () => { const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0); return at.toISOString() };
 function staff(userId: string, role: 'MODERATOR' | 'SENIOR_MODERATOR' = 'MODERATOR') {
   const raw = JSON.parse(window.localStorage.getItem(DB)!);
   raw.staffMembers.push({ userId, schoolId: 'pilot', role, active: true, createdAt: Date.now() });
@@ -59,7 +58,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks() });
 
-describe('7 举报与爽约（用户侧）', () => {
+describe('7 举报（用户侧；爽约报告与取消预约已随交易 / 预约功能移除）', () => {
   it('举报对话框：原因不预选；空提交错误摘要获得焦点并能跳到原因；提交后 polite 状态；关闭后焦点回到触发按钮；axe 通过', async () => {
     await user('seller');
     const p = await api.createProduct(product('被举报的台灯'));
@@ -86,74 +85,6 @@ describe('7 举报与爽约（用户侧）', () => {
     const mine = await api.listMyModerationReports();
     expect(mine[0]).toMatchObject({ targetType: 'PRODUCT', reasonCode: 'MISLEADING', status: 'RECEIVED' });
   });
-
-  it('爽约报告：面交前只说明何时可以报告；档期结束后报告，对方看到承认 / 异议；承认前二次说明后果；axe 通过', async () => {
-    await user('seller');
-    const p = await api.createProduct(product('爽约界面'));
-    await user('buyer');
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-    await as('seller');
-    await api.transitionOrder(order.id, { to: 'PENDING_MEETING' });
-    await as('buyer');
-    const first = renderApp(`/orders/${order.id}`);
-    expect(await screen.findByText(/档期结束 15 分钟之后才能报告爽约/, undefined, { timeout: 5000 })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '报告对方爽约' })).toBeNull();
-    first.unmount();
-
-    const raw = JSON.parse(window.localStorage.getItem(DB)!);
-    const o = raw.market.orders.find((x: { id: string }) => x.id === order.id);
-    // 7.1A：订单与接受时冻结的快照一起平移（开始 3 小时前、时长 60 分钟）
-    const start = Date.now() - 3 * 3_600_000;
-    o.meetingAtIso = new Date(start).toISOString();
-    o.meetingEndsAtIso = new Date(start + 3_600_000).toISOString();
-    for (const a of raw.slotAgreements) if (a.orderId === order.id) Object.assign(a, { startsAt: start, endsAt: start + 3_600_000 });
-    window.localStorage.setItem(DB, JSON.stringify(raw));
-    api = new MockCampusMarketApi();
-    setApiClient(api);
-    const { container } = renderApp(`/orders/${order.id}`);
-    fireEvent.click(await screen.findByRole('button', { name: '报告对方爽约' }, { timeout: 5000 }));
-    const dialog = await screen.findByRole('dialog', { name: '报告对方爽约' });
-    expect(dialog.textContent).toContain('不会对任何人产生处罚');
-    expect(await axeViolations(document.body)).toEqual([]);
-    fireEvent.click(within(dialog).getByRole('radio', { name: '对方没有到场' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '提交报告' }));
-    expect(await screen.findByText(/对方回应之前不会产生任何处罚/)).toBeTruthy();
-    expect(screen.getByText(/等待对方回应（不会产生任何处罚）/)).toBeTruthy();
-    expect(await axeViolations(container)).toEqual([]);
-    cleanup();
-
-    await as('seller');
-    renderApp(`/orders/${order.id}`);
-    fireEvent.click(await screen.findByRole('button', { name: '承认' }, { timeout: 5000 }));
-    const ack = await screen.findByRole('dialog', { name: '承认这次爽约？' });
-    expect(ack.textContent).toContain('30 天内第 2 次会限制预约新订单 24 小时');
-    fireEvent.click(within(ack).getByRole('button', { name: '确认承认' }));
-    expect(await screen.findByText('你已承认这次爽约。')).toBeTruthy();
-    expect((await api.getMyGovernance()).noShowWarning).toEqual({ confirmedCount: 1, windowDays: 30 });
-  });
-
-  it('取消订单：卖家确认后必须选择原因；空提交错误摘要获得焦点；对话框写明平台不托管资金、没有自动处罚；axe 通过', async () => {
-    await user('seller');
-    const p = await api.createProduct(product('取消界面'));
-    await user('buyer');
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-    await as('seller');
-    await api.transitionOrder(order.id, { to: 'PENDING_MEETING' });
-    await as('buyer');
-    renderApp('/profile/orders');
-    fireEvent.click(await screen.findByRole('button', { name: '取消预约' }, { timeout: 5000 }));
-    const dialog = await screen.findByRole('dialog', { name: '取消这个预约？' });
-    expect(dialog.textContent).toMatch(/平台不托管资金/);
-    expect(dialog.textContent).toMatch(/不会自动处罚任何人/);
-    expect(await axeViolations(document.body)).toEqual([]);
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认取消订单' }));
-    const summary = await within(dialog).findByText(/取消前请先修正以下问题/);
-    await waitFor(() => expect(document.activeElement).toBe(summary.parentElement));
-    fireEvent.click(within(dialog).getByRole('radio', { name: '时间冲突' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认取消订单' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(JSON.parse(window.localStorage.getItem(DB)!).cancellationRecords[0]).toMatchObject({ phase: 'AFTER_SELLER_CONFIRM', reasonCode: 'SCHEDULE_CONFLICT' });
-  });
 });
 
 describe('7 我的限制与我的举报', () => {
@@ -165,18 +96,19 @@ describe('7 我的限制与我的举报', () => {
     staff(s);
     await as('staffer');
     const c = (await api.listModerationCases({ status: 'OPEN' })).items[0];
-    await api.decideModerationCase(c.id, { action: 'RESTRICT_BOOKING', reasonCode: 'POLICY_VIOLATION', durationHours: 48 });
+    await api.decideModerationCase(c.id, { action: 'RESTRICT_CONTACT', reasonCode: 'POLICY_VIOLATION', durationHours: 48 });
   }
 
   it('我的限制：写明范围与「生效中」、具体到期时间与还剩多久、仍可做的事；申诉表单错误摘要与提交；axe 通过', async () => {
     await restricted();
     await as('target');
     const { container } = renderApp('/profile/restrictions');
-    const item = (await screen.findByText(/暂时不能：预约新订单（生效中）/, undefined, { timeout: 5000 })).closest('li')!;
+    const item = (await screen.findByText(/暂时不能：申请联系方式（生效中）/, undefined, { timeout: 5000 })).closest('li')!;
     expect(item.textContent).toMatch(/解除时间：.*（约 2 天后）|解除时间：.*（约 48 小时后）/);
-    expect(item.textContent).toContain('仍然可以浏览、沟通');
+    expect(item.textContent).toContain('仍然可以浏览、私信，查看与撤回已经发出的联系申请。');
+    expect(item.textContent).not.toMatch(/订单|预约|验货|核销|爽约/);
     expect(await axeViolations(container)).toEqual([]);
-    const trigger = within(item).getByRole('button', { name: '对「预约新订单」限制提出申诉' });
+    const trigger = within(item).getByRole('button', { name: '对「申请联系方式」限制提出申诉' });
     trigger.focus();
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: '提出申诉' });
@@ -189,7 +121,7 @@ describe('7 我的限制与我的举报', () => {
     fireEvent.change(within(dialog).getByLabelText('申诉理由'), { target: { value: '我没有发垃圾广告' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '提交申诉' }));
     expect(await screen.findByText(/申诉已提交，将由另一位平台工作人员处理/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '对「预约新订单」限制提出申诉' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '对「申请联系方式」限制提出申诉' })).toBeNull();
     expect(container.textContent).not.toMatch(/reporter|staffer/);
   });
 
@@ -263,14 +195,17 @@ describe('7 平台工作人员工作台', () => {
     await as('staffA');
     const caseId = (await api.listModerationCases({ status: 'OPEN' })).items[0].id;
     renderApp(`/moderation/cases/${caseId}`);
-    fireEvent.click(await screen.findByRole('radio', { name: '限制预约新订单（需要二次确认）' }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('radio', { name: '限制申请联系方式（需要二次确认）' }, { timeout: 5000 }));
+    // 历史上的「限制预约新订单」与爽约动作不再提供
+    expect(screen.queryByRole('radio', { name: /预约|爽约/ })).toBeNull();
     fireEvent.mouseDown(screen.getByRole('combobox', { name: /处理原因/ }));
     fireEvent.click(await screen.findByRole('option', { name: '骚扰' }));
     fireEvent.click(screen.getByRole('button', { name: '提交处理' }));
-    const confirm = await screen.findByRole('dialog', { name: '确认执行「限制预约新订单」？' });
+    const confirm = await screen.findByRole('dialog', { name: '确认执行「限制申请联系方式」？' });
     expect(confirm.textContent).toMatch(/到期时间：.*（约 24 小时后），到期自动解除/);
-    fireEvent.click(within(confirm).getByRole('button', { name: '确认限制预约新订单' }));
-    expect(await screen.findByText(/已处理：限制预约新订单/)).toBeTruthy();
+    expect(confirm.textContent).toContain('对方在期限内不能发起新的联系申请');
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认限制申请联系方式' }));
+    expect(await screen.findByText(/已处理：限制申请联系方式/)).toBeTruthy();
     cleanup();
 
     await as('target');

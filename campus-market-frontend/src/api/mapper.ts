@@ -1,5 +1,4 @@
-import type { Product, Order, OrderStatus, User } from '../types';
-import type { CanonicalOrderStatus } from './contracts';
+import type { CanonicalOrderStatus, Product, Order, OrderStatus, User } from '../types';
 export function toIso(value: number | string | undefined): string | undefined { if (value === undefined) return undefined; return typeof value === 'number' ? new Date(value).toISOString() : value }
 export function fromIso(value: string | number | undefined): number { if (value === undefined) return Date.now(); return typeof value === 'number' ? value : Date.parse(value) || Date.now() }
 export function projectPublicUser(user: User): Omit<User, 'password'> { const { password: _password, ...safe } = user; return safe }

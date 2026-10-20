@@ -61,40 +61,6 @@ class GovernanceSchemaIT {
         api = new SupplyApi(mockMvc, json);
     }
 
-    private String order(User seller, User buyer) throws Exception {
-        String product = api.ok(api.post(seller, "/v1/products", SupplyApi.single("其他", "schema " + UUID.randomUUID(), 10))).path("id").asText();
-        return api.order(buyer, product);
-    }
-
-    @Test
-    @DisplayName("1. 爽约报告：只能在订单双方之间、只能以 PENDING 开始；已确认必须有工作人员；终态不能回到待处理；身份不可改；不能删除；同一档期同一被报告人只有一条有效报告")
-    void noShowStateMachine() throws Exception {
-        User seller = api.register(), buyer = api.register(), stranger = api.register();
-        String order = order(seller, buyer);
-        String insert0 = "INSERT INTO order_no_show_reports(id, order_id, meeting_revision, school_id, reporter_user_id, reported_user_id, reason_code, status) "
-                + "VALUES (?::uuid, ?::uuid, 0, 'pilot', ?::uuid, ?::uuid, 'DID_NOT_ARRIVE', 'PENDING')";
-        assertThatThrownBy(() -> jdbc.update(insert0, UUID.randomUUID(), order, buyer.id(), seller.id()))
-                .as("V11：卖家接单之前没有档期快照，不能有爽约报告").isInstanceOf(DataAccessException.class);
-        // 卖家接单 → 触发器写入 revision 0 的明确档期快照
-        assertThat(api.ok(api.transition(seller, order, "PENDING_MEETING")).path("id").asText()).isEqualTo(order);
-        String insert = "INSERT INTO order_no_show_reports(id, order_id, meeting_revision, school_id, reporter_user_id, reported_user_id, reason_code, status) "
-                + "VALUES (?::uuid, ?::uuid, 0, 'pilot', ?::uuid, ?::uuid, 'DID_NOT_ARRIVE', ?)";
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), order, stranger.id(), seller.id(), "PENDING")).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), order, buyer.id(), seller.id(), "ACKNOWLEDGED")).isInstanceOf(DataAccessException.class);
-        String id = UUID.randomUUID().toString();
-        jdbc.update(insert, id, order, buyer.id(), seller.id(), "PENDING");
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), order, buyer.id(), seller.id(), "PENDING"))
-                .as("同一档期同一被报告人只有一条有效报告").isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update("UPDATE order_no_show_reports SET status='CONFIRMED', confirmed_at=now() WHERE id=?::uuid", id))
-                .as("已确认必须记录工作人员").isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update("UPDATE order_no_show_reports SET reported_user_id=?::uuid WHERE id=?::uuid", buyer.id(), id))
-                .isInstanceOf(DataAccessException.class);
-        jdbc.update("UPDATE order_no_show_reports SET status='EXPIRED' WHERE id=?::uuid", id);
-        assertThatThrownBy(() -> jdbc.update("UPDATE order_no_show_reports SET status='PENDING' WHERE id=?::uuid", id)).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update("DELETE FROM order_no_show_reports WHERE id=?::uuid", id)).isInstanceOf(DataAccessException.class);
-        jdbc.update(insert, UUID.randomUUID(), order, buyer.id(), seller.id(), "PENDING");
-    }
-
     @Test
     @DisplayName("2. 案件：同一目标只有一个未结案件；结果写入后不能更换、不能改回待处理；不能删除。举报与动作只增不改；申诉只能决定一次、内容不可改、每条限制只能申诉一次")
     void casesActionsAppeals() throws Exception {
@@ -109,19 +75,19 @@ class GovernanceSchemaIT {
         assertThatThrownBy(() -> jdbc.update("UPDATE moderation_reports SET note='改写' WHERE case_id=?::uuid", caseId)).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> jdbc.update("DELETE FROM moderation_reports WHERE case_id=?::uuid", caseId)).isInstanceOf(DataAccessException.class);
 
-        jdbc.update("UPDATE moderation_cases SET status='RESOLVED', resolution_code='RESTRICT_BOOKING', resolved_at=now() WHERE id=?::uuid", caseId);
+        jdbc.update("UPDATE moderation_cases SET status='RESOLVED', resolution_code='RESTRICT_CONTACT', resolved_at=now() WHERE id=?::uuid", caseId);
         assertThatThrownBy(() -> jdbc.update("UPDATE moderation_cases SET resolution_code='NO_ACTION' WHERE id=?::uuid", caseId)).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE moderation_cases SET status='OPEN' WHERE id=?::uuid", caseId)).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> jdbc.update("DELETE FROM moderation_cases WHERE id=?::uuid", caseId)).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> jdbc.update("INSERT INTO moderation_actions(id, school_id, case_id, staff_user_id, action_code, reason_code, target_type, target_id) "
-                + "VALUES (gen_random_uuid(), 'pilot', ?::uuid, ?::uuid, 'RESTRICT_BOOKING', 'OTHER', 'USER', ?::uuid)", caseId, staff.id(), target.id()))
+                + "VALUES (gen_random_uuid(), 'pilot', ?::uuid, ?::uuid, 'RESTRICT_CONTACT', 'OTHER', 'USER', ?::uuid)", caseId, staff.id(), target.id()))
                 .as("限制动作必须关联一条限制与期限").isInstanceOf(DataAccessException.class);
 
         String restriction = UUID.randomUUID().toString();
         jdbc.update("INSERT INTO user_restrictions(id, user_id, school_id, scope, source, case_id, created_by, reason_code, starts_at, ends_at) "
-                + "VALUES (?::uuid, ?::uuid, 'pilot', 'BOOKING', 'CASE', ?::uuid, ?::uuid, 'OTHER', now(), now() + interval '1 day')", restriction, target.id(), caseId, staff.id());
+                + "VALUES (?::uuid, ?::uuid, 'pilot', 'CONTACT', 'CASE', ?::uuid, ?::uuid, 'OTHER', now(), now() + interval '1 day')", restriction, target.id(), caseId, staff.id());
         assertThatThrownBy(() -> jdbc.update("INSERT INTO user_restrictions(id, user_id, school_id, scope, source, reason_code, starts_at, ends_at) "
-                + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'BOOKING', 'CASE', 'OTHER', now(), now() + interval '1 day')", target.id()))
+                + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'CONTACT', 'CASE', 'OTHER', now(), now() + interval '1 day')", target.id()))
                 .as("限制必须有来源案件与工作人员").isInstanceOf(DataAccessException.class);
         String appeal = UUID.randomUUID().toString();
         jdbc.update("INSERT INTO moderation_appeals(id, school_id, user_id, restriction_id, case_id, reason) VALUES (?::uuid, 'pilot', ?::uuid, ?::uuid, ?::uuid, '申诉')",
@@ -137,17 +103,18 @@ class GovernanceSchemaIT {
     }
 
     @Test
-    @DisplayName("3. 被治理隐藏的商品：权威可见性函数对卖家为真、对同校其他人为假；订单参与者的直接读取不受影响")
+    @DisplayName("3. 被治理隐藏的商品：权威可见性函数对卖家为真、对同校其他人为假；已同意的联系请求不构成读取例外")
     void hiddenProductVisibility() throws Exception {
         User seller = api.register(), buyer = api.register(), viewer = api.register();
         String product = api.ok(api.post(seller, "/v1/products", SupplyApi.single("其他", "隐藏函数", 10))).path("id").asText();
-        api.order(buyer, product);
+        api.approvedContact(seller, buyer, product);
         jdbc.update("UPDATE products SET moderation_hidden_at = now() WHERE id=?::uuid", product);
         String visible = "SELECT product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, ?::uuid) FROM products p WHERE p.id=?::uuid";
         String readable = "SELECT product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, ?::uuid) FROM products p WHERE p.id=?::uuid";
         assertThat(jdbc.queryForObject(visible, Boolean.class, seller.id(), product)).isTrue();
         assertThat(jdbc.queryForObject(visible, Boolean.class, viewer.id(), product)).isFalse();
-        assertThat(jdbc.queryForObject(readable, Boolean.class, buyer.id(), product)).as("已成立订单").isTrue();
+        assertThat(jdbc.queryForObject(visible, Boolean.class, buyer.id(), product)).as("已同意联系请求的买家").isFalse();
+        assertThat(jdbc.queryForObject(readable, Boolean.class, buyer.id(), product)).as("没有订单，联系请求不授予读取例外").isFalse();
         assertThat(jdbc.queryForObject(readable, Boolean.class, viewer.id(), product)).isFalse();
         // V9 的 4 参数版本委托给同一套规则
         assertThat(jdbc.queryForObject("SELECT product_visible_to(id, visibility, seller_id, ?::uuid) FROM products WHERE id=?::uuid", Boolean.class, viewer.id(), product)).isFalse();

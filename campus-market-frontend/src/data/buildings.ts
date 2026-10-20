@@ -74,19 +74,3 @@ export function publicBuilding(building: MockBuilding): Building {
   const { id, campusId, zone, name, latitude, longitude } = building;
   return { id, campusId, zone, name, latitude, longitude };
 }
-
-/** 面交点的演示坐标，同样与 V3 迁移中的 UPDATE 语句逐条对应。 */
-export const seedMeetingPointCoordinates: Record<string, { latitude: number; longitude: number }> = {
-  '东校区-library': { latitude: 31.0009, longitude: 121.0021 },
-  '东校区-canteen': { latitude: 31.0023, longitude: 121.001 },
-  '东校区-express': { latitude: 30.9995, longitude: 121.0033 },
-  '西校区-library': { latitude: 31.0009, longitude: 120.9811 },
-  '西校区-canteen': { latitude: 31.0023, longitude: 120.98 },
-  '西校区-express': { latitude: 30.9995, longitude: 120.9823 },
-  '南校区-library': { latitude: 30.9829, longitude: 121.0021 },
-  '南校区-canteen': { latitude: 30.9843, longitude: 121.001 },
-  '南校区-express': { latitude: 30.9815, longitude: 121.0033 },
-  '北校区-library': { latitude: 31.0189, longitude: 121.0021 },
-  '北校区-canteen': { latitude: 31.0203, longitude: 121.001 },
-  '北校区-express': { latitude: 31.0175, longitude: 121.0033 },
-};

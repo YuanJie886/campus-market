@@ -79,6 +79,21 @@ class PostgresSchemaIT {
     private static final Set<String> EXPECTED_TABLES = Set.of(
             "admin_staff_audit",
             "admin_product_audit",
+            // V15：只展示商品 + 联系请求
+            "contact_requests",
+            // V16：历史交易收尾的审计
+            "legacy_trade_closures",
+            // V17：后台两人复核与读取审计
+            "admin_role_requests",
+            "admin_read_audit",
+            // V18：账号生命周期
+            "password_reset_tickets",
+            "account_deletions",
+            "user_wechat_identities",
+            "wechat_bind_tickets",
+            // V19：上传图片与内容安全
+            "uploaded_images",
+            "content_safety_events",
             // V10：交易承诺与可信治理
             "order_cancellations",
             "order_no_show_reports",
@@ -201,7 +216,6 @@ class PostgresSchemaIT {
         // spring.flyway.enabled / baseline-on-migrate 见类上 @SpringBootTest 的 properties，
         // 此处不重复注册（DynamicPropertySource 对自动配置条件不生效）。
         // 关闭订单超时释放业务，避免定时任务改动集成测试数据。
-        registry.add("campus-market.expiry-job-enabled", () -> "false");
 
         // 仅测试使用的 JWT 密钥，长度满足 JwtService 的 >= 32 字符校验；不写入任何生产配置。
         registry.add("campus-market.jwt-secret",
@@ -361,58 +375,42 @@ class PostgresSchemaIT {
     }
 
     // ------------------------------------------------------------------
-    // 测试 5：部分唯一索引的真实并发语义
+    // 测试 5：V16 起历史交易表只读
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("5. 同一商品只能存在一个活跃订单，取消后名额释放")
-    void oneActiveOrderPerProductIsEnforced() {
+    @DisplayName("5. 历史交易表只读（V16）：新订单、评价、爽约报告的写入一律被数据库拒绝；已有的历史订单不能修改或删除")
+    void legacyTradeTablesAreReadOnly() {
         UUID seller = insertUser("seller");
-        UUID buyerA = insertUser("buyerA");
-        UUID buyerB = insertUser("buyerB");
+        UUID buyer = insertUser("buyer");
         UUID product = insertProduct(seller);
 
-        // 买家 A 建立第一个活跃订单
-        UUID orderA = insertOrder(product, buyerA, seller, "PENDING_SELLER_CONFIRM");
-        assertThat(countActiveOrders(product)).isEqualTo(1);
-
-        // 买家 B 对同一商品建立第二个活跃订单 —— 必须被部分唯一索引拒绝
-        DataIntegrityViolationException violation = assertThrows(
-                DataIntegrityViolationException.class,
-                () -> insertOrder(product, buyerB, seller, "PENDING_SELLER_CONFIRM"),
-                "同一商品的第二个活跃订单应触发 one_active_order_per_product 唯一冲突");
-
-        assertThat(sqlState(violation))
-                .as("PostgreSQL 唯一约束冲突的 SQLSTATE 应为 23505")
-                .isEqualTo("23505");
-        assertThat(rootMessage(violation))
-                .as("冲突应由 one_active_order_per_product 引发")
-                .contains("one_active_order_per_product");
-
-        // 仍然只有一个活跃订单
-        assertThat(countActiveOrders(product)).isEqualTo(1);
-
-        // 第一个订单取消后，名额释放
-        jdbc.update("UPDATE orders SET status = 'CANCELLED', updated_at = now() WHERE id = ?", orderA);
+        DataIntegrityViolationException insert = assertThrows(DataIntegrityViolationException.class,
+                () -> insertOrder(product, buyer, seller, "PENDING_SELLER_CONFIRM"), "新订单必须被拒绝");
+        assertThat(sqlState(insert)).as("check_violation").isEqualTo("23514");
+        assertThat(rootMessage(insert)).contains("orders is read-only history");
         assertThat(countActiveOrders(product)).isZero();
 
-        // 买家 B 此时可以成功下单
-        UUID orderB = insertOrder(product, buyerB, seller, "PENDING_SELLER_CONFIRM");
-        assertThat(orderB).isNotNull();
-
-        // 最终仍然只有一个活跃订单，且归属买家 B
-        assertThat(countActiveOrders(product)).isEqualTo(1);
-        UUID activeBuyer = jdbc.queryForObject(
-                "SELECT buyer_id FROM orders WHERE product_id = ? "
-                        + "AND status NOT IN ('CANCELLED','EXPIRED','COMPLETED')",
-                UUID.class, product);
-        assertThat(activeBuyer).isEqualTo(buyerB);
-
-        // 定时任务不得把本测试的订单改成 EXPIRED（expiry-job-enabled=false）
-        Integer expired = jdbc.queryForObject(
-                "SELECT count(*) FROM orders WHERE product_id = ? AND status = 'EXPIRED'",
-                Integer.class, product);
-        assertThat(expired).as("expiry 业务不应在集成测试中执行").isZero();
+        // V16 之前留下的一行历史订单（测试里以 replica 角色临时跳过触发器写入，等同于迁移前已经存在的数据）
+        UUID legacy = UUID.randomUUID();
+        new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(jdbc.getDataSource())).executeWithoutResult(t -> {
+            jdbc.execute("SET LOCAL session_replication_role = replica");
+            jdbc.update("INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact, "
+                    + "confirmation_code, idempotency_key, request_hash, expires_at) VALUES (?,?,?,?,1,'EXPIRED','东校区-library',"
+                    + "now() - interval '2 days','c','123456',?,'h',now() - interval '1 day')", legacy, product, buyer, seller, "legacy-" + legacy);
+        });
+        for (String sql : List.of("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", "DELETE FROM orders WHERE id = ?")) {
+            DataIntegrityViolationException e = assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(sql, legacy), sql);
+            assertThat(rootMessage(e)).contains("read-only history");
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM orders WHERE id = ?", String.class, legacy)).isEqualTo("EXPIRED");
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO reviews(id, order_id, reviewer_id, rating, comment) VALUES (gen_random_uuid(), ?, ?, 5, 'x')",
+                legacy, buyer), "评价");
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO order_no_show_reports(id, order_id, meeting_revision, school_id, reporter_user_id, reported_user_id, reason_code) "
+                        + "VALUES (gen_random_uuid(), ?, 0, 'pilot', ?, ?, 'DID_NOT_ARRIVE')", legacy, buyer, seller), "爽约报告");
     }
 
     // ------------------------------------------------------------------
@@ -420,13 +418,13 @@ class PostgresSchemaIT {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("6. flyway_schema_history 将 V1～V14 记录为成功执行的 SQL 迁移（非 BASELINE）")
+    @DisplayName("6. flyway_schema_history 将 V1～V20 记录为成功执行的 SQL 迁移（非 BASELINE）")
     void flywayHistoryRecordsInitialMigration() {
         List<Map<String, Object>> history = jdbc.queryForList(
                 "SELECT installed_rank, version, description, type, checksum, installed_on, success "
                         + "FROM " + FLYWAY_HISTORY_TABLE + " ORDER BY installed_rank");
 
-        assertThat(history).as("空库场景下应有 V1～V14 十四条迁移记录").hasSize(14);
+        assertThat(history).as("空库场景下应有 V1～V20 二十条迁移记录").hasSize(20);
 
         Map<String, Object> v1 = history.get(0);
         assertThat(v1.get("version")).as("首条版本应为 1").isEqualTo("1");
@@ -507,7 +505,7 @@ class PostgresSchemaIT {
         assertThat((String) v11.get("description")).isEqualTo("slots corrections and content moderation");
         assertThat((String) v11.get("type")).isEqualTo("SQL");
         assertThat((Boolean) v11.get("success")).isTrue();
-        for (int version = 12; version <= 14; version++) {
+        for (int version = 12; version <= 20; version++) {
             Map<String, Object> migration = history.get(version - 1);
             assertThat(migration.get("version")).isEqualTo(String.valueOf(version));
             assertThat(migration.get("type")).isEqualTo("SQL");

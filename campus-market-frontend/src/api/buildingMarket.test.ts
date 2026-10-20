@@ -290,7 +290,9 @@ describe('1.6 Mock schema 迁移（v3 楼栋部分，结果随后续版本前进
     const second = migrateMockDatabase(snapshot, seed);
     expect(second.applied).toEqual([]);
     expect(JSON.parse(JSON.stringify(second.db))).toEqual(snapshot);
-    expect(second.db.market.orders[0].canonicalStatus).toBe('PENDING_SELLER_CONFIRM');
+    // 0.9 的推断结果保留在阶段 1 收尾的留痕里；订单本身已被系统关闭（V16）
+    expect(second.db.legacyTradeClosures.find((c) => c.entityId === second.db.market.orders[0].id)?.fromStatus).toBe('PENDING_SELLER_CONFIRM');
+    expect(second.db.market.orders[0].canonicalStatus).toBe('EXPIRED');
   });
 
   it('17. 从 v1（无版本号的旧数据）一路迁到 v3', () => {
@@ -302,7 +304,8 @@ describe('1.6 Mock schema 迁移（v3 楼栋部分，结果随后续版本前进
     // v1→v2→v3→v4，每一步都执行
     expect(result.applied).toHaveLength(MOCK_SCHEMA_VERSION - 1);
     expect(result.db.schemaVersion).toBe(MOCK_SCHEMA_VERSION);
-    expect(result.db.market.orders[0].canonicalStatus).toBe('PENDING_SELLER_CONFIRM');
+    expect(result.db.legacyTradeClosures.find((c) => c.entityId === result.db.market.orders[0].id)?.fromStatus).toBe('PENDING_SELLER_CONFIRM');
+    expect(result.db.market.orders[0].canonicalStatus).toBe('EXPIRED');
     expect(result.db.buildings.length).toBeGreaterThan(0);
   });
 

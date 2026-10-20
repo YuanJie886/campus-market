@@ -13,10 +13,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** V7 的数据库层保证：即使绕过应用直接写库，这些不变量也成立。 */
@@ -94,25 +92,6 @@ class SupplySchemaIT {
         jdbc.update(insert, owner, draft, null, hex('d'), "7 days");
         assertThatThrownBy(() -> jdbc.update(insert, owner, draft, null, hex('d'), "1 day")).isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> jdbc.update(insert, user(), draft, null, hex('e'), "1 day")).as("只能邀请自己名下的草稿").isInstanceOf(DataAccessException.class);
-    }
-
-    @Test
-    @DisplayName("4. 成交价快照：与币种同时为空或同时存在；不能为负；写入后不可改写")
-    void snapshotConstraints() {
-        UUID seller = user();
-        UUID buyer = user();
-        UUID product = product(seller);
-        String insert = "INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact, confirmation_code, "
-                + "idempotency_key, request_hash, expires_at, price_snapshot, currency) VALUES (?,?,?,?,1,'CANCELLED','东校区-library',now()+interval '1 day',"
-                + "'13800000000','123456',?,'h',now()+interval '2 days',?,?)";
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), product, buyer, seller, "k1", BigDecimal.ONE, null)).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), product, buyer, seller, "k2", new BigDecimal("-1"), "CNY")).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID(), product, buyer, seller, "k3", BigDecimal.ONE, "USD")).isInstanceOf(DataAccessException.class);
-        UUID order = UUID.randomUUID();
-        jdbc.update(insert, order, product, buyer, seller, "k4", BigDecimal.TEN, "CNY");
-        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET price_snapshot = 11 WHERE id=?", order)).isInstanceOf(DataAccessException.class);
-        jdbc.update("UPDATE orders SET status='CANCELLED' WHERE id=?", order);
-        assertThat(jdbc.queryForObject("SELECT price_snapshot FROM orders WHERE id=?", BigDecimal.class, order)).isEqualByComparingTo("10");
     }
 
     // ------------------------------------------------------------------

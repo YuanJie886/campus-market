@@ -9,7 +9,7 @@
 // 用法（在 campus-market-frontend 目录）：node deploy/drill/local-deploy-drill.mjs <报告输出目录>
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEPLOY = resolve(HERE, '..');
+// 期望的迁移数量取自仓库里的迁移文件，新增迁移时不需要再改这里
+const MIGRATIONS = readdirSync(resolve(HERE, '../../../campus-market-backend/src/main/resources/db/migration')).filter((f) => /^V\d+__.*\.sql$/.test(f)).length;
 const OUT = resolve(process.argv[2] ?? join(tmpdir(), 'cm-drill'));
 mkdirSync(OUT, { recursive: true });
 const COMPOSE = process.env.COMPOSE_BIN ?? 'docker-compose';
@@ -88,6 +90,11 @@ try {
   record('生产编排：PostgreSQL 与 Web 端口只绑定 127.0.0.1（不对公网发布）',
     pgPorts.every((p) => p.host_ip === '127.0.0.1') && webPorts.every((p) => p.host_ip === '127.0.0.1'),
     `postgres=${pgPorts.map((p) => `${p.host_ip}:${p.published}`).join(',')} web=${webPorts.map((p) => `${p.host_ip}:${p.published}`).join(',')}`);
+  const rotated = Object.entries(prodCfg.services).filter(([, svc]) => svc.logging?.driver === 'json-file' && svc.logging?.options?.['max-size'] && svc.logging?.options?.['max-file']);
+  record('生产编排：每个服务的容器日志都按大小轮转（json-file max-size / max-file）', rotated.length === Object.keys(prodCfg.services).length,
+    `${rotated.length}/${Object.keys(prodCfg.services).length}`);
+  record('生产编排：外部图片链接默认关闭（ALLOW_EXTERNAL_IMAGES=false）', prodCfg.services.api.environment?.ALLOW_EXTERNAL_IMAGES === 'false',
+    `ALLOW_EXTERNAL_IMAGES=${prodCfg.services.api.environment?.ALLOW_EXTERNAL_IMAGES}`);
 
   // ---------------------------------------------------------------- 1. 构建与启动
   const t0 = Date.now();
@@ -111,20 +118,38 @@ try {
   const flywayLine = logs.split('\n').find((l) => l.includes('Successfully applied')) ?? '';
   record('Flyway 迁移成功之后 Web 服务才开始接受请求', flywayAt >= 0 && tomcatAt > flywayAt, flywayLine.replace(/^.*Successfully/, 'Successfully').trim());
   const history = psql("SELECT count(*) || ':' || max(version::int) || ':' || bool_and(success) FROM flyway_schema_history WHERE version IS NOT NULL");
-  record('flyway_schema_history：V1～V11 全部成功', /^11:11:(t|true)$/.test(history), history);
+  record(`flyway_schema_history：V1～V${MIGRATIONS} 全部成功`, new RegExp(`^${MIGRATIONS}:${MIGRATIONS}:(t|true)$`).test(history), history);
 
   // ---------------------------------------------------------------- 3. 健康检查、SPA、/v1 代理
   const health = await api('GET', '/v1/health');
   const leaked = /jdbc|password|secret|postgres|campus_market|version|java|spring/i.test(health.text);
   record('API 健康检查只返回状态，不泄露配置', health.status === 200 && JSON.stringify(health.json?.data) === '{"status":"ok"}' && !leaked, health.text.replace(/"requestId":"[^"]+"/, '"requestId":"…"'));
-  for (const path of ['/profile/orders', `/product/${crypto.randomUUID()}`, '/circles/join']) {
+  for (const path of ['/profile/contact-requests', `/product/${crypto.randomUUID()}`, '/circles/join']) {
     const r = await api('GET', path);
     record(`SPA 深链接刷新 ${path.replace(/[0-9a-f-]{36}/, '<id>')} → index.html`, r.status === 200 && /<div id="root">/.test(r.text) && (r.headers.get('content-type') ?? '').includes('text/html'), `status=${r.status}`);
+  }
+  // 阶段 2：安全响应头（网页、后台入口、API 代理都带上；不暴露 nginx 版本）
+  for (const path of ['/', '/admin/', '/v1/health']) {
+    const r = await api('GET', path);
+    const csp = r.headers.get('content-security-policy') ?? '';
+    const ok = /frame-ancestors 'none'/.test(csp) && /script-src 'self'/.test(csp) && r.headers.get('x-frame-options') === 'DENY'
+      && r.headers.get('x-content-type-options') === 'nosniff' && !/\d/.test(r.headers.get('server') ?? '');
+    record(`安全响应头：${path} 带 CSP（禁止被嵌入、脚本只允许同源）、X-Frame-Options、nosniff，且不暴露 nginx 版本`, ok,
+      `status=${r.status} server=${r.headers.get('server')} csp=${csp.length > 0}`);
   }
   const notFound = await api('GET', '/v1/no-such-endpoint');
   record('/v1 由 nginx 代理到 API（未知路径得到 API 的 JSON 404，而不是 SPA 页面或 500）', notFound.status === 404 && notFound.json?.code === 404, `status=${notFound.status}`);
   const wrongMethod = await api('DELETE', '/v1/health');
   record('框架层请求错误保留状态码（错误方法 405，不是 500）', wrongMethod.status === 405, `status=${wrongMethod.status}`);
+  // 请求编号：nginx 生成、传给 API、写进两边的日志；访问日志不含查询参数
+  const marker = `q${randomBytes(6).toString('hex')}`;
+  const traced = await api('GET', `/v1/health?probe=${marker}`, undefined, undefined, { 'X-Request-ID': 'client-supplied-id-123' });
+  const rid = traced.headers.get('x-request-id') ?? '';
+  const webLog = mustCompose(['logs', '--no-color', 'web']).stdout;
+  const apiLog = mustCompose(['logs', '--no-color', 'api']).stdout;
+  record('请求编号：nginx 生成（覆盖客户端自带的值），响应头、nginx 访问日志、API 日志是同一个编号',
+    /^[0-9a-f]{32}$/.test(rid) && webLog.includes(`rid=${rid}`) && apiLog.includes(`requestId=${rid}`), `rid=${rid ? `${rid.slice(0, 8)}…` : '缺失'}`);
+  record('nginx 访问日志不记录查询参数', webLog.includes('/v1/health') && !webLog.includes(marker), webLog.includes(marker) ? '查询参数出现在日志里' : '无查询参数');
 
   // ---------------------------------------------------------------- 4. Cookie 策略
   const u = await register('drill-cookie');
@@ -165,32 +190,54 @@ try {
 
   // ---------------------------------------------------------------- 6. 哨兵数据
   const seller = await register('drill-seller');
+  // 阶段 4：图片经 nginx 上传（超过 1 MB 的通用限制、低于 6 MB 的图片限制），非 root 进程写入持久卷
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  const padded = Buffer.concat([png, Buffer.alloc(1_200_000)]);   // PNG 之后的多余字节不影响解码，用来越过 1 MB
+  const form = new FormData();
+  form.append('file', new Blob([padded], { type: 'image/png' }), 'drill.png');
+  const uploadRes = await fetch(`${ORIGIN}/v1/images`, { method: 'POST', headers: { Authorization: `Bearer ${seller.token}` }, body: form });
+  const uploaded = await uploadRes.json().catch(() => null);
+  const imageUrl = uploaded?.data?.url ?? '';
+  const imageBefore = imageUrl ? (await fetch(`${ORIGIN}${imageUrl}`)).status : 0;
+  record('图片上传：经 nginx 上传 1.2 MB 图片、服务端重新编码写入持久卷，签名地址可读', uploadRes.status === 200 && imageBefore === 200,
+    `upload=${uploadRes.status} read=${imageBefore}`);
+
+  const external = await api('POST', '/v1/products', { title: `演练外部图片 ${PROJECT}`, description: '外部图片链接应被拒绝', price: 1, category: '其他', condition: '几乎全新',
+    campus: '东校区', images: ['https://example.invalid/a.png'], contact: '13800000000' }, seller.token);
+  record('生产默认配置：新商品不能使用外部图片链接（400），只能用本平台上传的图片', external.status === 400, `status=${external.status} ${external.json?.message ?? ''}`);
   const buyer = await register('drill-buyer');
   const product = await api('POST', '/v1/products', { title: `演练哨兵商品 ${PROJECT}`, description: '备份恢复哨兵', price: 42, category: '其他', condition: '几乎全新',
-    campus: '东校区', images: ['https://example.invalid/a.png'], contact: '13800000000' }, seller.token);
-  const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0);
-  const order = await api('POST', '/v1/orders', { productId: product.json.data.id, meetingPointId: '东校区-library', meetingAtIso: at.toISOString(), contact: '1',
-    idempotencyKey: crypto.randomUUID() }, buyer.token, { 'Idempotency-Key': crypto.randomUUID() });
-  await api('POST', `/v1/orders/${order.json.data.id}/transitions`, { to: 'PENDING_MEETING' }, seller.token);
+    campus: '东校区', images: [uploaded?.data?.ref], contact: '13800000000' }, seller.token);
+  const request = await api('POST', `/v1/products/${product.json.data.id}/contact-request`, {}, buyer.token);
+  const approved = await api('POST', `/v1/contact-requests/${request.json?.data?.id}/decision`, { status: 'APPROVED' }, seller.token);
   const circle = await api('POST', '/v1/circles', { type: 'CLUB', name: `演练圈${Date.now().toString(36).slice(-4)}`, description: '哨兵', visibility: 'PRIVATE' }, seller.token);
   const staff = await register('drill-staff');
   psql(`INSERT INTO staff_members(user_id, school_id, role) VALUES ('${staff.id}', 'pilot', 'SENIOR_MODERATOR')`);
   await api('POST', '/v1/moderation-reports', { targetType: 'USER', targetId: seller.id, reasonCode: 'SPAM' }, buyer.token);
   const caseId = psql(`SELECT id FROM moderation_cases WHERE target_id = '${seller.id}'`);
   const decided = await api('POST', `/v1/moderation/cases/${caseId}/decision`, { action: 'RESTRICT_PUBLISHING', reasonCode: 'POLICY_VIOLATION', durationHours: 24 }, staff.token);
-  sentinel = { product: product.json.data.id, order: order.json.data.id, circle: circle.json.data.id, case: caseId, seller: seller.id };
-  const ok = [product, order, circle, decided].every((r) => r.status === 200);
-  record('写入哨兵：商品、订单（已接单，含档期快照）、圈子、治理记录（举报 / 案件 / 动作 / 限制）', ok, `status=${[product, order, circle, decided].map((r) => r.status).join(',')}`);
+  sentinel = { product: product.json.data.id, request: request.json?.data?.id, circle: circle.json.data.id, case: caseId, seller: seller.id };
+  const ok = [product, request, approved, circle, decided].every((r) => r.status === 200);
+  record('写入哨兵：商品、已同意的联系请求、圈子、治理记录（举报 / 案件 / 动作 / 限制）', ok, `status=${[product, request, approved, circle, decided].map((r) => r.status).join(',')}`);
   const sentinelSql = `SELECT concat_ws('|',
     (SELECT count(*) FROM products WHERE id = '${sentinel.product}'),
-    (SELECT status FROM orders WHERE id = '${sentinel.order}'),
-    (SELECT count(*) FROM order_slot_agreements WHERE order_id = '${sentinel.order}'),
+    (SELECT status FROM contact_requests WHERE id = '${sentinel.request}'),
     (SELECT count(*) FROM circles WHERE id = '${sentinel.circle}'),
     (SELECT status FROM moderation_cases WHERE id = '${sentinel.case}'),
     (SELECT count(*) FROM moderation_reports WHERE case_id = '${sentinel.case}'),
     (SELECT count(*) FROM moderation_actions WHERE case_id = '${sentinel.case}'),
     (SELECT count(*) FROM user_restrictions WHERE user_id = '${sentinel.seller}'))`;
   const before = psql(sentinelSql);
+
+  // 可选：DRILL_LOAD=1 时对演练栈做冒烟压测（本机 colima 上的数字只作基线参考，正式压测在目标服务器上做）
+  if (process.env.DRILL_LOAD === '1') {
+    const { runLoad } = await import('../loadtest/load-smoke.mjs');
+    const lines = [];
+    const { summary } = await runLoad({ origin: ORIGIN, seconds: Number(process.env.DRILL_LOAD_SECONDS ?? 60), log: (l) => { lines.push(l); console.log(l) } });
+    writeFileSync(join(OUT, 'load-smoke.md'), `${lines.join('\n')}\n`);
+    record('冒烟压测：读接口 p95 与错误率在目标内（详见 load-smoke.md）', summary.pass,
+      `${summary.total} 次 · ${summary.rps.toFixed(1)}/s · 并发 ${summary.concurrency} · 读 p95 ${summary.readP95.toFixed(0)} ms · 错误率 ${(summary.errorRate * 100).toFixed(2)}%`);
+  }
 
   // ---------------------------------------------------------------- 7. 重启保留数据（删除并重建容器，保留命名卷）
   mustCompose(['down']);
@@ -199,6 +246,10 @@ try {
   const after = psql(sentinelSql);
   const viaApi = await api('GET', `/v1/products/${sentinel.product}`, undefined, buyer.token);
   record('down（不带 -v）+ up：容器重建后哨兵数据与登录后读取都保留', after === before && viaApi.status === 200, `${before} → ${after}`);
+  const imageAfter = imageUrl ? (await fetch(`${ORIGIN}${imageUrl}`)).status : 0;
+  record('down（不带 -v）+ up：上传的图片在持久卷里保留', imageAfter === 200, `read=${imageAfter}`);
+  const sig = new URL(imageUrl || '/x?sig=none', ORIGIN).searchParams.get('sig') ?? 'none';
+  record('nginx 访问日志里没有图片签名', !mustCompose(['logs', '--no-color', 'web']).stdout.includes(sig), '签名只在查询参数里，日志不记录');
 
   // ---------------------------------------------------------------- 8. 备份与恢复到新的一次性数据库
   const dumpPath = join(OUT, 'drill-backup.dump');
@@ -216,7 +267,7 @@ try {
   const hist = "SELECT string_agg(version || ':' || checksum || ':' || success, ',' ORDER BY installed_rank) FROM flyway_schema_history";
   const srcHist = psql(hist);
   const dstHist = psqlRestore(hist);
-  record('恢复后 Flyway 历史（版本 / checksum / 成功标记）与源库完全一致', srcHist === dstHist && srcHist.split(',').length === 11, `${srcHist.split(',').length} 条`);
+  record('恢复后 Flyway 历史（版本 / checksum / 成功标记）与源库完全一致', srcHist === dstHist && srcHist.split(',').length === MIGRATIONS, `${srcHist.split(',').length} 条`);
   const guard = spawnSync('docker', ['exec', RESTORE, 'psql', '-X', '-q', '-U', 'postgres', '-d', 'restore_check', '-c', `DELETE FROM moderation_actions WHERE case_id = '${sentinel.case}'`], { encoding: 'utf8' });
   record('恢复后数据库约束与触发器仍然生效（治理动作只增不改）', guard.status !== 0 && /append-only/.test(guard.stderr), 'DELETE 被拒绝');
 } catch (e) {

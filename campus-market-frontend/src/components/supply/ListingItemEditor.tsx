@@ -1,6 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import Checkbox from '@mui/material/Checkbox';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import ContactPublicField from '../ContactPublicField';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
@@ -12,6 +11,7 @@ import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus } from '../../types';
 import { IMAGE_PRESETS } from '../../utils/constants';
 import { VALIDATION_LABEL, missingText, priceValue, versionConflict } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
+import ImageUploader from '../ImageUploader';
 import InspectionDeclarationFields, { type DeclarationValue } from '../trust/InspectionDeclarationFields';
 import BundleEditor, { itemsFromRows, rowsFromItems, type BundleRow } from './BundleEditor';
 import VisibilityPicker from '../circle/VisibilityPicker';
@@ -63,6 +63,7 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
   // 模板还在加载时保存：保留原有声明，不能因为「还没拿到模板」把卖家填过的声明清掉
   const [templateLoading, setTemplateLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(0);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<number | null>(null);
@@ -186,30 +187,14 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
         <p className="text-xs text-slate-600">{assistant ? '所有者还没有选择校区，暂时不能建议取货楼栋。' : '先选择校区，再选择取货楼栋（可不指定）。'}</p>
       )}
       {!assistant && (
-        <fieldset className="space-y-1">
-          <legend className="text-sm font-semibold text-slate-700">商品图片（{form.images.length}/9，演示版使用预置图片）</legend>
-          <div className="grid grid-cols-6 gap-2">
-            {IMAGE_PRESETS.slice(0, 6).map((url, i) => {
-              const selected = form.images.includes(url);
-              return (
-                <button key={url} type="button" aria-pressed={selected} aria-label={`${label}选择图片 ${i + 1}`}
-                  onClick={() => patch({ images: selected ? form.images.filter((x) => x !== url) : [...form.images, url].slice(0, 9) })}
-                  className={`h-10 rounded-lg border-2 text-xs ${selected ? 'border-teal-700 bg-teal-50' : 'border-slate-200'}`}>
-                  {selected ? '已选' : `图 ${i + 1}`}
-                </button>
-              );
-            })}
-          </div>
-        </fieldset>
+        <ImageUploader value={form.images} onChange={(images) => patch({ images })} label="商品图片" inputId={`${idPrefix}-images`}
+          presets={IMAGE_PRESETS.slice(0, 6)} presetVariant="compact" presetLabel={(i) => `${label}选择图片 ${i + 1}`} onPendingChange={setUploading} />
       )}
       {!assistant && (
         <TextField label="联系方式（只有你自己能看到草稿里的联系方式）" value={form.contact} size="small" fullWidth inputProps={{ maxLength: 100 }}
           onChange={(e) => patch({ contact: e.target.value })} />
       )}
-      {!assistant && <div>
-        <FormControlLabel control={<Checkbox checked={form.contactPublic} onChange={(e) => patch({ contactPublic: e.target.checked })} />} label="公开展示联系方式" />
-        <p className="text-xs text-slate-500">未勾选时，买家需点击“我想要”，经你同意后才能查看联系方式。</p>
-      </div>}
+      {!assistant && <ContactPublicField checked={form.contactPublic} onChange={(contactPublic) => patch({ contactPublic })} />}
       {bundle && (
         <BundleEditor rows={form.bundleRows} onChange={(bundleRows) => patch({ bundleRows })} idPrefix={`${idPrefix}-bundle`}
           error={problem?.code === 'INVALID_BUNDLE' ? problem.message : null} />
@@ -224,7 +209,7 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
       )}
       {error && <Alert severity="error">{error}</Alert>}
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="contained" onClick={save} disabled={saving || conflict !== null}>保存这件</Button>
+        <Button variant="contained" onClick={save} disabled={saving || conflict !== null || uploading > 0}>保存这件</Button>
         <span role="status" aria-live="polite" className="text-sm text-emerald-800">{status}</span>
       </div>
     </section>

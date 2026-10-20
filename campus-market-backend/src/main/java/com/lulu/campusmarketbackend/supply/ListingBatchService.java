@@ -97,6 +97,7 @@ public class ListingBatchService {
         boolean open = "OPEN".equals(batch.get("status"));
         List<Map<String, Object>> payloads = rows.stream().map(r -> drafts.read(r.get("payload"))).toList();
         ListingValidator.Lookups lookups = open && !rows.isEmpty() ? validator.lookups((UUID) batch.get("owner_user_id"), payloads) : null;
+        List<Map<String, Object>> projected = drafts.projectAll(rows, ListingDraftService.Access.OWNER);
         List<Map<String, Object>> items = new ArrayList<>();
         boolean allValid = !rows.isEmpty();
         boolean assisted = false;
@@ -104,7 +105,7 @@ public class ListingBatchService {
             Map<String, Object> row = rows.get(i);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("position", ((Number) row.get("position")).intValue());
-            Map<String, Object> draft = drafts.project(row, ListingDraftService.Access.OWNER);
+            Map<String, Object> draft = projected.get(i);
             item.put("draft", draft);
             assisted |= Boolean.TRUE.equals(draft.get("editedByAssistant"));
             item.put("productId", row.get("item_product_id") == null ? null : DomainMapper.text(row.get("item_product_id")));

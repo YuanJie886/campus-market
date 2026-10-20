@@ -133,14 +133,15 @@ describe('2.4 收件箱', () => {
     return product;
   }
 
-  it('7. 展示命中条件、匹配理由、匹配档位；「去预约面交」进入现有预约流程', async () => {
+  it('7. 展示命中条件、匹配理由、匹配档位；「申请联系卖家」进入商品详情（不再有预约面交入口）', async () => {
     const product = await seedMatch();
     renderApp('/demands');
     expect(await screen.findByText(/命中订阅：关键词「收件箱台灯」/, undefined, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/匹配理由：标题与关键词完全一致/)).toBeTruthy();
     expect(screen.getByText('一般匹配')).toBeTruthy();
-    const book = screen.getByRole('link', { name: '去预约面交' });
-    expect(book.getAttribute('href')).toBe(`/product/${product.id}?book=1`);
+    const contact = screen.getByRole('link', { name: '申请联系卖家' });
+    expect(contact.getAttribute('href')).toBe(`/product/${product.id}`);
+    expect(screen.queryByRole('link', { name: '去预约面交' })).toBeNull();
     // 收件箱里不出现卖家联系方式
     expect(document.body.textContent).not.toContain('13900000000');
   });
@@ -161,15 +162,16 @@ describe('2.4 收件箱', () => {
     expect(await screen.findByText(/还没有匹配/)).toBeTruthy();
   });
 
-  it('10. 失效的匹配不再提供「去预约面交」', async () => {
+  it('10. 失效的匹配（已售出）写明暂不可联系，且不再提供「申请联系卖家」', async () => {
     const product = await seedMatch();
     const matches = await api.listDemandMatches();
     // 直接把商品置为已售出，模拟被他人买走
     (api as unknown as { db: { market: { products: Array<{ id: string; status: string }> } } })
       .db.market.products.find((p) => p.id === product.id)!.status = '已售出';
     renderApp('/demands');
-    expect(await screen.findByText('已被预约或售出，暂不可购买', undefined, { timeout: 5000 })).toBeTruthy();
-    expect(screen.queryByRole('link', { name: '去预约面交' })).toBeNull();
+    expect(await screen.findByText('已售出或下架，暂不可联系', undefined, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '申请联系卖家' })).toBeNull();
+    expect(screen.getByRole('link', { name: '查看商品' }).getAttribute('href')).toBe(`/product/${product.id}`);
     expect(matches.items).toHaveLength(1);
   });
 
@@ -178,11 +180,18 @@ describe('2.4 收件箱', () => {
     expect(await screen.findByRole('button', { name: '一键体验账号' }, { timeout: 5000 })).toBeTruthy();
   });
 
-  it('12. 从匹配进入详情页（?book=1）只是打开现有预约弹窗，必须由用户确认，不会自动下单', async () => {
+  it('12. 从匹配进入详情页不会自动发起联系申请，也不弹出任何预约框；必须由用户点击「我想要」', async () => {
     const product = await seedMatch();
-    renderApp(`/product/${product.id}?book=1`);
-    expect(await screen.findByText('预约校园面交', undefined, { timeout: 5000 })).toBeTruthy();
-    expect((await api.listOrders('all')).filter((o) => o.productId === product.id)).toHaveLength(0);
+    renderApp(`/product/${product.id}`);
+    const want = await screen.findByRole('button', { name: '我想要' }, { timeout: 5000 });
+    await waitFor(() => expect((want as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText('预约校园面交')).toBeNull();
+    expect(await api.getContactRequest(product.id)).toBeNull();
+    expect(document.body.textContent).not.toContain('13900000000');
+    fireEvent.click(want);
+    expect(await screen.findByRole('button', { name: '等待卖家同意' })).toBeTruthy();
+    expect(await api.getContactRequest(product.id)).toMatchObject({ productId: product.id, status: 'PENDING' });
   });
 });
 

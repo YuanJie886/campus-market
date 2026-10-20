@@ -9,6 +9,8 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import NotFoundPage from './pages/NotFoundPage';
+// 协议与隐私政策：注册页的弹窗本来就要用到正文，放在首包里，公开页不需要再懒加载
+import { LegalPage } from './legal/LegalDocumentView';
 
 // 其余页面按路由懒加载，把它们的依赖（表单、聊天、订单视图等）移出入口 chunk。
 const ProductDetailPage = lazy(() => import('./pages/ProductDetailPage'));
@@ -18,6 +20,9 @@ const ProfileLayout = lazy(() => import('./pages/profile/ProfileLayout'));
 const ProfileInfoPage = lazy(() => import('./pages/profile/ProfileInfoPage'));
 const MyListingsPage = lazy(() => import('./pages/profile/MyListingsPage'));
 const ContactRequestsPage = lazy(() => import('./pages/profile/ContactRequestsPage'));
+// 阶段 3：修改密码、注销（个人中心）与凭重置码找回（公开页）
+const AccountSecurityPage = lazy(() => import('./pages/profile/AccountSecurityPage'));
+const PasswordResetPage = lazy(() => import('./pages/PasswordResetPage'));
 const FavoritesPage = lazy(() => import('./pages/profile/FavoritesPage'));
 const DemandsPage = lazy(() => import('./pages/DemandsPage'));
 // 模块 4：课程教材图谱各页按路由拆包，目录与教材页不进入口 chunk
@@ -66,6 +71,10 @@ export default function App() {
         <Route path="product/:id" element={<RequireAuth><ProductDetailPage /></RequireAuth>} />
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
+        <Route path="password-reset" element={<PasswordResetPage />} />
+        {/* 用户协议与隐私政策：公开页，未登录也能看 */}
+        <Route path="terms" element={<LegalPage kind="terms" />} />
+        <Route path="privacy" element={<LegalPage kind="privacy" />} />
         <Route
           path="publish"
           element={
@@ -128,6 +137,7 @@ export default function App() {
           <Route path="textbook-suggestions" element={<TextbookSuggestionsPage />} />
           <Route path="reports" element={<MyReportsPage />} />
           <Route path="restrictions" element={<MyRestrictionsPage />} />
+          <Route path="security" element={<AccountSecurityPage />} />
         </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

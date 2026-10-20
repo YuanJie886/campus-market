@@ -82,6 +82,11 @@ class GovernancePerformanceIT {
         counter = StatementCounter.install(sessions);
         api = new SupplyApi(mockMvc, json);
         if (seeded) return;
+        // V16 起交易相关表只读：这里的订单、取消、爽约与自动限制代表 V16 之前留下的历史数据，
+        // 在一个事务里以 replica 角色临时跳过触发器写入（CHECK 与外键照常生效）
+        new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource)).executeWithoutResult(tx -> {
+        jdbc.execute("SET LOCAL session_replication_role = replica");
         jdbc.update("INSERT INTO schools(id,name) SELECT 'gov-s' || g, '治理性能学校 ' || g FROM generate_series(0, 9) g");
         jdbc.update("INSERT INTO campuses(id,school_id,name) SELECT 'gov-c' || g, 'gov-s' || g, 'gov-c' || g FROM generate_series(0, 9) g");
         // 11 所学校（试点学校 + 10 所），每校 300 名用户、1,000 件商品
@@ -197,6 +202,7 @@ class GovernancePerformanceIT {
                 SELECT gen_random_uuid(), r.school_id, r.user_id, r.id, r.case_id, '申诉', r.created_at
                 FROM (SELECT * FROM user_restrictions ORDER BY id LIMIT 5000) r
                 """);
+        });
         for (String t : List.of("orders", "order_cancellations", "moderation_cases", "moderation_reports", "moderation_actions",
                 "user_restrictions", "order_no_show_reports", "moderation_appeals", "users", "products",
                 "order_slot_agreements", "user_restriction_basis")) {
@@ -257,7 +263,7 @@ class GovernancePerformanceIT {
     }
 
     @Test
-    @DisplayName("3. 用户侧：我的举报、我的限制、当前有效限制、30 天爽约计数、本人取消记录都按用户索引取回")
+    @DisplayName("3. 用户侧：我的举报、我的限制、当前有效限制都按用户索引取回")
     void userSide() throws Exception {
         ExplainSupport.Plan mine = plan("selectMyReports", Map.of("reporter", pilotReporter), "my reports");
         assertThat(mine.seqScanOn("moderation_reports")).isFalse();
@@ -266,19 +272,10 @@ class GovernancePerformanceIT {
         ExplainSupport.Plan restrictions = plan("selectMyRestrictions", Map.of("userId", pilotUser), "my restrictions");
         assertThat(restrictions.seqScanOn("user_restrictions")).isFalse();
         assertThat(restrictions.indexesUsed()).contains("user_restrictions_mine");
-        ExplainSupport.Plan active = plan("selectActiveRestriction", Map.of("userId", pilotUser, "scope", "BOOKING"), "active restriction");
+        // 阶段 1：CONTACT 的检查同时覆盖历史上的 BOOKING 限制，仍然只走有效限制索引
+        ExplainSupport.Plan active = plan("selectActiveRestriction", Map.of("userId", pilotUser, "scope", "CONTACT"), "active restriction");
         assertThat(active.seqScanOn("user_restrictions")).isFalse();
         assertThat(active.indexesUsed()).contains("user_restrictions_active");
-        UUID reported = jdbc.queryForObject("SELECT reported_user_id FROM order_no_show_reports ORDER BY id LIMIT 1", UUID.class);
-        ExplainSupport.Plan window = plan("countConfirmedNoShows", Map.of("userId", reported), "no-show window");
-        assertThat(window.seqScanOn("order_no_show_reports")).isFalse();
-        // V11 起计数还要判断档期快照：由覆盖订单与版本的 order_no_show_reports_confirmed_slot（只含已确认的行）取回
-        assertThat(window.indexesUsed()).anyMatch(i -> i.startsWith("order_no_show_reports_confirmed"));
-        assertThat(window.seqScanOn("order_slot_agreements")).isFalse();
-        UUID actor = jdbc.queryForObject("SELECT actor_user_id FROM order_cancellations ORDER BY order_id LIMIT 1", UUID.class);
-        ExplainSupport.Plan cancels = plan("selectOwnCancellations", Map.of("userId", actor), "own cancellations");
-        assertThat(cancels.seqScanOn("order_cancellations")).isFalse();
-        assertThat(cancels.indexesUsed()).contains("order_cancellations_actor");
     }
 
     @Test
@@ -302,22 +299,8 @@ class GovernancePerformanceIT {
     }
 
     @Test
-    @DisplayName("6. V11：档期快照按主键；30 天计数（含快照条件）仍走已确认索引；以某次确认为依据的限制按依据索引；我的处理通知按动作涉及的用户索引")
+    @DisplayName("6. 我的处理通知按动作涉及的用户索引；历史自动限制的依据按限制取回（爽约计数、档期快照与重算已随交易停用）")
     void v11Queries() throws Exception {
-        Map<String, Object> order = jdbc.queryForMap("SELECT order_id, meeting_revision FROM order_slot_agreements ORDER BY order_id LIMIT 1");
-        ExplainSupport.Plan slot = plan("selectSlotAgreement", Map.of("orderId", order.get("order_id"), "revision", order.get("meeting_revision")), "slot snapshot");
-        assertThat(slot.seqScanOn("order_slot_agreements")).isFalse();
-        assertThat(slot.indexesUsed()).contains("order_slot_agreements_pkey");
-        UUID reported = jdbc.queryForObject("SELECT reported_user_id FROM order_no_show_reports ORDER BY id LIMIT 1", UUID.class);
-        ExplainSupport.Plan window = plan("selectConfirmedNoShowsInWindow", Map.of("userId", reported), "no-show basis window");
-        assertThat(window.seqScanOn("order_no_show_reports")).isFalse();
-        assertThat(window.seqScanOn("order_slot_agreements")).isFalse();
-        assertThat(window.indexesUsed()).anyMatch(i -> i.startsWith("order_no_show_reports_confirmed"));
-        UUID report = jdbc.queryForObject("SELECT no_show_report_id FROM user_restriction_basis ORDER BY no_show_report_id LIMIT 1", UUID.class);
-        ExplainSupport.Plan based = plan("lockRestrictionsBasedOn", Map.of("reportId", report), "restrictions based on report");
-        assertThat(based.seqScanOn("user_restriction_basis")).isFalse();
-        assertThat(based.seqScanOn("user_restrictions")).isFalse();
-        assertThat(based.indexesUsed()).contains("user_restriction_basis_report");
         UUID subject = jdbc.queryForObject("SELECT subject_user_id FROM moderation_actions WHERE subject_user_id IS NOT NULL AND school_id='pilot' ORDER BY id LIMIT 1", UUID.class);
         ExplainSupport.Plan notices = plan("selectMyActionNotices", Map.of("userId", subject), "my action notices");
         assertThat(notices.seqScanOn("moderation_actions")).isFalse();
@@ -341,11 +324,12 @@ class GovernancePerformanceIT {
             UUID product = jdbc.queryForObject("SELECT id FROM products WHERE campus='东校区' AND NOT EXISTS (SELECT 1 FROM moderation_cases c WHERE c.target_id = products.id) ORDER BY id LIMIT 1", UUID.class);
             UUID caseId = UUID.randomUUID();
             jdbc.update("INSERT INTO moderation_cases(id, school_id, target_type, target_id, report_count) VALUES (?, 'pilot', 'PRODUCT', ?, ?)", caseId, product, n);
+            // 举报人不能是这位工作人员本人，否则按利益回避规则他看不到这个案件（此前偶发失败的原因）
             jdbc.update("""
                     INSERT INTO moderation_reports(id, school_id, case_id, reporter_user_id, target_type, target_id, reason_code)
                     SELECT gen_random_uuid(), 'pilot', ?, u.id, 'PRODUCT', ?, 'SPAM'
-                    FROM (SELECT u.id FROM users u WHERE u.campus = '东校区' ORDER BY u.id LIMIT ?) u
-                    """, caseId, product, n);
+                    FROM (SELECT u.id FROM users u WHERE u.campus = '东校区' AND u.id <> ?::uuid ORDER BY u.id LIMIT ?) u
+                    """, caseId, product, staff.id(), n);
             jdbc.update("""
                     INSERT INTO moderation_actions(id, school_id, case_id, staff_user_id, action_code, reason_code, target_type, target_id, effective)
                     SELECT gen_random_uuid(), 'pilot', ?, ?::uuid, 'NO_ACTION', 'DUPLICATE', 'PRODUCT', ?, false FROM generate_series(1, ?)

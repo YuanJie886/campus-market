@@ -15,7 +15,6 @@ spring:
     enabled: false
 
 campus-market:
-  expiry-job-enabled: false
   # 测试 profile 不创建限流清理 Job，避免定时线程建连接
   rate-limit:
     cleanup-enabled: false

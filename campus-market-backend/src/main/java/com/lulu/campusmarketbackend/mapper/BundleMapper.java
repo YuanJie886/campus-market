@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** 整套打包明细（模块 5）。明细没有 id，不是商品，不能被单独下单。 */
+/** 整套打包明细（模块 5）。明细没有 id，不是商品，不能被单独申请联系。 */
 @Mapper
 public interface BundleMapper {
 

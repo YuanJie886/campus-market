@@ -1,6 +1,6 @@
 import type {
   Building, Campus, Category, ChatMessage, Comment, Condition, Conversation, Favorite,
-  Order, Product, ProductStatus, Review, SortKey, User,
+  Product, ProductStatus, SortKey, User,
 } from '../types';
 import type { BuildingScope } from '../utils/geo';
 
@@ -116,20 +116,6 @@ export interface AssistInviteCreated { invite: AssistInvite; token: string }
 export interface AssistInviteRedeemed { inviteId: string; drafts: ListingDraft[] }
 export type AssistEventCode = 'INVITE_CREATED' | 'INVITE_REDEEMED' | 'INVITE_REVOKED' | 'ASSIST_DRAFT_EDITED' | 'PUBLISHED_AFTER_ASSIST';
 export interface AssistEvent { code: AssistEventCode; byOwner: boolean; draftId: string | null; at: number }
-export interface PriceGuidanceQuery { category: Category; condition?: Condition; textbookEditionId?: string }
-export interface PriceGuidance {
-  basis: { category: Category; condition: Condition | null; textbookEditionId: string | null };
-  minimumSample: number; note: string; sufficient: boolean;
-  /** 样本数的下界档位；样本不足时为 null（连样本数都不给） */
-  sampleCount: number | null; sampleCountIsLowerBound?: boolean;
-  median?: number; lowerQuartile?: number; upperQuartile?: number;
-  /** YYYY-MM */
-  periodStart?: string; periodEnd?: string;
-}
-/** 固定说明文字，与后端 PriceGuidanceService.NOTE 一致 */
-export const PRICE_GUIDANCE_NOTE = '这是校内历史已完成交易的统计参考，不是平台估价或成交保证。';
-export const PRICE_GUIDANCE_MIN_SAMPLE = 8;
-
 /* ---------------------------- 课程教材图谱（模块 4） ---------------------------- */
 
 export type Term = 'SPRING' | 'SUMMER' | 'AUTUMN' | 'WINTER';
@@ -198,12 +184,10 @@ export interface TextbookSuggestion {
 }
 export interface TextbookSuggestionResult { outcome: 'CREATED' | 'EXISTING'; suggestion: TextbookSuggestion }
 
-/* ---------------------------- 可信面交（模块 3） ---------------------------- */
+/* ---------------------------- 卖家声明（模块 3） ---------------------------- */
 
 /** 卖家对条目的声明（机器码）。中文只在 utils/trustedFlow 映射。 */
 export type DeclaredCondition = 'NORMAL' | 'DEFECT' | 'NOT_TESTED' | 'NOT_APPLICABLE';
-/** 买家现场结果（机器码）。 */
-export type BuyerResult = 'MATCH' | 'MISMATCH' | 'NOT_CHECKABLE';
 
 export interface InspectionTemplateItem { code: string; label: string; description: string; required: boolean }
 export interface InspectionTemplate { category: Category; version: number; title: string; items: InspectionTemplateItem[] }
@@ -215,88 +199,6 @@ export interface DisclosureInput { itemCode: string; condition: DeclaredConditio
 export interface ProductDisclosure extends Omit<InspectionTemplate, 'items'> {
   items: Array<InspectionTemplateItem & { condition: DeclaredCondition | null; note: string }>;
 }
-
-export type InspectionStatus = 'LEGACY_NONE' | 'NOT_PROVIDED' | 'PENDING' | 'SUBMITTED' | 'NEEDS_RESOLUTION';
-
-export interface OrderInspectionItem {
-  code: string; label: string; description: string; required: boolean;
-  sellerCondition: DeclaredCondition | null; sellerNote: string;
-  buyerResult: BuyerResult | null; buyerNote: string; checkedAtIso: string | null;
-}
-
-export interface OrderInspection {
-  status: InspectionStatus;
-  templateTitle?: string | null; templateVersion?: number | null;
-  hasMismatch?: boolean; submittedAtIso?: string | null;
-  items: OrderInspectionItem[];
-}
-
-export type ProposalStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | 'SUPERSEDED';
-
-export interface MeetingProposal {
-  id: string; proposedBy: 'BUYER' | 'SELLER'; mine: boolean;
-  meetingPointId: string; meetingPointName: string;
-  startsAtIso: string; endsAtIso: string; note: string;
-  status: ProposalStatus; revision: number | null;
-  createdAtIso: string; respondedAtIso: string | null;
-}
-
-export type PresenceStatus = 'NOT_STARTED' | 'DEPARTED' | 'ARRIVED';
-export interface PresenceState { status: PresenceStatus; departedAtIso: string | null; arrivedAtIso: string | null }
-
-export interface FlowEvent { code: string; actor: 'BUYER' | 'SELLER' | 'SYSTEM'; meetingRevision: number | null; atIso: string }
-
-/** 订单流程视图：只有订单双方可见，不含确认码与联系方式。 */
-export interface OrderFlow {
-  /** 模块 7：订单双方看到的取消事实；未取消为 null */
-  cancellation?: OrderCancellation | null;
-  orderId: string;
-  status: CanonicalOrderStatus;
-  role: 'BUYER' | 'SELLER';
-  agreement: {
-    revision: number; meetingPointId: string; meetingPointName: string | null;
-    startsAtIso: string; endsAtIso: string | null; confirmed: boolean;
-    /** 7.1A：当前版本有接受时冻结的完整档期快照；旧原始预约为 false（可通过改约确认一个完整档期） */
-    explicitSlot?: boolean;
-  };
-  proposals: MeetingProposal[];
-  presence: { revision: number; me: PresenceState; counterpart: PresenceState };
-  inspection: OrderInspection;
-  /** 服务端计算：买家此刻确认面交是否会被放行。前端只读，不复制条件 */
-  buyerConfirmAllowed: boolean;
-  buyerConfirmBlockReason: BuyerConfirmBlockReason | null;
-  currentMeetingStatus: MeetingStatus;
-  timeline: FlowEvent[];
-}
-
-/** 买家确认面交的阻断原因（机器码）。中文只在 utils/trustedFlow 映射。 */
-export type BuyerConfirmBlockReason =
-  | 'INSPECTION_REQUIRED' | 'INSPECTION_MISMATCH' | 'ORDER_NOT_IN_MEETING' | 'ORDER_TERMINAL' | 'ALREADY_CONFIRMED';
-/** 面交安排状态：卖家未接受 / 已有正式档期 / 改约待回应 / 不再约时间 */
-export type MeetingStatus = 'AWAITING_SELLER' | 'CONFIRMED' | 'RESCHEDULE_PENDING' | 'CLOSED';
-
-/** 订单列表里的流程摘要（3.8A）：与订单同一次请求返回，不需要逐单请求流程详情。 */
-export interface OrderFlowSummary {
-  inspectionRequired: boolean;
-  inspectionStatus: InspectionStatus;
-  buyerConfirmAllowed: boolean;
-  buyerConfirmBlockReason: BuyerConfirmBlockReason | null;
-  currentMeetingStatus: MeetingStatus;
-  myPresenceStatus: PresenceStatus;
-  counterpartyPresenceStatus: PresenceStatus;
-}
-
-export interface InspectionResultInput { itemCode: string; result: BuyerResult | null; note?: string }
-export interface MeetingProposalInput { meetingPointId: string; startsAtIso: string; endsAtIso: string; note?: string }
-
-export interface OwnTradeHistory {
-  completed: number; completedAsBuyer: number; completedAsSeller: number;
-  cancelled: number; expired: number; disputed: number; active: number;
-  recent: Array<{ orderId: string; productTitle: string; role: 'BUYER' | 'SELLER'; status: CanonicalOrderStatus; updatedAt: number }>;
-}
-
-/** 公共履历：只有聚合数字。averageRating 在评价少于 3 条时为 null。 */
-export interface PublicTradeSummary { completedCount: number; joinedAt: number; reviewCount: number; averageRating: number | null }
 
 /** 楼栋集市 feed 的查询。scope 缺省为 SCHOOL，即普通浏览。 */
 export interface FeedQuery {
@@ -333,91 +235,60 @@ export interface FeedPage {
   pageSize: number;
   total: number;
 }
-export type CanonicalOrderStatus = 'PENDING_SELLER_CONFIRM'|'PENDING_MEETING'|'BUYER_CONFIRMED'|'SELLER_CONFIRMED'|'COMPLETED'|'CANCELLED'|'EXPIRED'|'DISPUTED'
-/** 7.1A：meetingEndsAtIso 明确的结束时间（15～120 分钟）；不提交时服务端写入默认 60 分钟并返回，界面总是明确展示 */
-export interface CreateOrderInput { productId: string; meetingPointId: string; meetingAtIso: string; meetingEndsAtIso?: string; contact?: string; idempotencyKey: string }
-export const SLOT_DEFAULT_MINUTES = 60;
-export const SLOT_MIN_MINUTES = 15;
-export const SLOT_MAX_MINUTES = 120;
-export interface OrderTransitionInput {
-  to: CanonicalOrderStatus; confirmationCode?: string; reason?: string;
-  /** 模块 7：取消时的结构化原因。卖家确认之后的取消必须提供；「其他」必须附一句说明 */
-  reasonCode?: CancellationReason; note?: string;
-}
+/* ------------------------------- 可信治理（模块 7） ------------------------------- */
 
-/* ------------------------- 交易承诺与可信治理（模块 7） ------------------------- */
-
-/** 取消所处阶段，由服务端根据订单状态、档期版本与到达记录判定，客户端不能提交 */
-export type CancellationPhase = 'BEFORE_SELLER_CONFIRM' | 'AFTER_SELLER_CONFIRM' | 'AFTER_MEETING_AGREED' | 'AFTER_ARRIVAL_REPORTED' | 'INSPECTION_MISMATCH';
-export type CancellationReason = 'CHANGED_MIND' | 'SCHEDULE_CONFLICT' | 'ITEM_UNAVAILABLE' | 'CONDITION_MISMATCH' | 'COUNTERPART_UNRESPONSIVE' | 'OTHER';
-export const CANCELLATION_REASONS: readonly CancellationReason[] = ['CHANGED_MIND', 'SCHEDULE_CONFLICT', 'ITEM_UNAVAILABLE', 'CONDITION_MISMATCH', 'COUNTERPART_UNRESPONSIVE', 'OTHER'];
-export const CANCELLATION_NOTE_MAX = 200;
-/** 订单双方看到的取消事实（公共履历里没有这一项） */
-export interface OrderCancellation { phase: CancellationPhase; reasonCode: CancellationReason | null; note: string | null; byMe: boolean; createdAt: number }
-
-export type NoShowStatus = 'PENDING' | 'ACKNOWLEDGED' | 'DISPUTED' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED';
-export type NoShowReason = 'DID_NOT_ARRIVE' | 'ARRIVED_TOO_LATE' | 'UNREACHABLE_AT_MEETING' | 'OTHER';
-export const NO_SHOW_REASONS: readonly NoShowReason[] = ['DID_NOT_ARRIVE', 'ARRIVED_TOO_LATE', 'UNREACHABLE_AT_MEETING', 'OTHER'];
-/** 档期结束后多久才能报告爽约（分钟），以及可以报告的期限（天） */
-export const NO_SHOW_GRACE_MINUTES = 15;
-export const NO_SHOW_REPORT_WINDOW_DAYS = 7;
-export interface NoShowReport {
-  id: string; orderId: string; meetingRevision: number; status: NoShowStatus; reasonCode: NoShowReason;
-  note: string | null; responseNote: string | null;
-  /** 我是报告人 / 报告针对我 */
-  byMe: boolean; aboutMe: boolean;
-  createdAt: number; respondedAt: number | null; decidedAt: number | null;
-  /** 被报告的一方可以承认或提出异议（仅 PENDING） */
-  canRespond: boolean;
-  /** 报告人可以请平台工作人员复核（PENDING 且尚未提交复核） */
-  canEscalate: boolean;
-}
-/** 能否报告爽约：不能时给出机器码，界面只做展示 */
-export interface NoShowEligibility {
-  canReport: boolean;
-  code: 'OK' | 'NO_AGREED_MEETING' | 'NO_EXPLICIT_SLOT' | 'TOO_EARLY' | 'WINDOW_CLOSED' | 'MET' | 'CANCELLED_BEFORE_MEETING' | 'ALREADY_REPORTED';
-  reportableAt: number | null; deadline: number | null;
-  /** 7.1A：判断所依据的、接受时冻结的档期快照；没有快照时为 null（不推断结束时间） */
-  slot?: { revision: number; startsAt: number; endsAt: number; agreedAt: number } | null;
-}
-export interface OrderNoShowView { reports: NoShowReport[]; eligibility: NoShowEligibility }
-
-export type ModerationTargetType = 'PRODUCT' | 'USER' | 'CIRCLE' | 'COMMENT' | 'MESSAGE' | 'ORDER' | 'NO_SHOW';
-export type ModerationReportReason = 'PROHIBITED_ITEM' | 'MISLEADING' | 'FRAUD_SUSPECTED' | 'HARASSMENT' | 'SPAM' | 'IMPERSONATION' | 'NO_SHOW_REVIEW' | 'OTHER';
+/** 案件对象类型。ORDER / NO_SHOW 只出现在历史案件里（站内交易已停用，V16 起不能再举报或立案） */
+export type ModerationTargetType = ReportableTargetType | 'ORDER' | 'NO_SHOW';
+/** 可以举报 / 立案的对象（后端 ModerationService.TARGETS） */
+export type ReportableTargetType = 'PRODUCT' | 'USER' | 'CIRCLE' | 'COMMENT' | 'MESSAGE';
+export const MODERATION_REPORT_TARGETS: readonly ReportableTargetType[] = ['PRODUCT', 'USER', 'CIRCLE', 'COMMENT', 'MESSAGE'];
+/** 历史案件只读：界面不提供领取或处理 */
+export const HISTORICAL_TARGET_TYPES: readonly ModerationTargetType[] = ['ORDER', 'NO_SHOW'];
+export type ModerationReportReason = 'PROHIBITED_ITEM' | 'MISLEADING' | 'FRAUD_SUSPECTED' | 'HARASSMENT' | 'SPAM' | 'IMPERSONATION' | 'OTHER';
+/** 历史举报原因：爽约复核（已停用，只用于展示历史记录） */
+export type LegacyReportReason = 'NO_SHOW_REVIEW';
 export const MODERATION_REPORT_REASONS: readonly ModerationReportReason[] = ['PROHIBITED_ITEM', 'MISLEADING', 'FRAUD_SUSPECTED', 'HARASSMENT', 'SPAM', 'IMPERSONATION', 'OTHER'];
 export const MODERATION_NOTE_MAX = 500;
-export interface ModerationReportInput { targetType: ModerationTargetType; targetId: string; reasonCode: ModerationReportReason; note?: string }
+export interface ModerationReportInput { targetType: ReportableTargetType; targetId: string; reasonCode: ModerationReportReason; note?: string }
 /** 举报人自己看到的状态摘要：不含处理细节、工作人员身份或被举报人的处罚 */
 export interface MyModerationReport {
-  id: string; targetType: ModerationTargetType; targetId: string; reasonCode: ModerationReportReason; createdAt: number;
+  id: string; targetType: ModerationTargetType; targetId: string; reasonCode: ModerationReportReason | LegacyReportReason; createdAt: number;
   status: 'RECEIVED' | 'UNDER_REVIEW' | 'CLOSED';
   outcome: 'ACTION_TAKEN' | 'NO_ACTION' | null;
   /** 7.1C：本校暂时没有可以回避利益冲突的工作人员，案件保持待处理（不会被自动驳回） */
   awaitingEligibleStaff?: boolean;
 }
 
-export type RestrictionScope = 'BOOKING' | 'PUBLISHING' | 'CIRCLE_CREATION';
-/** 用户限制最长 30 天；自动规则见文档（30 天内第 2 次确认爽约 24 小时、第 3 次起 72 小时） */
+/**
+ * 限制范围。CONTACT = 申请联系方式（阶段 1 新增）；BOOKING 是历史上的「预约新订单」限制：
+ * 不能再新建，但到期前同样拦截联系申请（后端 GovernanceMapper.selectActiveRestriction）。
+ */
+export type RestrictionScope = 'CONTACT' | 'PUBLISHING' | 'CIRCLE_CREATION' | 'BOOKING';
+/** 用户限制最长 30 天；只来自工作人员在案件里的决定（爽约自动规则已随站内交易停用） */
 export const RESTRICTION_MAX_HOURS = 720;
 export interface MyAppealSummary {
   id: string; status: 'PENDING' | 'ACCEPTED' | 'REJECTED'; createdAt: number; decidedAt: number | null;
   /** 7.1C：本校暂时没有可以回避的工作人员，申诉保持待处理（不会被自动驳回） */
   awaitingEligibleStaff?: boolean;
 }
-/** 7.1B：自动限制来源统一为 SYSTEM_RULE（按公开规则），人工限制为 CASE */
+/** CASE = 工作人员的处理；SYSTEM_RULE 只出现在历史记录里（已停用的爽约自动规则，V16 全部撤销） */
 export type RestrictionSource = 'CASE' | 'SYSTEM_RULE';
-export const NO_SHOW_RULE_VERSION = 'NO_SHOW_V1';
 export interface RestrictionCorrection { outcome: 'SHORTENED' | 'REVOKED'; remainingCount: number; previousEndsAt: number; newEndsAt: number; createdAt: number }
+/** RULE_RETIRED：爽约规则停用时（V16）撤销的自动限制 */
+export type RevokeReason = 'APPEAL_ACCEPTED' | 'STAFF_CORRECTION' | 'RULE_RECOMPUTED' | 'RULE_RETIRED';
 export interface MyRestriction {
   id: string; scope: RestrictionScope; source: RestrictionSource; reasonCode: string;
   startsAt: number; endsAt: number; active: boolean; revokedAt: number | null;
   appeal: MyAppealSummary | null; canAppeal: boolean;
-  /** 7.1B：规则版本（仅 SYSTEM_RULE）、决定时间、撤销原因、所依据的确认（只有时间）与追加的纠正记录 */
-  ruleVersion?: string | null; decidedAt?: number; revokeReason?: 'APPEAL_ACCEPTED' | 'STAFF_CORRECTION' | 'RULE_RECOMPUTED' | null;
+  /** 7.1B：规则版本（仅历史 SYSTEM_RULE）、决定时间、撤销原因、所依据的确认（只有时间）与追加的纠正记录 */
+  ruleVersion?: string | null; decidedAt?: number; revokeReason?: RevokeReason | null;
   basis?: Array<{ confirmedAt: number; stillConfirmed: boolean }>;
   corrections?: RestrictionCorrection[];
 }
-/** 与我有关、可以申诉的处理（商品 / 评论隐藏、私信隔离、工作人员确认的爽约），不含举报人或工作人员身份 */
+/**
+ * 与我有关的处理（商品 / 评论隐藏、私信隔离），不含举报人或工作人员身份。
+ * CONFIRM_NO_SHOW 只是历史记录：服务端返回 active=false、canAppeal=false。
+ */
 export type MyNoticeActionCode = 'HIDE_PRODUCT' | 'HIDE_COMMENT' | 'QUARANTINE_MESSAGE' | 'CONFIRM_NO_SHOW';
 export interface MyModerationNotice {
   actionId: string; actionCode: MyNoticeActionCode; targetId: string; targetLabel: string; reasonCode: string;
@@ -426,8 +297,6 @@ export interface MyModerationNotice {
 export interface MyGovernance {
   restrictions: MyRestriction[];
   notices: MyModerationNotice[];
-  /** 30 天内已确认爽约的提醒（第 1 次只提醒，不限制） */
-  noShowWarning: { confirmedCount: number; windowDays: number } | null;
 }
 export interface AppealInput { restrictionId?: string; actionId?: string; reason: string }
 export const APPEAL_REASON_MAX = 500;
@@ -435,29 +304,33 @@ export const APPEAL_REASON_MAX = 500;
 export type StaffRole = 'MODERATOR' | 'SENIOR_MODERATOR' | 'SCHOOL_ADMIN' | 'AUDITOR';
 export interface StaffStatus { staff: boolean; role: StaffRole | null }
 export type ModerationCaseStatus = 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED' | 'DISMISSED' | 'APPEALED';
-export type ModerationActionCode = 'HIDE_PRODUCT' | 'RESTORE_PRODUCT' | 'ARCHIVE_CIRCLE' | 'RESTRICT_BOOKING' | 'RESTRICT_PUBLISHING'
-  | 'RESTRICT_CIRCLE_CREATION' | 'CONFIRM_NO_SHOW' | 'REJECT_NO_SHOW' | 'NO_ACTION'
+/** 现在可以提交的处理动作（后端 StaffModerationService.ACTIONS） */
+export type ModerationActionCode = 'HIDE_PRODUCT' | 'RESTORE_PRODUCT' | 'ARCHIVE_CIRCLE' | 'RESTRICT_CONTACT' | 'RESTRICT_PUBLISHING'
+  | 'RESTRICT_CIRCLE_CREATION' | 'NO_ACTION'
   | 'HIDE_COMMENT' | 'RESTORE_COMMENT' | 'QUARANTINE_MESSAGE' | 'RELEASE_MESSAGE';
+/** 只出现在历史处理记录 / 历史结案结果里的动作：不再提供，也不再被接受 */
+export type HistoricalActionCode = 'RESTRICT_BOOKING' | 'CONFIRM_NO_SHOW' | 'REJECT_NO_SHOW';
 /** 7.1C：工作人员利益冲突原因码（后端数据库函数判断；403 details.reason） */
-export type ConflictReason = 'SELF_TARGET' | 'OWN_CONTENT' | 'OWN_CONVERSATION' | 'OWN_ORDER' | 'OWN_REPORT' | 'OWN_ACTION';
-export type ModerationDecisionReason = 'POLICY_VIOLATION' | 'PROHIBITED_ITEM' | 'HARASSMENT' | 'FRAUD_RISK' | 'CONFIRMED_NO_SHOW'
+/** CONTACT_PARTY（阶段 2，V17）：申请过这件商品联系方式的工作人员回避该商品的案件 */
+export type ConflictReason = 'SELF_TARGET' | 'OWN_CONTENT' | 'OWN_CONVERSATION' | 'OWN_ORDER' | 'OWN_REPORT' | 'OWN_ACTION' | 'CONTACT_PARTY';
+export type ModerationDecisionReason = 'POLICY_VIOLATION' | 'PROHIBITED_ITEM' | 'HARASSMENT' | 'FRAUD_RISK'
   | 'INSUFFICIENT_EVIDENCE' | 'APPEAL_ACCEPTED' | 'APPEAL_REJECTED' | 'DUPLICATE' | 'OTHER';
-export const MODERATION_DECISION_REASONS: readonly ModerationDecisionReason[] = ['POLICY_VIOLATION', 'PROHIBITED_ITEM', 'HARASSMENT', 'FRAUD_RISK', 'CONFIRMED_NO_SHOW', 'INSUFFICIENT_EVIDENCE', 'DUPLICATE', 'OTHER'];
+/** 历史处理原因：爽约属实（已停用，只用于展示历史记录） */
+export type LegacyDecisionReason = 'CONFIRMED_NO_SHOW';
+export const MODERATION_DECISION_REASONS: readonly ModerationDecisionReason[] = ['POLICY_VIOLATION', 'PROHIBITED_ITEM', 'HARASSMENT', 'FRAUD_RISK', 'INSUFFICIENT_EVIDENCE', 'DUPLICATE', 'OTHER'];
 export interface ModerationCaseQuery { status?: ModerationCaseStatus; targetType?: ModerationTargetType; page?: number; size?: number }
 export interface ModerationCaseSummary {
   id: string; targetType: ModerationTargetType; targetId: string; status: ModerationCaseStatus;
   reportCount: number; createdAt: number; updatedAt: number; assignedToMe: boolean; assigned: boolean;
-  resolutionCode: ModerationActionCode | null;
+  resolutionCode: ModerationActionCode | HistoricalActionCode | null;
 }
 export interface ModerationCasePage { items: ModerationCaseSummary[]; total: number; page: number; size: number }
-/** 目标摘要：只有处理所需的最少字段，没有联系方式、确认码、账号或会话全文 */
+/** 目标摘要：只有处理所需的最少字段，没有联系方式、账号或会话全文 */
 export type ModerationTarget = { type: ModerationTargetType; exists: boolean; label: string; fields: Record<string, string | number | boolean | null> };
 export interface ModerationCaseDetail extends ModerationCaseSummary {
   target: ModerationTarget;
-  reports: Array<{ id: string; reasonCode: ModerationReportReason; note: string | null; snapshot: string | null; createdAt: number }>;
+  reports: Array<{ id: string; reasonCode: ModerationReportReason | LegacyReportReason; note: string | null; snapshot: string | null; createdAt: number }>;
   actions: Array<{ id: string; actionCode: string; reasonCode: string; note: string | null; createdAt: number; byMe: boolean; expiresAt: number | null; effective: boolean }>;
-  /** 爽约复核：订单档期、双方到达记录（手动声明，不是定位）、报告与回应 */
-  noShow: { report: NoShowReport; meeting: { startsAt: number; endsAt: number | null; revision: number; explicit?: boolean }; presence: Array<{ party: 'REPORTER' | 'REPORTED'; status: string; at: number | null }> } | null;
   /** 当前工作人员可以执行的动作（按目标类型、案件状态与角色计算） */
   allowedActions: ModerationActionCode[];
   /** 结案响应带上本次请求的 requestId（审计可追溯）；读取详情时没有 */
@@ -473,7 +346,6 @@ export interface StaffAppeal {
 }
 export interface StaffAppealPage { items: StaffAppeal[]; total: number; page: number; size: number }
 export interface AppealDecisionInput { accept: boolean; reasonCode: 'APPEAL_ACCEPTED' | 'APPEAL_REJECTED'; note?: string }
-export interface ReviewInput { rating: number; comment: string }
 export interface CommentInput { productId: string; content: string; parentId?: string | null }
 /* ------------------------------ 需求雷达 ------------------------------ */
 
@@ -533,7 +405,7 @@ export interface DemandMatch {
   tier: import('../utils/demand').MatchTier;
   reasonCodes: DemandReasonCode[];
   read: boolean;
-  /** 仍可预约：未失效且商品在售 */
+  /** 仍然有效：未失效且商品在售 */
   valid: boolean;
   invalidReason: 'NO_LONGER_MATCHES' | 'NOT_ON_SALE' | null;
   createdAt: number;
@@ -543,25 +415,109 @@ export interface DemandMatch {
 
 export interface DemandMatchPage { items: DemandMatch[]; total: number; page: number; pageSize: number }
 
-export interface MeetingPoint {
-  id: string; campus: Campus; name: string; latitude?: number | null; longitude?: number | null;
-  /** V5：停用的面交点仍会返回（历史订单要显示名称），但不能用于新的预约或提议 */
-  active?: boolean;
-}
-export type ContactRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+/* ------------------------------ 联系申请（阶段 1） ------------------------------ */
+
+/**
+ * PENDING → APPROVED / REJECTED（卖家）/ WITHDRAWN（买家撤回）；APPROVED → REVOKED（卖家撤回同意）；
+ * WITHDRAWN → PENDING（买家重新申请，同一条记录）。REJECTED、REVOKED 是终态，再次申请 409。
+ */
+export type ContactRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN' | 'REVOKED';
+export const CONTACT_REQUEST_STATUSES: readonly ContactRequestStatus[] = ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'REVOKED'];
+/** received = 我作为卖家收到的；sent = 我作为买家发出的 */
+export type ContactRequestRole = 'received' | 'sent';
+/** 列表每页最多 50 条（后端 size 1～50，默认 20） */
+export const CONTACT_REQUEST_PAGE_MAX = 50;
+/** 同一用户每小时最多发起 20 次新申请（超限 429）；对同一件商品的重复请求不计数 */
+export const CONTACT_REQUEST_HOURLY_LIMIT = 20;
+/** 申请对象。从不包含联系方式：联系方式只出现在商品详情的 contact 字段，由服务端判断 */
 export interface ContactRequest {
   id: string; productId: string; buyerId: string; sellerId: string;
   status: ContactRequestStatus; createdAt: number; updatedAt: number;
-  productTitle?: string; buyerNickname?: string;
+  /** 卖家同意 / 拒绝 / 撤回同意的时间；待处理与已撤回为 null */
+  decidedAt: number | null;
+  productTitle: string; buyerNickname: string; sellerNickname: string;
+  /** 按查看者视角计算：卖家 = 未看过的待处理申请；买家 = 未看过的同意 / 拒绝 / 撤回同意 */
+  unread: boolean;
+}
+export interface ContactRequestQuery { role?: ContactRequestRole; status?: ContactRequestStatus; page?: number; size?: number }
+export interface ContactRequestPage { items: ContactRequest[]; total: number; page: number; size: number }
+/** received = 卖家未读的新申请；updates = 买家未读的同意 / 拒绝 / 撤回同意 */
+export interface ContactUnreadCounts { received: number; updates: number; total: number }
+
+// ---------------- 阶段 3：账号生命周期（docs/account-lifecycle.md） ----------------
+/** 后端 AccountService：新密码 8～72 位（服务端会去掉首尾空白后再计长度） */
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 72;
+/** 注销确认语，必须逐字输入 */
+export const ACCOUNT_DELETION_CONFIRMATION = '确认注销';
+/** 重置失败的统一提示：不透露账号是否存在、码是否过期或错误次数 */
+export const PASSWORD_RESET_FAILURE = '账号或重置码无效或已过期';
+/** POST /v1/auth/password 的响应：当前会话保留，其他设备的会话数 */
+export interface PasswordChangeResult { changed: boolean; otherSessionsEnded: number }
+/** POST /v1/auth/password-reset 的请求体（只有这三个字段，未知字段 400） */
+export interface PasswordResetInput { account: string; code: string; newPassword: string }
+/** POST /v1/auth/me/deletion 的响应 */
+export interface AccountDeletionResult { deleted: boolean; productsTakenDown: number; requestsClosed: number; membershipsEnded: number }
+
+// ---------------- 阶段 4：图片上传与内容安全（docs/images-and-content-safety.md） ----------------
+/** 单张上限 5 MB（后端 ImageService.MAX_BYTES） */
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** 只接受 JPEG / PNG（服务端按文件头再判断一次） */
+export const IMAGE_ACCEPT = 'image/jpeg,image/png';
+/** 413 的提示，与后端一致 */
+export const IMAGE_TOO_LARGE = '图片不能超过 5 MB';
+/** 商品里保存的上传图片引用前缀：upload:<id> */
+export const UPLOAD_REF_PREFIX = 'upload:';
+/** 内容安全拦截的统一提示（不提示命中了哪个词） */
+export const CONTENT_BLOCKED_MESSAGE = '内容可能包含违规信息，请修改后再提交';
+/** POST /v1/images 的响应：ref 写进商品的 images；url 是短时签名地址（相对路径，1 小时），只用于显示 */
+export interface UploadedImage { id: string; ref: string; url: string; width: number; height: number }
+
+/**
+ * GET /v1/config（无需登录）：客户端可用的图片规则。旧后端没有这个接口（404）时使用 DEFAULT_CLIENT_CONFIG。
+ * externalAllowed=false 时后端拒绝新的外部 http(s) 图片地址（400）；编辑已有商品时原有的外部图片可以保留。
+ */
+export interface ImageConfig { maxCount: number; maxBytes: number; accept: string[]; externalAllowed: boolean }
+export interface ClientConfig { images: ImageConfig }
+export const DEFAULT_CLIENT_CONFIG: ClientConfig = Object.freeze({
+  images: Object.freeze({ maxCount: 9, maxBytes: IMAGE_MAX_BYTES, accept: ['image/jpeg', 'image/png'], externalAllowed: true }),
+}) as ClientConfig;
+/** 服务端返回的配置逐项校验：缺失或类型不对的字段回落到默认值（不信任半截响应） */
+export function normalizeClientConfig(raw: unknown): ClientConfig {
+  const fallback = DEFAULT_CLIENT_CONFIG.images;
+  const images = (raw && typeof raw === 'object' ? (raw as { images?: unknown }).images : undefined) as Partial<Record<keyof ImageConfig, unknown>> | undefined;
+  const positiveInt = (v: unknown, d: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : d);
+  const accept = Array.isArray(images?.accept) && images!.accept.length > 0 && images!.accept.every((t) => typeof t === 'string' && t.startsWith('image/'))
+    ? [...images!.accept as string[]] : [...fallback.accept];
+  return {
+    images: {
+      maxCount: positiveInt(images?.maxCount, fallback.maxCount),
+      maxBytes: positiveInt(images?.maxBytes, fallback.maxBytes),
+      accept,
+      externalAllowed: typeof images?.externalAllowed === 'boolean' ? images.externalAllowed : fallback.externalAllowed,
+    },
+  };
 }
 
 export interface CampusMarketApi {
+  /** 客户端配置（图片张数、大小、类型与是否允许外部图片）；旧后端 404 时返回默认值 */
+  getClientConfig(): Promise<ClientConfig>;
+  /** 本人对该商品的申请，尚未申请时为 null */
   getContactRequest(productId: string): Promise<ContactRequest | null>;
+  /** 新建、幂等返回（PENDING / APPROVED）或撤回后重新申请；请求体为空 */
   requestContact(productId: string): Promise<ContactRequest>;
-  listContactRequests(): Promise<ContactRequest[]>;
+  /** 分页列表：role 默认 received，按最近变化倒序 */
+  listContactRequests(query?: ContactRequestQuery): Promise<ContactRequestPage>;
+  getContactRequestUnreadCount(): Promise<ContactUnreadCounts>;
+  /** 把该角色的未读标记为已读，返回新的未读数 */
+  markContactRequestsRead(role: ContactRequestRole): Promise<ContactUnreadCounts>;
+  /** 卖家：同意或拒绝（同一结论重复提交幂等） */
   decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED'): Promise<ContactRequest>;
+  /** 买家：撤回还没有处理的申请（重复撤回幂等） */
+  withdrawContactRequest(id: string): Promise<ContactRequest>;
+  /** 卖家：撤回已经给出的同意，买家立即看不到联系方式（重复撤回幂等） */
+  revokeContactRequest(id: string): Promise<ContactRequest>;
   getUser(id: string): Promise<import('../types').PublicUser>;
-  listMeetingPoints(): Promise<MeetingPoint[]>;
   /** 某校区的可选楼栋。公共参考数据，未登录也可读。 */
   listBuildings(campus: Campus, zone?: string): Promise<Building[]>;
   markConversationRead(id: string): Promise<void>;
@@ -575,23 +531,19 @@ export interface CampusMarketApi {
   getCurrentUser(): Promise<User | null>;
   updateProfile(patch: ProfilePatch): Promise<User>;
   logout(): Promise<void>;
+  /** 修改密码：核对当前密码；成功后其他设备上的会话全部结束，当前会话保留 */
+  changePassword(input: { currentPassword: string; newPassword: string }): Promise<PasswordChangeResult>;
+  /** 凭学校工作人员签发的一次性重置码设新密码（不需要登录）；成功后全部会话结束；失败一律同一句话 */
+  resetPasswordWithCode(input: PasswordResetInput): Promise<{ reset: boolean }>;
+  /** 注销：需要密码与确认语「确认注销」；仍有后台权限或仍是在用圈子的所有者时 409 */
+  deleteAccount(input: { password: string; confirmation: string }): Promise<AccountDeletionResult>;
+  /** 上传一张商品图片（multipart 字段 file）；返回的 ref 写进商品 images */
+  uploadImage(file: File): Promise<UploadedImage>;
   listProducts(query: ProductQuery): Promise<ProductPage>;
   /** 楼栋集市 feed：范围自动降级与最近排序。旧的 listProducts 保持原样。 */
   feedProducts(query: FeedQuery): Promise<FeedPage>;
   /** 某分类的当前验货模板；不支持的分类返回 null。 */
   getInspectionTemplate(category: Category): Promise<InspectionTemplate | null>;
-  getOrderFlow(orderId: string): Promise<OrderFlow>;
-  saveInspectionDraft(orderId: string, items: InspectionResultInput[]): Promise<OrderFlow>;
-  /** 最终提交；提交后记录不可修改。存在不一致时订单进入 DISPUTED。 */
-  submitInspection(orderId: string, items: InspectionResultInput[]): Promise<OrderFlow>;
-  proposeMeeting(orderId: string, input: MeetingProposalInput): Promise<OrderFlow>;
-  acceptMeeting(orderId: string, proposalId: string): Promise<OrderFlow>;
-  rejectMeeting(orderId: string, proposalId: string): Promise<OrderFlow>;
-  withdrawMeeting(orderId: string, proposalId: string): Promise<OrderFlow>;
-  /** 本人手动声明，不是定位。时间由服务端生成。 */
-  updatePresence(orderId: string, action: 'DEPART' | 'ARRIVE'): Promise<OrderFlow>;
-  getOwnTradeHistory(): Promise<OwnTradeHistory>;
-  getPublicTradeSummary(userId: string): Promise<PublicTradeSummary>;
   // ---- 圈子集市（模块 6）：均需登录；无权访问与不存在一律 404 ----
   createCircle(input: CircleInput): Promise<Circle>;
   listMyCircles(): Promise<Circle[]>;
@@ -632,7 +584,6 @@ export interface CampusMarketApi {
   redeemAssistInvite(token: string): Promise<AssistInviteRedeemed>;
   revokeAssistInvite(id: string): Promise<AssistInvite>;
   listAssistEvents(id: string): Promise<AssistEvent[]>;
-  getPriceGuidance(query: PriceGuidanceQuery): Promise<PriceGuidance>;
   // ---- 课程教材图谱（模块 4）：均需登录，学校由服务端从本人校区推导 ----
   listCourses(query: CourseQuery): Promise<CoursePage>;
   getCourse(courseId: string): Promise<CourseDetail>;
@@ -663,10 +614,6 @@ export interface CampusMarketApi {
    * 底层 API 不再自行 toggle——那会让网络重试把用户刚加的收藏删掉。
    */
   setFavorite(productId: string, desired: boolean): Promise<boolean>;
-  createOrder(input: CreateOrderInput): Promise<Order>;
-  transitionOrder(id: string, input: OrderTransitionInput): Promise<Order>;
-  listOrders(role: 'buyer'|'seller'|'all'): Promise<Order[]>;
-  addReview(orderId: string, input: ReviewInput): Promise<Review>;
   listComments(productId: string): Promise<Comment[]>;
   addComment(input: CommentInput): Promise<Comment>;
   listConversations(): Promise<Conversation[]>;
@@ -674,11 +621,7 @@ export interface CampusMarketApi {
   listMessages(conversationId: string): Promise<ChatMessage[]>;
   sendMessage(conversationId: string, content: string): Promise<ChatMessage>;
   getUnreadCount(): Promise<number>;
-  // ---- 交易承诺与可信治理（模块 7）：均需登录 ----
-  getOrderNoShow(orderId: string): Promise<OrderNoShowView>;
-  reportNoShow(orderId: string, input: { reasonCode: NoShowReason; note?: string }): Promise<NoShowReport>;
-  acknowledgeNoShow(reportId: string, note?: string): Promise<NoShowReport>;
-  disputeNoShow(reportId: string, note: string): Promise<NoShowReport>;
+  // ---- 可信治理（模块 7）：均需登录 ----
   createModerationReport(input: ModerationReportInput): Promise<MyModerationReport>;
   listMyModerationReports(): Promise<MyModerationReport[]>;
   getMyGovernance(): Promise<MyGovernance>;
@@ -688,7 +631,8 @@ export interface CampusMarketApi {
   // ---- 工作人员（只处理本校；非工作人员 403） ----
   listModerationCases(query: ModerationCaseQuery): Promise<ModerationCasePage>;
   getModerationCase(id: string): Promise<ModerationCaseDetail>;
-  openModerationCase(input: { targetType: ModerationTargetType; targetId: string }): Promise<ModerationCaseDetail>;
+  /** 只能对现有内容立案；订单与爽约复核是只读历史 */
+  openModerationCase(input: { targetType: ReportableTargetType; targetId: string }): Promise<ModerationCaseDetail>;
   claimModerationCase(id: string): Promise<ModerationCaseDetail>;
   decideModerationCase(id: string, input: ModerationDecisionInput): Promise<ModerationCaseDetail>;
   listModerationAppeals(query: { status?: 'PENDING' | 'ACCEPTED' | 'REJECTED'; page?: number; size?: number }): Promise<StaffAppealPage>;

@@ -20,7 +20,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -83,8 +82,8 @@ class CircleConcurrencyIT {
     }
 
     @Test
-    @DisplayName("1. 成员被移除 × 创建订单：要么订单先成立（移除在其后），要么下单 404；永远不会有「移除之后才成立」的非成员订单")
-    void removalVsOrder() throws Exception {
+    @DisplayName("1. 成员被移除 × 申请联系：要么申请成功（200，恰好一条记录），要么 404 且没有记录；无论哪种，移除之后这件圈子商品与这条申请都对他不可见")
+    void removalVsContactRequest() throws Exception {
         for (int n = 0; n < ROUNDS; n++) {
             final int round = n;
             User owner = api.register();
@@ -93,15 +92,15 @@ class CircleConcurrencyIT {
             api.join(owner, circle, buyer);
             String product = api.circleProduct(owner, "竞态商品 " + round, circle);
             List<MvcResult> results = race(
-                    () -> api.post(buyer, "/v1/orders", orderBody(product)),
+                    () -> api.post(buyer, "/v1/products/" + product + "/contact-request", Map.of()),
                     () -> api.delete(owner, "/v1/circles/" + circle + "/members/" + buyer.id()));
             assertThat(status(results.get(1))).isEqualTo(200);
-            int orderStatus = status(results.get(0));
-            assertThat(orderStatus).isIn(200, 404);
-            Long late = jdbc.queryForObject("SELECT count(*) FROM orders o JOIN circle_memberships m ON m.user_id = o.buyer_id "
-                    + "WHERE o.product_id=?::uuid AND m.circle_id=?::uuid AND m.ended_at < o.created_at", Long.class, product, circle);
-            assertThat(late).as("第 %d 轮：不能在移除之后成立订单", round).isZero();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM orders WHERE product_id=?::uuid", Long.class, product)).isEqualTo(orderStatus == 200 ? 1 : 0);
+            int requestStatus = status(results.get(0));
+            assertThat(requestStatus).as("第 %d 轮", round).isIn(200, 404);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", Long.class, product))
+                    .as("第 %d 轮：成功恰好一条、失败没有记录", round).isEqualTo(requestStatus == 200 ? 1L : 0L);
+            assertThat(status(api.get(buyer, "/v1/products/" + product))).as("第 %d 轮：移除后商品不可见", round).isEqualTo(404);
+            assertThat(api.ok(api.get(buyer, "/v1/contact-requests")).toString()).as("第 %d 轮：移除后申请列表不出现它", round).doesNotContain(product);
         }
     }
 
@@ -252,16 +251,6 @@ class CircleConcurrencyIT {
                 String.class, circle);
         assertThat(owners).hasSize(1);
         assertThat(jdbc.queryForObject("SELECT owner_user_id::text FROM circles WHERE id=?::uuid", String.class, circle)).isEqualTo(owners.get(0));
-    }
-
-    private Map<String, Object> orderBody(String productId) {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("productId", productId);
-        b.put("meetingPointId", "东校区-library");
-        b.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1).truncatedTo(java.time.temporal.ChronoUnit.HOURS).toString());
-        b.put("contact", "13800000000");
-        b.put("idempotencyKey", UUID.randomUUID().toString());
-        return b;
     }
 
     @SafeVarargs

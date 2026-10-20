@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Navbar from "./Navbar";
+import { ContactUnreadProvider } from "../context/ContactUnreadContext";
 import BottomNav from "./BottomNav";
 
 /** 全局布局：顶部导航 + 内容区 + 移动端底部导航 */
@@ -17,6 +18,8 @@ export default function Layout() {
   }, [location.pathname]);
 
   return (
+    // 联系申请未读数：导航栏角标、个人中心标签与联系申请页共用一个轮询器
+    <ContactUnreadProvider>
     <div className="cm-app-shell flex min-h-screen flex-col bg-[#f7f9f8]">
       <Navbar />
       <main className="cm-bottom-safe flex-1">
@@ -50,5 +53,6 @@ export default function Layout() {
       </main>
       <BottomNav />
     </div>
+    </ContactUnreadProvider>
   );
 }

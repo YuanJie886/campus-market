@@ -38,8 +38,17 @@ public class ListingDraftService {
     private final ListingValidator validator;
     private final RateLimitService rateLimit;
     private final ObjectMapper json;
+    private final com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy;
+    private final com.lulu.campusmarketbackend.image.ImageService uploadedImages;
+    private final com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls;
 
-    public ListingDraftService(SupplyMapper supply, ListingValidator validator, RateLimitService rateLimit, ObjectMapper json) {
+    public ListingDraftService(SupplyMapper supply, ListingValidator validator, RateLimitService rateLimit, ObjectMapper json,
+                               com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy,
+                               com.lulu.campusmarketbackend.image.ImageService uploadedImages,
+                               com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls) {
+        this.imagePolicy = imagePolicy;
+        this.uploadedImages = uploadedImages;
+        this.imageUrls = imageUrls;
         this.supply = supply;
         this.validator = validator;
         this.rateLimit = rateLimit;
@@ -54,7 +63,7 @@ public class ListingDraftService {
         JsonFieldPolicy.rejectUnknown(body, CREATE_FIELDS);
         String type = body.get("draftType") == null ? "SINGLE" : String.valueOf(body.get("draftType"));
         if (!Set.of("SINGLE", "BUNDLE").contains(type)) throw ApiException.badRequest("草稿类型无效");
-        Map<String, Object> payload = ListingPayload.sanitize(body.get("payload"), false);
+        Map<String, Object> payload = normalizeImages(ListingPayload.sanitize(body.get("payload"), false), List.of());
         rateLimit.consume(RateLimitService.Scope.LISTING_DRAFT_CREATE, uid);
         UUID id = UUID.randomUUID();
         supply.insertDraft(id, UUID.fromString(uid), type, write(payload), expiry());
@@ -66,12 +75,12 @@ public class ListingDraftService {
     public List<Map<String, Object>> mine(String uid) {
         UUID owner = UUID.fromString(uid);
         supply.markOwnerExpired(owner);
-        return supply.selectDraftsByOwner(owner, 200).stream().map(r -> project(r, Access.OWNER)).toList();
+        return projectAll(supply.selectDraftsByOwner(owner, 200), Access.OWNER);
     }
 
     /** 我作为协助人可以编辑的草稿（不含联系方式）。 */
     public List<Map<String, Object>> assisting(String uid) {
-        return supply.selectDraftsForAssistant(UUID.fromString(uid)).stream().map(r -> project(r, Access.ASSISTANT)).toList();
+        return projectAll(supply.selectDraftsForAssistant(UUID.fromString(uid)), Access.ASSISTANT);
     }
 
     @Transactional
@@ -101,8 +110,10 @@ public class ListingDraftService {
         if (supply.markExpired(draftId) > 0) throw ApiException.conflict("草稿已过期，不能再修改");
         if (!Set.of("DRAFT", "READY").contains(status)) throw ApiException.conflict("草稿已发布、已丢弃或已过期，不能再修改");
 
+        // 客户端把 GET 拿到的签名地址原样提交回来时，先还原成 upload:<id>（库里只存引用）；
+        // 外部地址开关关闭时，这份草稿原本就有的外部地址可以保留，新的外部地址 400
         Map<String, Object> payload = body.containsKey("payload")
-                ? ListingPayload.sanitize(body.get("payload"), access == Access.ASSISTANT)
+                ? normalizeImages(ListingPayload.sanitize(body.get("payload"), access == Access.ASSISTANT), storedImages(row))
                 : read(row.get("payload"));
         if (access == Access.ASSISTANT) {
             Map<String, Object> current = read(row.get("payload"));
@@ -162,8 +173,37 @@ public class ListingDraftService {
 
     /** 草稿投影。协助人看不到所有者的联系方式；任何人都看不到所有者 id 与编辑人 id。 */
     Map<String, Object> project(Map<String, Object> row, Access access) {
-        Map<String, Object> payload = read(row.get("payload"));
+        return projectAll(List.of(row), access).get(0);
+    }
+
+    /**
+     * 一组草稿的投影。图片与商品响应一样换成短时签名地址，但只给「草稿所有者本人上传、仍有效」的图片签名
+     * （一条语句查完整组草稿的图片，与草稿数、图片数无关）；其余引用原样返回，保存时原样回写不会丢图。
+     * 只在已经确认请求者是所有者或协助人之后调用。
+     */
+    List<Map<String, Object>> projectAll(List<Map<String, Object>> rows, Access access) {
+        List<Map<String, Object>> payloads = rows.stream().map(r -> read(r.get("payload"))).toList();
+        java.util.Set<UUID> ids = new java.util.HashSet<>();
+        for (Map<String, Object> payload : payloads) {
+            if (payload.get("images") instanceof List<?> images) {
+                for (Object ref : images) { UUID id = com.lulu.campusmarketbackend.image.ImagePolicy.uploadId(ref); if (id != null) ids.add(id); }
+            }
+        }
+        Map<UUID, UUID> owners = uploadedImages.activeOwners(ids);
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) result.add(project(rows.get(i), payloads.get(i), access, owners));
+        return result;
+    }
+
+    private Map<String, Object> project(Map<String, Object> row, Map<String, Object> payload, Access access, Map<UUID, UUID> imageOwners) {
         if (access == Access.ASSISTANT) { payload.remove("contact"); payload.remove("contactPublic"); }
+        if (payload.get("images") instanceof List<?> images) {
+            Object owner = row.get("owner_user_id");
+            payload.put("images", images.stream().map(ref -> {
+                UUID id = com.lulu.campusmarketbackend.image.ImagePolicy.uploadId(ref);
+                return id != null && owner != null && owner.equals(imageOwners.get(id)) ? imageUrls.publicUrl((String) ref) : ref;
+            }).toList());
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", DomainMapper.text(row.get("id")));
         result.put("draftType", DomainMapper.text(row.get("draft_type")));
@@ -178,6 +218,17 @@ public class ListingDraftService {
         result.put("createdAt", DomainMapper.epoch(row.get("created_at")));
         result.put("updatedAt", DomainMapper.epoch(row.get("updated_at")));
         return result;
+    }
+
+    private Map<String, Object> normalizeImages(Map<String, Object> payload, List<String> keep) {
+        if (payload.get("images") != null) payload.put("images", imagePolicy.draftImages(payload.get("images"), keep));
+        return payload;
+    }
+
+    private List<String> storedImages(Map<String, Object> row) {
+        Object images = read(row.get("payload")).get("images");
+        if (!(images instanceof List<?> list)) return List.of();
+        return list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
     }
 
     Map<String, Object> read(Object raw) {

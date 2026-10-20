@@ -13,19 +13,20 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { ApiError, toUserMessage } from '../../api/errors';
 import type { ConflictReason } from '../../api/contracts';
-import { MODERATION_DECISION_REASONS, type ModerationActionCode, type ModerationCaseDetail, type ModerationDecisionReason } from '../../api/contracts';
+import { HISTORICAL_TARGET_TYPES, MODERATION_DECISION_REASONS, type ModerationActionCode, type ModerationCaseDetail, type ModerationDecisionReason } from '../../api/contracts';
 import {
-  ACTION_IMPACT, ACTION_LABEL, CASE_STATUS_LABEL, DECISION_REASON_LABEL, HIGH_RISK_ACTIONS, NO_SHOW_REASON_LABEL, NO_SHOW_STATUS_LABEL,
+  ACTION_IMPACT, ACTION_LABEL, CASE_STATUS_LABEL, DECISION_REASON_LABEL, HIGH_RISK_ACTIONS,
   REPORT_REASON_LABEL, TARGET_LABEL, formatUntil,
-  CONFLICT_REASON_LABEL, formatSlotRange,
+  CONFLICT_REASON_LABEL,
 } from '../../utils/governance';
 import ErrorSummary, { focusRadioGroup, type ErrorSummaryItem } from '../../components/trust/ErrorSummary';
 
 const DURATIONS = [24, 72, 168, 336, 720];
 
 /**
- * 案件详情与结案。一个案件只有一个最终结果；高风险动作（隐藏、归档、限制、确认爽约）要二次确认，
+ * 案件详情与结案。一个案件只有一个最终结果；高风险动作（隐藏、归档、限制）要二次确认，
  * 确认框写明影响与到期时间。结案成功后显示本次操作的 requestId（已写入审计）。
+ * 以订单 / 爽约复核为对象的案件是站内交易停用前的历史记录：只读，不提供领取或处理。
  */
 export default function ModerationCasePage() {
   const { id = '' } = useParams();
@@ -119,12 +120,14 @@ export default function ModerationCasePage() {
     );
   }
   if (!detail) return error ? <p role="alert" className="text-sm text-red-700">{error}</p> : <p role="status" className="text-sm text-slate-600">正在读取…</p>;
-  const decidable = detail.allowedActions.length > 0;
+  // 历史案件（订单 / 爽约复核）只读：即使服务端仍给出可选动作，界面也不提供领取与处理
+  const historical = HISTORICAL_TARGET_TYPES.includes(detail.targetType);
+  const decidable = !historical && detail.allowedActions.length > 0;
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <div>
         <h1 className="text-xl font-extrabold text-slate-800">{TARGET_LABEL[detail.targetType]}案件</h1>
-        <p className="text-sm text-slate-700">状态：{CASE_STATUS_LABEL[detail.status]}{detail.resolutionCode ? ` · 结果：${ACTION_LABEL[detail.resolutionCode]}` : ''}</p>
+        <p className="text-sm text-slate-700">状态：{CASE_STATUS_LABEL[detail.status]}{detail.resolutionCode ? ` · 结果：${ACTION_LABEL[detail.resolutionCode] ?? detail.resolutionCode}` : ''}</p>
         <Link to="/moderation" className="text-sm text-indigo-800 underline">返回案件列表</Link>
       </div>
       <div role="status" aria-live="polite" className="text-sm text-emerald-800">{result}</div>
@@ -137,32 +140,13 @@ export default function ModerationCasePage() {
             <div key={k} className="contents"><dt className="text-slate-600">{k}</dt><dd className="text-slate-800">{String(v)}</dd></div>
           ))}
         </dl>
-        <p className="mt-1 text-xs text-slate-600">这里只有处理所需的最少信息，没有联系方式、确认码或会话全文。</p>
+        <p className="mt-1 text-xs text-slate-600">这里只有处理所需的最少信息，没有联系方式、账号或会话全文。</p>
       </section>
 
-      {detail.noShow && (
-        <section aria-labelledby="noshow-title" className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
-          <h2 id="noshow-title" className="text-base font-bold text-slate-800">爽约复核</h2>
-          <p>原因：{NO_SHOW_REASON_LABEL[detail.noShow.report.reasonCode]} · 状态：{NO_SHOW_STATUS_LABEL[detail.noShow.report.status]}</p>
-          {detail.noShow.report.note && <p>报告人说明：{detail.noShow.report.note}</p>}
-          {detail.noShow.report.responseNote && <p>对方回应：{detail.noShow.report.responseNote}</p>}
-          <p>
-            档期：{detail.noShow.meeting.endsAt
-              ? formatSlotRange(detail.noShow.meeting.startsAt, detail.noShow.meeting.endsAt)
-              : new Date(detail.noShow.meeting.startsAt).toLocaleString('zh-CN')}（第 {detail.noShow.meeting.revision} 版）
-          </p>
-          {detail.noShow.meeting.explicit === false && (
-            <p className="text-amber-900" role="note">
-              这份报告针对的原始预约没有明确的结束时间，不能确认为爽约（只能驳回）；平台不推测结束时间。
-            </p>
-          )}
-          <p className="mt-1 font-semibold">到达声明（本人手动声明，不是定位证据）：</p>
-          {detail.noShow.presence.length === 0 ? <p>双方都没有声明。</p> : (
-            <ul className="list-disc pl-5">
-              {detail.noShow.presence.map((p, i) => <li key={i}>{p.party === 'REPORTER' ? '报告人' : '被报告人'}：{p.status === 'ARRIVED' ? '已到达' : p.status === 'DEPARTED' ? '已出发' : '未声明'}{p.at ? `（${new Date(p.at).toLocaleString('zh-CN')}）` : ''}</li>)}
-            </ul>
-          )}
-        </section>
+      {historical && (
+        <p role="note" className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          这是站内交易停用前留下的历史案件，只能查看：平台已不再提供订单、预约或爽约相关的处理，不能领取或结案。
+        </p>
       )}
 
       <section aria-labelledby="reports-title" className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
@@ -170,7 +154,7 @@ export default function ModerationCasePage() {
         <p className="text-xs text-slate-600">不显示举报人身份。</p>
         <ul className="mt-1 space-y-1">
           {detail.reports.map((r) => (
-            <li key={r.id}>{REPORT_REASON_LABEL[r.reasonCode]}{r.note ? `：${r.note}` : ''}{r.snapshot ? ` · 被举报内容：「${r.snapshot}」` : ''}</li>
+            <li key={r.id}>{REPORT_REASON_LABEL[r.reasonCode] ?? r.reasonCode}{r.note ? `：${r.note}` : ''}{r.snapshot ? ` · 被举报内容：「${r.snapshot}」` : ''}</li>
           ))}
         </ul>
       </section>
@@ -181,7 +165,7 @@ export default function ModerationCasePage() {
           <ul className="mt-1 space-y-1">
             {detail.actions.map((a) => (
               <li key={a.id}>
-                {ACTION_LABEL[a.actionCode as ModerationActionCode] ?? a.actionCode} · {DECISION_REASON_LABEL[a.reasonCode as ModerationDecisionReason] ?? a.reasonCode}
+                {ACTION_LABEL[a.actionCode as keyof typeof ACTION_LABEL] ?? a.actionCode} · {DECISION_REASON_LABEL[a.reasonCode as keyof typeof DECISION_REASON_LABEL] ?? a.reasonCode}
                 {a.expiresAt ? ` · 到期 ${formatUntil(a.expiresAt)}` : ''}{a.effective ? '' : ' · 未改变目标'}{a.byMe ? ' · 我' : ''}
               </li>
             ))}
@@ -189,7 +173,7 @@ export default function ModerationCasePage() {
         </section>
       )}
 
-      {detail.status === 'OPEN' && (
+      {detail.status === 'OPEN' && !historical && (
         <Button variant="outlined" disabled={busy} onClick={() => void run(() => getApiClient().claimModerationCase(id), () => '已领取这个案件，其他工作人员不能再结案。')}>
           领取这个案件
         </Button>

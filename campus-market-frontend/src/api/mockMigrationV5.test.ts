@@ -85,7 +85,7 @@ describe('3.7A schema v5 迁移', () => {
     expect(result.db.market.orders).toHaveLength(1);
   });
 
-  it('装载旧 v4 负载：落盘为当前版本、不动无关 key；旧商品无声明、旧订单为 LEGACY_NONE 且可继续交易', async () => {
+  it('装载旧 v4 负载：落盘为当前版本、不动无关 key；旧商品无声明且可正常读取；旧订单记录原样保留但不再有交易入口', async () => {
     window.localStorage.setItem('unrelated_key', 'keep-me');
     window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(payload(4)));
     const api = new MockCampusMarketApi();
@@ -95,13 +95,12 @@ describe('3.7A schema v5 迁移', () => {
     // 6.1A 起读取商品需要登录
     await api.login({ account: 'buyer', password: 'test-password' });
     expect((await api.getProduct('p1')).inspection).toBeNull();
-    const flow = await api.getOrderFlow('o1');
-    expect(flow.inspection).toEqual({ status: 'LEGACY_NONE', items: [] });
-    expect(flow.presence.me.status).toBe('NOT_STARTED');
-    expect(flow.proposals).toEqual([]);
-    expect(flow.timeline).toEqual([]);
-    const confirmed = await api.transitionOrder('o1', { to: 'BUYER_CONFIRMED' });
-    expect(confirmed.canonicalStatus).toBe('BUYER_CONFIRMED');
+    expect((await api.getProduct('p1')).status).toBe('在售');
+    const persisted = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
+    expect(persisted.market.orders.map((o: { id: string }) => o.id)).toContain('o1');
+    // 阶段 1：适配层里没有任何订单接口，旧订单只作为历史数据留在存储里
+    expect('getOrderFlow' in api).toBe(false);
+    expect('transitionOrder' in api).toBe(false);
   });
 
   it('更高版本（v6）不被 v5 代码降级或覆盖', () => {

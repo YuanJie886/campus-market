@@ -10,6 +10,8 @@ import CaseIcon from '@mui/icons-material/GppMaybeOutlined';
 import AppealIcon from '@mui/icons-material/ForumOutlined';
 import AuditIcon from '@mui/icons-material/HistoryOutlined';
 import RoleIcon from '@mui/icons-material/VerifiedUserOutlined';
+import RoleRequestIcon from '@mui/icons-material/HowToRegOutlined';
+import ReadAuditIcon from '@mui/icons-material/ManageSearchOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowIcon from '@mui/icons-material/ArrowOutward';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -18,17 +20,21 @@ import { type AdminIdentity } from './authProvider';
 import { resourceNames, roleName } from './adminUi';
 import './admin.css';
 
-export const resourceIcons = { users: PeopleIcon, products: ProductIcon, orders: OrderIcon, cases: CaseIcon, appeals: AppealIcon, audit: AuditIcon, roles: RoleIcon };
+export const resourceIcons = { users: PeopleIcon, products: ProductIcon, orders: OrderIcon, cases: CaseIcon, appeals: AppealIcon, audit: AuditIcon, 'role-requests': RoleRequestIcon, 'read-audit': ReadAuditIcon, roles: RoleIcon };
+const NAVIGATION = [{ name: '运营管理', resources: ['users', 'products', 'orders'] }, { name: '社区治理', resources: ['cases', 'appeals'] }, { name: '安全与权限', resources: ['audit', 'role-requests', 'read-audit', 'roles'] }];
+/** 菜单只取决于 GET /v1/admin/me 返回的 `资源:read` 权限；没有可见资源的分组不显示。 */
+export function navigationGroups(permissions: readonly string[] | undefined) {
+    return NAVIGATION.map(group => ({ ...group, resources: group.resources.filter(resource => permissions?.includes(`${resource}:read`)) })).filter(group => group.resources.length > 0);
+}
 function Navigation() {
     const [expanded] = useSidebarState();
     const { permissions } = usePermissions<AdminIdentity>();
-    const groups = [ { name: '运营管理', resources: ['users', 'products', 'orders'] }, { name: '社区治理', resources: ['cases', 'appeals'] }, { name: '安全与权限', resources: ['audit', 'roles'] } ];
+    const groups = navigationGroups(permissions?.permissions);
     return <Box className={`navigation ${expanded ? 'expanded' : 'collapsed'}`}>
         <Box className="nav-brand"><StoreIcon /><Box sx={{ display: expanded ? 'block' : 'none' }}><strong>校园集市</strong><span>运营管理平台</span></Box></Box>
         <Menu><Menu.Item to="/" primaryText="运营工作台" leftIcon={<DashboardIcon />} />
             {groups.map(group => {
-                const resources = group.resources.filter(resource => permissions?.permissions.includes(`${resource}:read`));
-                return resources.length ? <Box key={group.name}>{expanded && <Typography className="nav-section">{group.name}</Typography>}{resources.map(resource => <Menu.ResourceItem key={resource} name={resource} />)}</Box> : null;
+                return <Box key={group.name}>{expanded && <Typography className="nav-section">{group.name}</Typography>}{group.resources.map(resource => <Menu.ResourceItem key={resource} name={resource} />)}</Box>;
             })}
         </Menu>
         {expanded && <Box className="nav-footer"><Box className="school-badge"><RoleIcon fontSize="small" /><span>校内管理空间</span></Box><Typography>仅展示当前账号可访问的数据</Typography><Button href="/" endIcon={<ArrowIcon />} fullWidth>前往校园集市</Button></Box>}

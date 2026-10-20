@@ -51,7 +51,7 @@ describe('0.9D 懒加载路由可达', () => {
     ['/publish', '发布'],
     ['/messages', '消息'],
     ['/profile', '我的'],
-    ['/profile/orders', '我的'],
+    ['/profile/contact-requests', '我的'],
     ['/profile/favorites', '我的'],
     ['/profile/listings', '我的'],
   ])('2. 懒加载路由 %s 能完成加载（fallback 出现后消失）', async (path) => {
@@ -62,6 +62,18 @@ describe('0.9D 懒加载路由可达', () => {
     );
     // 加载完成后壳仍在，说明分片确实挂上了而不是整棵树崩掉
     expect(document.querySelector('.cm-app-shell')).not.toBeNull();
+  });
+
+  it.each([
+    '/profile/orders', '/profile/trade-history', '/profile/demand-subscriptions', '/orders/o1', '/orders/o1/flow',
+    '/checkout/p01', '/checkout/success', '/search', '/category/数码电子',
+  ])('2b. 已移除的交易 / 结算 / 旧搜索路由 %s 不再挂载任何页面，统一落到 404', async (path) => {
+    const api = new MockCampusMarketApi();
+    setApiClient(api);
+    await api.register({ account: `gone-${Math.random().toString(36).slice(2, 8)}`, password: 'test-password', nickname: '同学', campus: '东校区', contact: '13800000000' });
+    renderAt(path);
+    expect(await screen.findByText('页面走丢了', undefined, { timeout: 5000 })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/确认面交|预约校园面交|交易履历|提交订单/);
   });
 
   it('3. 商品详情路由能完成加载', async () => {

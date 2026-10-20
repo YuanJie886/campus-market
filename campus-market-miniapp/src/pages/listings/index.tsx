@@ -5,10 +5,11 @@ import { api } from '../../api';
 import { Empty, ErrorState, LoginGate, PageTitle, ProductGrid, ProductImage, StatusPill } from '../../components';
 import { money, type Product, type ProductStatus } from '../../model';
 import { editProduct } from '../../navigation';
-import { notify, notifyError, useMarket } from '../../state';
+import { notify, notifyError, useMarket, useUnread } from '../../state';
 
 export default function ListingsPage() {
   const { user, loadFavorites } = useMarket(), router = useRouter(), favoriteMode = router.params.kind === 'favorites';
+  useUnread(); // 页面显示时刷新 tabBar 未读角标
   const [items, setItems] = useState<Product[]>([]), [loading, setLoading] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(''), [unavailable, setUnavailable] = useState(0);
   const sequence = useRef(0);
 

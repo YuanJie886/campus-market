@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRICE_GUIDANCE_NOTE, PRICE_GUIDANCE_MIN_SAMPLE, BATCH_MAX_ITEMS, BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS } from './api/contracts';
+import { BATCH_MAX_ITEMS, BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS } from './api/contracts';
 import { ASSISTANT_FIELDS, PAYLOAD_FIELDS } from './api/mock/supplyRules';
 import { VALIDATION_LABEL } from './utils/supply';
 
@@ -25,9 +25,9 @@ describe('十五 文案边界', () => {
   it('「协助整理发布」从不写成代卖或平台代理', () => {
     expect(offenders(app, /代卖|平台代理|代为出售/)).toEqual([]);
   });
-  it('价格参考从不自称估价、官方指导价或成交保证', () => {
+  it('不出现估价、官方指导价或成交保证一类说法；依赖历史成交的价格参考已随站内交易停用', () => {
     expect(offenders(app, /AI\s*估价|官方指导价|保证成交|必须按此定价|建议必须/)).toEqual([]);
-    expect(PRICE_GUIDANCE_NOTE).toBe('这是校内历史已完成交易的统计参考，不是平台估价或成交保证。');
+    expect(offenders(app, /price-guidance|getPriceGuidance|PriceGuidance/)).toEqual([]);
   });
   it('发布确认页写明协助整理的固定文字；协助人页面没有发布按钮', () => {
     const workbench = sources['./pages/SupplyWorkbenchPage.tsx'];
@@ -60,11 +60,6 @@ describe('十五 隐私与权限', () => {
 });
 
 describe('十五 前后端常量一致', () => {
-  it('价格参考说明文字、最小样本数与后端相同', () => {
-    const java = javaOf('PriceGuidanceService');
-    expect(java).toContain(`NOTE = "${PRICE_GUIDANCE_NOTE}"`);
-    expect(java).toContain(`MIN_SAMPLE = ${PRICE_GUIDANCE_MIN_SAMPLE};`);
-  });
   it('批次 / 打包上限、草稿白名单、协助人可整理字段与后端相同', () => {
     expect(javaOf('ListingBatchService')).toContain(`MAX_ITEMS = ${BATCH_MAX_ITEMS};`);
     expect(javaOf('BundleService')).toContain(`MIN_ITEMS = ${BUNDLE_MIN_ITEMS};`);

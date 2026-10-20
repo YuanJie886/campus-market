@@ -20,8 +20,11 @@ export default function PublishPage() {
   const presetEditionId = params.get("textbookEditionId");
   // 5.4：单件 / 整套打包。默认单件；整套打包是卖家主动选择的发布方式
   const [kind, setKind] = useState<"SINGLE" | "BUNDLE">("SINGLE");
+  // 发布失败时服务端的原话（例如「内容可能包含违规信息，请修改后再提交」）显示在表单里，而不只是一闪而过的提示条
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleSubmit = async (data: Omit<ProductInput, "sellerId">) => {
+    setSubmitError(null);
     try {
       if (!currentUser) {
         error("登录状态已失效，请重新登录");
@@ -32,7 +35,9 @@ export default function PublishPage() {
       success("发布成功，快去看看你的宝贝吧～");
       navigate(`/product/${product.id}`);
     } catch (e) {
-      error(toUserMessage(e));
+      const message = toUserMessage(e);
+      setSubmitError(message);
+      error(message);
     }
   };
 
@@ -53,7 +58,7 @@ export default function PublishPage() {
         <span id="listing-kind-label" className="text-sm font-semibold text-slate-700">发布方式</span>
         {([["SINGLE", "单件"], ["BUNDLE", "整套打包"]] as const).map(([value, label]) => (
           <Button key={value} size="small" variant={kind === value ? "contained" : "outlined"} aria-pressed={kind === value}
-            onClick={() => setKind(value)}>
+            onClick={() => { setKind(value); setSubmitError(null) }}>
             {label}
           </Button>
         ))}
@@ -65,6 +70,7 @@ export default function PublishPage() {
             initial={{ contact: currentUser?.contact ?? "", campus: currentUser?.campus ?? "东校区", buildingId: currentUser?.dormBuildingId ?? null }}
             onSubmit={handleSubmit}
             onCancel={() => navigate(-1)}
+            submitError={submitError}
           />
         ) : (
         <ProductForm
@@ -79,6 +85,7 @@ export default function PublishPage() {
           presetTextbookEditionId={presetEditionId}
           submitLabel="立即发布"
           onSubmit={handleSubmit}
+          submitError={submitError}
           onCancel={() => navigate(-1)}
         />
         )}

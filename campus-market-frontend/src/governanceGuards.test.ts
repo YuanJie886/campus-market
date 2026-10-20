@@ -22,9 +22,10 @@ describe('7 文案边界', () => {
     expect(offenders(app, /平台赔付|先行赔付|保证退款|鉴定为真|鉴定为假|平台判定.*责任/)).toEqual([]);
     const governanceUi = app.filter(([p]) => /governance|moderation|NoShow/i.test(p));
     expect(governanceUi.length).toBeGreaterThan(0);
-    const noShow = sources['./components/governance/NoShowPanel.tsx'];
-    expect(noShow).toContain('不是定位证据');
-    expect(noShow).toContain('单方报告不会产生任何处罚');
+    // 阶段 1：爽约报告界面随站内交易移除；任何界面都不再调用爽约接口，也不把到达状态当作定位证据展示
+    expect(sources['./components/governance/NoShowPanel.tsx']).toBeUndefined();
+    expect(offenders(app, /getOrderNoShow|reportNoShow|acknowledgeNoShow|disputeNoShow|no-show-reports/)).toEqual([]);
+    expect(offenders(app, /到达.{0,10}(是|作为)定位证据/)).toEqual([]);
   });
 });
 

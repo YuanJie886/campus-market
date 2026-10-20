@@ -4,13 +4,13 @@ import { MockCampusMarketApi } from './mockCampusMarketApi';
 import { RestCampusMarketApi } from './restCampusMarketApi';
 import { HttpTransport } from './httpTransport';
 import { ApiError } from './errors';
-import { PRICE_GUIDANCE_NOTE, type BundleItemInput, type ListingPayload } from './contracts';
+import type { BundleItemInput, ListingPayload } from './contracts';
 import { fullDisclosure } from '../test/inspectionFixtures';
-import { percentileCont, roundGuidance, sampleBucket, sha256Hex } from './mock/supplyRules';
+import { sha256Hex } from './mock/supplyRules';
 import type { Category } from '../types';
 
 /**
- * 模块 5 的 Mock 契约：与后端 ListingBatchIT / BundleListingIT / AssistInviteIT / PriceGuidanceIT
+ * 模块 5 的 Mock 契约：与后端 ListingBatchIT / BundleListingIT / AssistInviteIT
  * 的关键断言逐条对应，保证离线演示与真实服务端行为一致。
  */
 
@@ -180,7 +180,7 @@ describe('5.1B / 5.2 批次与发布', () => {
 });
 
 describe('5.1C / 5.4 整套打包', () => {
-  it('明细 2～30；分类 / 数量 / 重复编码 400；单件不能带明细；详情带明细，卡片带摘要；形态不能切换；只生成一个订单', async () => {
+  it('明细 2～30；分类 / 数量 / 重复编码 400；单件不能带明细；详情带明细，卡片带摘要；形态不能切换；整套只对应一条联系申请，明细不能单独申请', async () => {
     await user('seller');
     const base = { title: '宿舍整套', description: 'd', price: 120, category: '其他' as Category, condition: '轻微使用痕迹' as const, campus: '东校区' as const, images: ['https://example.invalid/a.png'], contact: '1' };
     expect(await code(api.createProduct({ ...base, listingKind: 'BUNDLE', bundleItems: bundleItems(1) }))).toBe(400);
@@ -201,15 +201,14 @@ describe('5.1C / 5.4 整套打包', () => {
     void thirty;
 
     await user('buyer');
-    const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0);
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: at.toISOString(), contact: '1', idempotencyKey: rnd() });
-    expect((await api.getProduct(p.id)).status).toBe('预约中');
-    const flow = await api.getOrderFlow(order.id);
-    expect(flow.inspection.items.map((i) => i.code)).toEqual(['B01_I01', 'B02_I02', 'B03_I03']);
-    expect(flow.inspection.items[2].description).toContain('核对要点');
+    for (const itemId of ['I01', 'B01_I01', `${p.id}:I01`]) expect(await code(api.requestContact(itemId)), itemId).toBe(404);
+    const request = await api.requestContact(p.id);
+    expect(request).toMatchObject({ productId: p.id, status: 'PENDING' });
+    expect((await api.requestContact(p.id)).id).toBe(request.id);
+    expect((await api.getProduct(p.id)).status).toBe('在售');
     await user('second');
-    expect(await code(api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: at.toISOString(), contact: '1', idempotencyKey: rnd() }))).toBe(409);
-    expect(JSON.stringify(order)).not.toContain('priceSnapshot');
+    expect((await api.requestContact(p.id)).id).not.toBe(request.id);
+    expect((await api.getProduct(p.id)).contact).toBe('');
   });
 });
 
@@ -283,74 +282,8 @@ describe('5.1D / 5.5 协助整理发布', () => {
   });
 });
 
-describe('5.6 价格参考', () => {
-  it('与 PostgreSQL percentile_cont 相同的插值；取整与样本数档位与后端一致', () => {
-    const values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-    expect([percentileCont(values, 0.5), percentileCont(values, 0.25), percentileCont(values, 0.75)]).toEqual([55, 32.5, 77.5]);
-    expect([roundGuidance(32.5), roundGuidance(77.5), roundGuidance(1234.56), roundGuidance(9999)]).toEqual([33, 78, 1230, 10000]);
-    expect([sampleBucket(8), sampleBucket(9), sampleBucket(10), sampleBucket(14), sampleBucket(23)]).toEqual([8, 8, 10, 10, 20]);
-  });
-
-  it('少于 8 笔不给区间也不给样本数；只统计已完成、有快照、单件、本校；改价不影响；维度白名单', async () => {
-    await user('viewer');
-    const empty = await api.getPriceGuidance({ category: '生活用品' });
-    expect(empty).toMatchObject({ sufficient: false, sampleCount: null, minimumSample: 8, note: PRICE_GUIDANCE_NOTE });
-    expect(empty).not.toHaveProperty('median');
-    // 直接写入已完成的历史订单（与后端 IT 相同的造数方式）
-    const raw = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    const add = (price: number, patch: Record<string, unknown> = {}, product: Record<string, unknown> = {}) => {
-      const id = `pg-${rnd()}`;
-      raw.market.products.push({ id, title: '价格参考样本', description: 'd', price, category: '生活用品', condition: '全新', campus: '东校区', images: [], contact: '', sellerId: 'seed', status: '已售出', views: 0, createdAt: Date.now(), listingKind: 'SINGLE', ...product });
-      raw.market.orders.push({ id: `o-${id}`, productId: id, buyerId: 'b', sellerId: 'seed', price, status: '已完成', canonicalStatus: 'COMPLETED', createdAt: Date.now(), updatedAt: Date.now(), priceSnapshot: price, currency: 'CNY',
-        schoolIdSnapshot: 'pilot', categorySnapshot: '生活用品', conditionSnapshot: '全新', listingKindSnapshot: 'SINGLE', textbookEditionIdSnapshot: null, ...patch });
-      return id;
-    };
-    const samples: string[] = [];
-    for (let i = 1; i <= 10; i += 1) samples.push(add(i * 10));
-    add(9999, { listingKindSnapshot: 'BUNDLE' }, { listingKind: 'BUNDLE' });
-    add(9999, { canonicalStatus: 'CANCELLED', status: '已取消' });
-    add(9999, { canonicalStatus: 'EXPIRED' });
-    add(9999, { canonicalStatus: 'DISPUTED' });
-    add(9999, { priceSnapshot: null, currency: null, schoolIdSnapshot: null, categorySnapshot: null, conditionSnapshot: null, listingKindSnapshot: null });
-    // V7～V8 之间的旧订单：有成交价、没有维度快照
-    add(9999, { schoolIdSnapshot: null, categorySnapshot: null, conditionSnapshot: null, listingKindSnapshot: null });
-    // 学校隔离看订单快照：商品就在本校区，但快照属于别校
-    add(9999, { schoolIdSnapshot: 'other-school' });
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(raw));
-    api = new MockCampusMarketApi();
-    const g = await api.getPriceGuidance({ category: '生活用品' });
-    expect(g).toMatchObject({ sufficient: true, sampleCount: 10, median: 55, lowerQuartile: 33, upperQuartile: 78 });
-    expect(g.periodStart).toMatch(/^\d{4}-\d{2}$/);
-    expect(JSON.stringify(g)).not.toMatch(/价格参考样本|seed|pg-/);
-    // 5.7：商品成交后改分类、成色、校区、形态、教材关联，统计完全不变
-    const edited = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    for (const p of edited.market.products) {
-      if (samples.includes(p.id)) Object.assign(p, { category: '其他', condition: '明显使用痕迹', campus: '不存在的校区', price: 1 });
-    }
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(edited));
-    api = new MockCampusMarketApi();
-    expect(await api.getPriceGuidance({ category: '生活用品' })).toEqual(g);
-    expect((await api.getPriceGuidance({ category: '其他' })).sufficient).toBe(false);
-    expect(await code(api.getPriceGuidance({ category: '生活用品', groupBy: 'seller' } as never))).toBe(400);
-    expect(await code(api.getPriceGuidance({ category: '奢侈品' as Category }))).toBe(400);
-    expect(await code(api.getPriceGuidance({ category: '生活用品', textbookEditionId: 'demo-calculus-8' }))).toBe(400);
-  });
-
-  it('下单写入成交价快照；取消后改价不改写旧订单', async () => {
-    await user('seller');
-    const p = await api.createProduct({ ...single('生活用品', '快照台灯', 88), images: ['https://example.invalid/a.png'] } as never);
-    await user('buyer');
-    const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0);
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: at.toISOString(), contact: '1', idempotencyKey: rnd() });
-    const snapshot = () => JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!).market.orders.find((o: { id: string }) => o.id === order.id);
-    expect(snapshot()).toMatchObject({ priceSnapshot: 88, currency: 'CNY', schoolIdSnapshot: 'pilot', categorySnapshot: '生活用品',
-      conditionSnapshot: '几乎全新', listingKindSnapshot: 'SINGLE', textbookEditionIdSnapshot: null });
-    expect(JSON.stringify(order)).not.toMatch(/Snapshot/);
-  });
-});
-
 describe('REST 适配层', () => {
-  it('路径与方法；幂等键只在请求头；邀请码只在请求体；价格参考只带白名单参数', async () => {
+  it('路径与方法；幂等键只在请求头；邀请码只在请求体；价格参考接口已移除', async () => {
     const calls: Array<{ method: string; url: string; body?: string; headers: Record<string, string> }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ method: init?.method ?? 'GET', url: String(url).replace(/^https?:\/\/[^/]+/, ''), body: init?.body as string | undefined,
@@ -365,12 +298,12 @@ describe('REST 适配层', () => {
     await rest.createAssistInvite({ batchId: 'b1', expiresInHours: 24 });
     await rest.redeemAssistInvite('SECRET-TOKEN-abcdefghijklmnopqrstuvwxyz');
     await rest.revokeAssistInvite('i1');
-    await rest.getPriceGuidance({ category: '教材书籍', condition: '全新', textbookEditionId: 'demo-calculus-8' });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'POST /v1/listing-drafts', 'PATCH /v1/listing-drafts/d1', 'POST /v1/listing-batches', 'POST /v1/listing-batches/b1/publish',
       'POST /v1/listing-assist-invites', 'POST /v1/listing-assist-invites/redeem', 'POST /v1/listing-assist-invites/i1/revoke',
-      `GET /v1/price-guidance?category=${encodeURIComponent('教材书籍')}&condition=${encodeURIComponent('全新')}&textbookEditionId=demo-calculus-8`,
     ]);
+    // 价格参考依赖历史成交，随站内交易一起停用：适配层没有这个方法
+    expect('getPriceGuidance' in RestCampusMarketApi.prototype).toBe(false);
     expect(calls[3].headers['idempotency-key']).toBe('idem-key-123456');
     expect(calls[3].body).toBeUndefined();
     expect(calls[5].url).not.toContain('SECRET');

@@ -1,4 +1,5 @@
 import { HttpError } from './HttpError';
+import { errorMessage } from './errors';
 
 interface Session { accessToken: string; expiresAtIso: string }
 let token: string | null = null;
@@ -25,7 +26,9 @@ export async function request<T>(path: string, init: RequestInit = {}, retry = t
         try { envelope = await response.json(); }
         catch { throw new HttpError('后端未返回有效 JSON，请检查服务与代理配置', response.status || 502); }
         if (!response.ok || envelope.code !== 0) {
-            throw new HttpError(envelope.message || '请求失败', response.status, { ...envelope, retryAfter: response.headers.get('Retry-After') });
+            const retryAfter = response.headers.get('Retry-After');
+            // 错误响应的 data 是后端 ApiException 的 details（例如利益回避的 code / reason）。
+            throw new HttpError(errorMessage(response.status, envelope.message, envelope.data, retryAfter), response.status, { ...envelope, retryAfter });
         }
         return envelope.data;
     } finally { clearTimeout(timer); }

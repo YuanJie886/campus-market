@@ -9,6 +9,7 @@ import type { ModerationCasePage, ModerationCaseStatus, ModerationTargetType } f
 import { CASE_STATUS_LABEL, TARGET_LABEL } from '../../utils/governance';
 
 const STATUSES: ModerationCaseStatus[] = ['OPEN', 'UNDER_REVIEW', 'APPEALED', 'RESOLVED', 'DISMISSED'];
+/** 筛选仍包含历史上的订单 / 爽约复核案件（只读查看）；新的举报与立案只针对现有内容 */
 const TYPES: ModerationTargetType[] = ['PRODUCT', 'USER', 'CIRCLE', 'COMMENT', 'MESSAGE', 'ORDER', 'NO_SHOW'];
 const SIZE = 20;
 
@@ -50,7 +51,7 @@ export default function ModerationCasesPage() {
         <h1 className="text-xl font-extrabold text-slate-800">治理工作台 · 案件</h1>
         <Link to="/moderation/appeals" className="text-sm text-indigo-800 underline">待处理的申诉</Link>
       </div>
-      <p className="text-xs text-slate-700">只显示本校的案件。平台治理不等于交易仲裁或赔付，也不对商品真伪下结论。</p>
+      <p className="text-xs text-slate-700">只显示本校的案件。平台治理不等于交易仲裁或赔付，也不对商品真伪下结论。订单与爽约复核案件是站内交易停用前的历史记录，只能查看。</p>
       <div className="flex flex-wrap gap-3">
         <TextField select size="small" label="状态" value={status} onChange={(e) => { setStatus(e.target.value as ModerationCaseStatus | ''); setPage(1) }} sx={{ minWidth: 140 }}>
           <MenuItem value="">全部状态</MenuItem>

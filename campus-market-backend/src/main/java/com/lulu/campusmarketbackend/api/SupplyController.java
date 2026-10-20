@@ -4,7 +4,6 @@ import com.lulu.campusmarketbackend.security.AuthService;
 import com.lulu.campusmarketbackend.supply.AssistInviteService;
 import com.lulu.campusmarketbackend.supply.ListingBatchService;
 import com.lulu.campusmarketbackend.supply.ListingDraftService;
-import com.lulu.campusmarketbackend.supply.PriceGuidanceService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,11 +21,10 @@ public class SupplyController {
     private final ListingDraftService drafts;
     private final ListingBatchService batches;
     private final AssistInviteService invites;
-    private final PriceGuidanceService priceGuidance;
 
     public SupplyController(AuthService auth, ListingDraftService drafts, ListingBatchService batches,
-                            AssistInviteService invites, PriceGuidanceService priceGuidance) {
-        this.auth = auth; this.drafts = drafts; this.batches = batches; this.invites = invites; this.priceGuidance = priceGuidance;
+                            AssistInviteService invites) {
+        this.auth = auth; this.drafts = drafts; this.batches = batches; this.invites = invites;
     }
 
     // ---------------- 草稿 ----------------

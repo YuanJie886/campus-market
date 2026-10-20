@@ -1,80 +1,57 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it } from "vitest";
 import { MockCampusMarketApi } from "./mockCampusMarketApi";
-import { TokenStore } from "../utils/tokenStore";
+import type { ProductCreateInput } from "./contracts";
 
-function installLocalStorage() {
-  const values = new Map<string, string>();
-  const localStorage = {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
-    key: (index: number) => [...values.keys()][index] ?? null,
-    get length() { return values.size; },
-  };
-  vi.stubGlobal("window", { localStorage });
-}
+const listing: ProductCreateInput = {
+  title: "测试商品",
+  description: "用于站内会话测试",
+  price: 20,
+  category: "其他",
+  condition: "全新",
+  campus: "东校区",
+  images: [],
+  contact: "wechat:seller",
+};
 
-afterEach(() => vi.unstubAllGlobals());
+let api: MockCampusMarketApi;
+beforeEach(() => {
+  localStorage.clear();
+  api = new MockCampusMarketApi();
+});
 
-describe("MockCampusMarketApi order conversations", () => {
-  it("creates a conversation with a new order", async () => {
-    installLocalStorage();
-    const api = new MockCampusMarketApi(new TokenStore());
+describe("MockCampusMarketApi product conversations", () => {
+  it("creates a conversation directly from a product, without any order", async () => {
     await api.register({ account: "seller-new", password: "secret1", nickname: "卖家", campus: "东校区" });
-    const product = await api.createProduct({
-      title: "新商品",
-      description: "没有既有会话",
-      price: 20,
-      category: "数码电子",
-      condition: "几乎全新",
-      campus: "东校区",
-      images: [],
-    });
+    const product = await api.createProduct(listing);
     await api.register({ account: "buyer-new", password: "secret1", nickname: "买家", campus: "东校区" });
 
-    const order = await api.createOrder({
-      productId: product.id,
-      meetingPointId: "东校区-library",
-      meetingAtIso: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      contact: "buyer-contact",
-      idempotencyKey: "new-order-key",
-    });
+    const conversation = await api.getOrCreateConversation(product.id);
 
-    expect(order.conversationId).toBeTruthy();
-    expect((await api.listConversations()).map((item) => item.id)).toEqual([order.conversationId]);
+    expect(conversation.productId).toBe(product.id);
+    expect((await api.listConversations()).map((item) => item.id)).toEqual([conversation.id]);
+    const db = JSON.parse(localStorage.getItem("campus_market_mock_database_v1")!);
+    expect(db.market.orders.filter((o: { productId: string }) => o.productId === product.id)).toHaveLength(0);
+    // 平台只展示商品与联系方式：适配层里根本没有下单入口
+    expect("createOrder" in api).toBe(false);
   });
 
-  it("reuses an existing conversation on order creation and an idempotent retry", async () => {
-    installLocalStorage();
-    const api = new MockCampusMarketApi(new TokenStore());
+  it("reuses the existing conversation on retry and after a contact request; the seller cannot open one on their own product", async () => {
     await api.register({ account: "seller-001", password: "secret1", nickname: "卖家", campus: "东校区" });
-    const product = await api.createProduct({
-      title: "测试商品",
-      description: "用于预约测试",
-      price: 20,
-      category: "数码电子",
-      condition: "几乎全新",
-      campus: "东校区",
-      images: [],
-    });
+    const product = await api.createProduct(listing);
+    await expect(api.getOrCreateConversation(product.id)).rejects.toMatchObject({ code: 400 });
     await api.register({ account: "buyer-001", password: "secret1", nickname: "买家", campus: "东校区" });
 
-    const input = {
-      productId: product.id,
-      meetingPointId: "东校区-library",
-      meetingAtIso: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      contact: "buyer-contact",
-      idempotencyKey: "checkout-retry-key",
-    };
-    const existingConversation = await api.getOrCreateConversation(product.id);
-    const created = await api.createOrder(input);
-    const retried = await api.createOrder(input);
-    const conversations = await api.listConversations();
+    const existing = await api.getOrCreateConversation(product.id);
+    await api.requestContact(product.id);
+    const retried = await api.getOrCreateConversation(product.id);
+    await api.sendMessage(existing.id, "还在吗？");
 
-    expect(created.conversationId).toBeTruthy();
-    expect(created.conversationId).toBe(existingConversation.id);
-    expect(retried.conversationId).toBe(created.conversationId);
-    expect(conversations).toHaveLength(1);
-    expect(conversations[0].id).toBe(created.conversationId);
+    expect(retried.id).toBe(existing.id);
+    expect(await api.listConversations()).toHaveLength(1);
+    await api.login({ account: "seller-001", password: "secret1" });
+    const sellerView = await api.listConversations();
+    expect(sellerView.map((c) => c.id)).toEqual([existing.id]);
+    expect((await api.listMessages(existing.id)).map((m) => m.content)).toEqual(["还在吗？"]);
   });
 });

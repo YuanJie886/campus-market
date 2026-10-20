@@ -61,8 +61,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "campus-market.rate-limit.register.window-seconds=3600",
         "campus-market.rate-limit.refresh.limit=2",
         "campus-market.rate-limit.refresh.window-seconds=3600",
-        "campus-market.rate-limit.confirmation-code.limit=3",
-        "campus-market.rate-limit.confirmation-code.window-seconds=3600",
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -287,45 +285,6 @@ class RateLimitIT {
     }
 
     @Test
-    @DisplayName("7. 确认码提交按用户维度限流，且订单级 5 次上限不退化")
-    void confirmationCodeRateLimit() throws Exception {
-        // 该 scope limit=3
-        String sellerAccount = uniqueAccount("cc-seller");
-        MvcResult sellerReg = registerRaw(sellerAccount);
-        String sellerToken = tokenOf(sellerReg);
-        String sellerId = userIdOf(sellerReg);
-
-        String buyerAccount = uniqueAccount("cc-buyer");
-        MvcResult buyerReg = registerRaw(buyerAccount);
-        String buyerToken = tokenOf(buyerReg);
-
-        String productId = publishProduct(sellerToken);
-        String orderId = createOrder(buyerToken, productId);
-        transition(sellerToken, orderId, Map.of("to", "PENDING_MEETING"));
-        // 模块 3：有验货清单的订单，买家须先当面验货并提交，才能确认
-        com.lulu.campusmarketbackend.support.InspectionFixtures.submitAllMatch(mockMvc, objectMapper, buyerToken, orderId);
-        transition(buyerToken, orderId, Map.of("to", "BUYER_CONFIRMED"));
-
-        // 前 3 次错误确认码：走到订单逻辑，返回 4xx 且计数累加
-        for (int i = 1; i <= 3; i++) {
-            MvcResult r = transition(sellerToken, orderId, Map.of("to", "COMPLETED", "confirmationCode", "000000"));
-            assertThat(r.getResponse().getStatus()).as("第 %d 次应为订单级错误而非限流", i).isEqualTo(400);
-        }
-        // 第 4 次被主体限流挡在订单事务之前
-        MvcResult limited = transition(sellerToken, orderId, Map.of("to", "COMPLETED", "confirmationCode", "000000"));
-        assertThat(limited.getResponse().getStatus()).as("超限应 429").isEqualTo(429);
-        assertThat(limited.getResponse().getHeader("Retry-After")).isNotNull();
-
-        // 订单级 code_attempts 只累加了被放行的 3 次，硬限制未被限流替代
-        Integer attempts = jdbc.queryForObject(
-                "SELECT code_attempts FROM orders WHERE id = ?::uuid", Integer.class, orderId);
-        assertThat(attempts).as("限流不替代订单级 code_attempts<=5").isEqualTo(3);
-
-        // 主体隔离：另一个卖家不受影响
-        assertThat(sellerId).isNotBlank();
-    }
-
-    @Test
     @DisplayName("8. 限流表不含原始账号、Token 或确认码，且窗口过期后可重新请求")
     void storageContainsNoSecretsAndWindowRecovers() throws Exception {
         String account = uniqueAccount("privacy");
@@ -444,50 +403,4 @@ class RateLimitIT {
                 .path("data").path("user").path("id").asText();
     }
 
-    private String publishProduct(String token) throws Exception {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("title", "限流测试商品");
-        body.put("description", "由 RateLimitIT 创建");
-        body.put("price", 20.00);
-        body.put("category", "生活用品");
-        // 模块 3：受支持分类的新商品必须附带完整验货声明
-        body.put("inspection", com.lulu.campusmarketbackend.support.InspectionFixtures.fullDisclosure("生活用品"));
-        body.put("condition", "全新");
-        body.put("campus", CAMPUS);
-        body.put("images", List.of("https://example.invalid/a.png"));
-        body.put("contact", "13800000001");
-        MvcResult r = mockMvc.perform(post("/v1/products").header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body))).andReturn();
-        assertThat(r.getResponse().getStatus()).isEqualTo(200);
-        return objectMapper.readTree(r.getResponse().getContentAsString()).path("data").path("id").asText();
-    }
-
-    private String createOrder(String token, String productId) throws Exception {
-        MvcResult points = mockMvc.perform(
-                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/v1/meeting-points")
-                        .header("Authorization", "Bearer " + token)).andReturn();
-        String meetingPointId = null;
-        for (JsonNode p : objectMapper.readTree(points.getResponse().getContentAsString()).path("data")) {
-            if (CAMPUS.equals(p.path("campus").asText())) { meetingPointId = p.path("id").asText(); break; }
-        }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("productId", productId);
-        body.put("meetingPointId", meetingPointId);
-        body.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1).toString());
-        body.put("contact", "13800000002");
-        MvcResult r = mockMvc.perform(post("/v1/orders").header("Authorization", "Bearer " + token)
-                .header("Idempotency-Key", UUID.randomUUID().toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body))).andReturn();
-        assertThat(r.getResponse().getStatus()).isEqualTo(200);
-        return objectMapper.readTree(r.getResponse().getContentAsString()).path("data").path("id").asText();
-    }
-
-    private MvcResult transition(String token, String orderId, Map<String, Object> body) throws Exception {
-        return mockMvc.perform(post("/v1/orders/" + orderId + "/transitions")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body))).andReturn();
-    }
 }

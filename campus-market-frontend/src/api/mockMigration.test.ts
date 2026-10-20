@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MOCK_SCHEMA_VERSION, migrateMockDatabase, type MockDatabase } from './mockMigrations';
 import { MockCampusMarketApi } from './mockCampusMarketApi';
-import { fullDisclosure, submitAllMatch } from '../test/inspectionFixtures';
+
 
 /**
  * Mock 演示数据的 schema 版本化与迁移（0.9E）。
@@ -46,6 +46,15 @@ function legacyPayload(orderStatus: string, productStatus = '在售'): Record<st
   };
 }
 
+/**
+ * 阶段 1（v13）起，迁移链最后会按后端 V16 把未结束的旧订单系统关闭为 EXPIRED，并在 legacyTradeClosures 里留下原状态。
+ * 早期步骤（0.9E 的 canonical 推断）的结论因此以「收尾前的状态」核对：有收尾记录时取 fromStatus，否则取当前状态。
+ */
+function inferred(db: MockDatabase, orderId: string): string | undefined {
+  const closure = db.legacyTradeClosures.find((c) => c.entityType === 'ORDER' && c.entityId === orderId);
+  return closure ? closure.fromStatus : db.market.orders.find((o) => o.id === orderId)?.canonicalStatus;
+}
+
 describe('0.9E Mock schema 版本化与迁移', () => {
   it('1. 无版本号的旧负载被识别为 v1 并升级到当前版本', () => {
     const result = migrateMockDatabase(legacyPayload('待确认'), seed);
@@ -74,16 +83,18 @@ describe('0.9E Mock schema 版本化与迁移', () => {
   it('4. 歧义的「交易中」保守落到 PENDING_MEETING 并标记 legacyStatusAmbiguous', () => {
     const result = migrateMockDatabase(legacyPayload('交易中'), seed);
     const order = result.db.market.orders[0];
-    expect(order.canonicalStatus).toBe('PENDING_MEETING');
+    expect(inferred(result.db, 'o1')).toBe('PENDING_MEETING');
     expect(order.legacyStatusAmbiguous).toBe(true);
     expect(result.ambiguousOrderIds).toEqual(['o1']);
+    // 阶段 1：这张未结束的订单随后被系统关闭（与后端 V16 一致）
+    expect(order.canonicalStatus).toBe('EXPIRED');
   });
 
   it('5. 绝不把「交易中」猜成权限更宽的 BUYER_CONFIRMED / SELLER_CONFIRMED', () => {
-    const order = migrateMockDatabase(legacyPayload('交易中'), seed).db.market.orders[0];
-    expect(order.canonicalStatus).not.toBe('BUYER_CONFIRMED');
-    expect(order.canonicalStatus).not.toBe('SELLER_CONFIRMED');
-    expect(order.canonicalStatus).not.toBe('DISPUTED');
+    const db = migrateMockDatabase(legacyPayload('交易中'), seed).db;
+    expect(inferred(db, 'o1')).not.toBe('BUYER_CONFIRMED');
+    expect(inferred(db, 'o1')).not.toBe('SELLER_CONFIRMED');
+    expect(inferred(db, 'o1')).not.toBe('DISPUTED');
   });
 
   it('6. 无歧义的文案精确还原，且不打歧义标记', () => {
@@ -93,9 +104,11 @@ describe('0.9E Mock schema 版本化与迁移', () => {
       ['已取消', 'CANCELLED'],
     ];
     for (const [label, canonical] of cases) {
-      const order = migrateMockDatabase(legacyPayload(label), seed).db.market.orders[0];
-      expect(order.canonicalStatus).toBe(canonical);
-      expect(order.legacyStatusAmbiguous).toBeUndefined();
+      const db = migrateMockDatabase(legacyPayload(label), seed).db;
+      expect(inferred(db, 'o1')).toBe(canonical);
+      expect(db.market.orders[0].legacyStatusAmbiguous).toBeUndefined();
+      // 已结束的订单不被收尾改动；未结束的（待确认）被系统关闭
+      expect(db.market.orders[0].canonicalStatus).toBe(canonical === 'PENDING_SELLER_CONFIRM' ? 'EXPIRED' : canonical);
     }
   });
 
@@ -103,14 +116,18 @@ describe('0.9E Mock schema 版本化与迁移', () => {
     const payload = legacyPayload('交易中');
     const market = payload.market as { orders: Array<Record<string, unknown>> };
     market.orders[0].canonicalStatus = 'BUYER_CONFIRMED';
-    const order = migrateMockDatabase(payload, seed).db.market.orders[0];
-    expect(order.canonicalStatus).toBe('BUYER_CONFIRMED');
-    expect(order.legacyStatusAmbiguous).toBeUndefined();
+    const db = migrateMockDatabase(payload, seed).db;
+    expect(inferred(db, 'o1')).toBe('BUYER_CONFIRMED');
+    expect(db.market.orders[0].legacyStatusAmbiguous).toBeUndefined();
   });
 
-  it('8. 商品状态按订单重算：存在活跃订单 → 预约中', () => {
+  it('8. 存在活跃旧订单的商品：迁移链最终释放旧预约 → 在售（平台不再预约）；订单记录原样保留、不被删除', () => {
     const db = migrateMockDatabase(legacyPayload('交易中', '在售'), seed).db;
-    expect(db.market.products[0].status).toBe('预约中');
+    expect(db.market.products[0].status).toBe('在售');
+    expect(db.market.products[0].contactPublic).toBe(false);
+    expect(db.market.orders).toHaveLength(1);
+    expect(inferred(db, 'o1')).toBe('PENDING_MEETING');
+    expect(db.market.orders[0].canonicalStatus).toBe('EXPIRED');
   });
 
   it('9. 商品状态按订单重算：订单已取消 → 商品回到在售', () => {
@@ -157,14 +174,14 @@ describe('0.9E 事件证据优先于中文文案', () => {
 
   it('17. 有买家确认痕迹 → BUYER_CONFIRMED，且不标记歧义', () => {
     const result = withEvidence({ buyerConfirmedAt: 1700000000000 });
-    expect(result.db.market.orders[0].canonicalStatus).toBe('BUYER_CONFIRMED');
+    expect(inferred(result.db, 'o1')).toBe('BUYER_CONFIRMED');
     expect(result.db.market.orders[0].legacyStatusAmbiguous).toBeUndefined();
     expect(result.ambiguousOrderIds).toEqual([]);
   });
 
   it('18. 只有面交信息 → PENDING_MEETING（有证据，非保守兜底）', () => {
     const result = withEvidence({ meetingPointId: '东校区-library' });
-    expect(result.db.market.orders[0].canonicalStatus).toBe('PENDING_MEETING');
+    expect(inferred(result.db, 'o1')).toBe('PENDING_MEETING');
     expect(result.db.market.orders[0].legacyStatusAmbiguous).toBeUndefined();
   });
 
@@ -219,18 +236,21 @@ describe('0.9E 迁移在真实装载路径上生效', () => {
     Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
   });
 
-  it('14. MockCampusMarketApi 装载旧负载后立即落盘迁移结果', () => {
+  it('14. MockCampusMarketApi 装载旧负载后立即落盘迁移结果（阶段 1：未结束的旧订单随后按 V16 收尾为 EXPIRED 并留痕）', () => {
     window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(legacyPayload('交易中')));
-    const api = new MockCampusMarketApi();
-    expect(api.ambiguousOrderIds).toEqual(['o1']);
+    new MockCampusMarketApi();
 
     const persisted = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY) as string);
     expect(persisted.schemaVersion).toBe(MOCK_SCHEMA_VERSION);
-    expect(persisted.market.orders[0].canonicalStatus).toBe('PENDING_MEETING');
+    // v1→v2 保守判定为 PENDING_MEETING 并标记歧义；v12→v13 把这张未结束的订单系统关闭，留痕写明原状态
     expect(persisted.market.orders[0].legacyStatusAmbiguous).toBe(true);
+    expect(persisted.market.orders[0].canonicalStatus).toBe('EXPIRED');
+    expect(persisted.legacyTradeClosures).toEqual([expect.objectContaining({
+      entityType: 'ORDER', entityId: 'o1', fromStatus: 'PENDING_MEETING', toStatus: 'EXPIRED', reason: 'PLATFORM_TRADE_RETIRED' })]);
 
-    // 再装载一次：已是当前版本，不应再产生歧义记录
-    expect(new MockCampusMarketApi().ambiguousOrderIds).toEqual([]);
+    // 再装载一次：已是当前版本，落盘内容不再变化（不会重复收尾或留痕）
+    new MockCampusMarketApi();
+    expect(JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY) as string)).toEqual(persisted);
   });
 
   it('15. 迁移只动自己的 key，不触碰同域其他数据', () => {
@@ -248,65 +268,6 @@ describe('0.9E 迁移在真实装载路径上生效', () => {
   });
 });
 
-describe('0.9E 迁移后的模糊订单仍可正常推进', () => {
-  beforeEach(() => {
-    const store = new MemoryStorage();
-    Object.defineProperty(globalThis, 'window', { value: { localStorage: store }, configurable: true });
-    Object.defineProperty(globalThis, 'localStorage', { value: store, configurable: true });
-  });
-
-  it('24. 被判为 PENDING_MEETING 的旧订单：买家仍能确认，卖家仍能核销完成', async () => {
-    // 先用真实 API 造一条走到 PENDING_MEETING 的订单，再把它退化成「只有中文文案」的旧数据
-    const api = new MockCampusMarketApi();
-    const seller = await api.register({
-      account: 'legacy-seller', password: 'test-password', nickname: '卖家',
-      campus: '东校区', contact: '13800000000',
-    });
-    const product = await api.createProduct({
-      title: '迁移测试商品', description: 'd', price: 10, category: '生活用品',
-      condition: '全新', campus: '东校区', images: ['https://example.invalid/a.png'],
-      contact: '13800000000', inspection: fullDisclosure('生活用品'),
-    });
-    const buyer = await api.register({
-      account: 'legacy-buyer', password: 'test-password', nickname: '买家',
-      campus: '东校区', contact: '13800000001',
-    });
-    const order = await api.createOrder({
-      productId: product.id, meetingPointId: '东校区-library',
-      meetingAtIso: new Date(Date.now() + 86_400_000).toISOString(),
-      contact: '13800000001', idempotencyKey: 'k1',
-    });
-
-    // 退化成旧格式：抹掉 canonicalStatus 与一切事件痕迹，只留「交易中」
-    const raw = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY) as string);
-    delete raw.schemaVersion;
-    for (const o of raw.market.orders) {
-      delete o.canonicalStatus;
-      delete o.meetingPointId;
-      delete o.meetingAtIso;
-      o.status = '交易中';
-    }
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(raw));
-
-    const migrated = new MockCampusMarketApi();
-    expect(migrated.ambiguousOrderIds).toContain(order.id);
-
-    // 买家确认这一步没有被跳过——这正是不敢猜 BUYER_CONFIRMED 的理由
-    await migrated.login({ account: buyer.user.account, password: 'test-password' });
-    await submitAllMatch(migrated, order.id);
-    const confirmed = await migrated.transitionOrder(order.id, { to: 'BUYER_CONFIRMED' });
-    expect(confirmed.canonicalStatus).toBe('BUYER_CONFIRMED');
-
-    // 卖家凭核销码完成
-    await migrated.login({ account: seller.user.account, password: 'test-password' });
-    const done = await migrated.transitionOrder(order.id, {
-      to: 'COMPLETED', confirmationCode: order.confirmationCode as string,
-    });
-    expect(done.canonicalStatus).toBe('COMPLETED');
-    expect((await migrated.getProduct(product.id)).status).toBe('已售出');
-  });
-});
-
 describe('0.9E 种子数据本身即为当前版本', () => {
   beforeEach(() => {
     const store = new MemoryStorage();
@@ -314,17 +275,19 @@ describe('0.9E 种子数据本身即为当前版本', () => {
     Object.defineProperty(globalThis, 'localStorage', { value: store, configurable: true });
   });
 
-  it('25. 全新安装：所有种子订单都带 canonicalStatus，且不触发迁移', async () => {
-    const api = new MockCampusMarketApi();
-    expect(api.ambiguousOrderIds).toEqual([]);
+  it('25. 全新安装：所有种子订单都带 canonicalStatus 且都已结束（站内交易已停用），且不触发迁移', async () => {
+    new MockCampusMarketApi();
 
     const persisted = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY) as string);
     expect(persisted.schemaVersion).toBe(MOCK_SCHEMA_VERSION);
     for (const order of persisted.market.orders) {
       expect(order.canonicalStatus, `订单 ${order.id} 缺少 canonicalStatus`).toBeTruthy();
+      expect(['COMPLETED', 'CANCELLED', 'EXPIRED'], `订单 ${order.id} 仍未结束`).toContain(order.canonicalStatus);
     }
+    expect(persisted.market.products.filter((p: { status: string }) => p.status === '预约中')).toEqual([]);
 
     // 第二次装载不得重复迁移
-    expect(new MockCampusMarketApi().ambiguousOrderIds).toEqual([]);
+    new MockCampusMarketApi();
+    expect(JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY) as string)).toEqual(persisted);
   });
 });

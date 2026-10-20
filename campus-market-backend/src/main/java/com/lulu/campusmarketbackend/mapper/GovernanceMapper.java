@@ -31,6 +31,9 @@ public interface GovernanceMapper {
     @Select("SELECT staff_case_conflict(#{caseId}, #{staff})")
     String selectCaseConflict(@Param("caseId") UUID caseId, @Param("staff") UUID staff);
 
+    @Select("SELECT staff_product_conflict(#{productId}, #{staff})")
+    String selectProductConflict(@Param("productId") UUID productId, @Param("staff") UUID staff);
+
     @Select("SELECT staff_appeal_conflict(#{appealId}, #{staff})")
     String selectAppealConflict(@Param("appealId") UUID appealId, @Param("staff") UUID staff);
 
@@ -42,9 +45,11 @@ public interface GovernanceMapper {
 
     // ================= 用户限制 =================
 
+    /** 阶段 1：历史上的 BOOKING（限制预约新订单）限制在到期前同样拦截「申请联系方式」（CONTACT）。 */
     @Select("""
             SELECT id, scope, ends_at FROM user_restrictions
-            WHERE user_id = #{userId} AND scope = #{scope} AND revoked_at IS NULL
+            WHERE user_id = #{userId} AND revoked_at IS NULL
+              AND (scope = #{scope} OR (#{scope} = 'CONTACT' AND scope = 'BOOKING'))
               AND starts_at <= clock_timestamp() AND ends_at > clock_timestamp()
             ORDER BY ends_at DESC LIMIT 1
             """)
@@ -63,20 +68,7 @@ public interface GovernanceMapper {
                           @Param("noShowReportId") UUID noShowReportId, @Param("createdBy") UUID createdBy,
                           @Param("reasonCode") String reasonCode, @Param("hours") int hours, @Param("ruleVersion") String ruleVersion);
 
-    // ================= 7.1B 自动限制的依据与纠正 =================
-
-    /** 30 天滚动窗口内已确认、且有明确档期快照的爽约（按确认时间计）：自动限制的依据。 */
-    @Select("""
-            SELECT n.id, n.confirmed_at FROM order_no_show_reports n
-            WHERE n.reported_user_id = #{userId} AND n.status IN ('ACKNOWLEDGED','CONFIRMED')
-              AND n.confirmed_at > clock_timestamp() - interval '30 days'
-              AND EXISTS (SELECT 1 FROM order_slot_agreements a WHERE a.order_id = n.order_id AND a.meeting_revision = n.meeting_revision)
-            ORDER BY n.confirmed_at, n.id
-            """)
-    List<Map<String, Object>> selectConfirmedNoShowsInWindow(@Param("userId") UUID userId);
-
-    @Insert("INSERT INTO user_restriction_basis(restriction_id, no_show_report_id, confirmed_at) VALUES (#{restrictionId}, #{reportId}, #{confirmedAt})")
-    int insertBasis(@Param("restrictionId") UUID restrictionId, @Param("reportId") UUID reportId, @Param("confirmedAt") Object confirmedAt);
+    // ================= 7.1B 历史自动限制的依据与纠正（只读，V16 起冻结） =================
 
     @Select("""
             SELECT b.no_show_report_id, b.confirmed_at, n.status FROM user_restriction_basis b
@@ -84,50 +76,6 @@ public interface GovernanceMapper {
             WHERE b.restriction_id = #{restrictionId} ORDER BY b.confirmed_at, b.no_show_report_id
             """)
     List<Map<String, Object>> selectBasis(@Param("restrictionId") UUID restrictionId);
-
-    /** 以某次确认为依据、仍未撤销的自动限制（含已到期的：由调用方只做审计判断）。按创建顺序加锁。 */
-    @Select("""
-            SELECT r.* FROM user_restrictions r JOIN user_restriction_basis b ON b.restriction_id = r.id
-            WHERE b.no_show_report_id = #{reportId} AND r.source = 'SYSTEM_RULE' AND r.revoked_at IS NULL
-            ORDER BY r.created_at, r.id
-            FOR UPDATE OF r
-            """)
-    List<Map<String, Object>> lockRestrictionsBasedOn(@Param("reportId") UUID reportId);
-
-    @Select("SELECT clock_timestamp()")
-    java.sql.Timestamp selectNow();
-
-    /**
-     * 纠正记录的时间全部在数据库里计算（微秒精度，不经过 Java 截断）：
-     * SHORTENED 的新结束时间 = 开始时间 + 新时长；REVOKED 的新结束时间 = 撤销时刻。
-     */
-    @Insert("""
-            INSERT INTO user_restriction_corrections(id, restriction_id, school_id, cause_report_id, appeal_id, decided_by, outcome,
-                                                     rule_version, remaining_count, previous_ends_at, new_ends_at)
-            SELECT #{id}, r.id, r.school_id, #{causeReportId}, #{appealId}, #{decidedBy}, #{outcome}, r.rule_version, #{remaining},
-                   r.ends_at,
-                   CASE WHEN #{outcome} = 'SHORTENED' THEN r.starts_at + make_interval(hours => #{hours}) ELSE clock_timestamp() END
-            FROM user_restrictions r WHERE r.id = #{restrictionId}
-            ON CONFLICT (restriction_id, cause_report_id) DO NOTHING
-            """)
-    int insertCorrection(@Param("id") UUID id, @Param("restrictionId") UUID restrictionId, @Param("causeReportId") UUID causeReportId,
-                         @Param("appealId") UUID appealId, @Param("decidedBy") UUID decidedBy, @Param("outcome") String outcome,
-                         @Param("remaining") int remaining, @Param("hours") int hours);
-
-    @Update("""
-            UPDATE user_restrictions r SET ends_at = c.new_ends_at, last_correction_id = c.id
-            FROM user_restriction_corrections c
-            WHERE c.id = #{correctionId} AND r.id = c.restriction_id AND r.revoked_at IS NULL AND r.source = 'SYSTEM_RULE'
-              AND r.ends_at > c.new_ends_at
-            """)
-    int shortenRestriction(@Param("correctionId") UUID correctionId);
-
-    @Update("""
-            UPDATE user_restrictions SET revoked_at = clock_timestamp(), revoked_by = #{by}, revoke_reason = 'RULE_RECOMPUTED',
-                   last_correction_id = #{correctionId}
-            WHERE id = #{id} AND revoked_at IS NULL AND source = 'SYSTEM_RULE'
-            """)
-    int revokeRecomputed(@Param("id") UUID id, @Param("by") UUID by, @Param("correctionId") UUID correctionId);
 
     @Select("""
             SELECT id, outcome, remaining_count, previous_ends_at, new_ends_at, rule_version, created_at
@@ -159,107 +107,10 @@ public interface GovernanceMapper {
             """)
     List<Map<String, Object>> selectMyRestrictions(@Param("userId") UUID userId);
 
-    // ================= 取消记录 =================
-
-    @Insert("""
-            INSERT INTO order_cancellations(order_id, school_id, actor_user_id, phase, reason_code, note)
-            VALUES (#{orderId}, #{schoolId}, #{actorId}, #{phase}, #{reasonCode}, #{note})
-            ON CONFLICT (order_id) DO NOTHING
-            """)
-    int insertCancellation(@Param("orderId") UUID orderId, @Param("schoolId") String schoolId, @Param("actorId") UUID actorId,
-                           @Param("phase") String phase, @Param("reasonCode") String reasonCode, @Param("note") String note);
-
-    @Select("SELECT * FROM order_cancellations WHERE order_id = #{orderId}")
-    Map<String, Object> selectCancellation(@Param("orderId") UUID orderId);
-
-    /** 本人确认档期之后发起的取消（进入本人履历，不进入公共履历）。 */
-    @Select("""
-            SELECT order_id, phase, reason_code, created_at FROM order_cancellations
-            WHERE actor_user_id = #{userId} AND phase <> 'BEFORE_SELLER_CONFIRM'
-            ORDER BY created_at DESC LIMIT 50
-            """)
-    List<Map<String, Object>> selectOwnCancellations(@Param("userId") UUID userId);
-
-    /** 订单被取消的时间：取消记录优先；V10 之前取消的旧订单取状态事件时间（不补写取消记录）。 */
-    @Select("""
-            SELECT COALESCE((SELECT created_at FROM order_cancellations WHERE order_id = #{orderId}),
-                            (SELECT max(created_at) FROM order_events WHERE order_id = #{orderId} AND to_status = 'CANCELLED'))
-            """)
-    OffsetDateTime selectCancelledAt(@Param("orderId") UUID orderId);
-
-    /** 7.1A：接受时冻结的档期快照。 */
-    @Select("SELECT * FROM order_slot_agreements WHERE order_id = #{orderId} AND meeting_revision = #{revision}")
-    Map<String, Object> selectSlotAgreement(@Param("orderId") UUID orderId, @Param("revision") int revision);
-
-    @Select("SELECT meeting_revision FROM orders WHERE id = #{orderId}")
-    int selectMeetingRevision(@Param("orderId") UUID orderId);
-
-    @Select("SELECT c.school_id FROM orders o JOIN products p ON p.id = o.product_id JOIN campuses c ON c.id = p.campus WHERE o.id = #{orderId}")
-    String selectOrderSchool(@Param("orderId") UUID orderId);
-
-    @Select("SELECT EXISTS (SELECT 1 FROM order_presence WHERE order_id = #{orderId} AND meeting_revision = #{revision} AND status = 'ARRIVED')")
-    boolean anyArrival(@Param("orderId") UUID orderId, @Param("revision") int revision);
-
-    @Select("SELECT EXISTS (SELECT 1 FROM order_events WHERE order_id = #{orderId} AND to_status = 'PENDING_MEETING')")
-    boolean sellerConfirmed(@Param("orderId") UUID orderId);
-
-    // ================= 爽约报告 =================
-
-    @Insert("""
-            INSERT INTO order_no_show_reports(id, order_id, meeting_revision, school_id, reporter_user_id, reported_user_id,
-                                              reason_code, note)
-            VALUES (#{id}, #{orderId}, #{revision}, #{schoolId}, #{reporter}, #{reported}, #{reasonCode}, #{note})
-            ON CONFLICT DO NOTHING
-            """)
-    int insertNoShow(@Param("id") UUID id, @Param("orderId") UUID orderId, @Param("revision") int revision,
-                     @Param("schoolId") String schoolId, @Param("reporter") UUID reporter, @Param("reported") UUID reported,
-                     @Param("reasonCode") String reasonCode, @Param("note") String note);
+    // ================= 历史爽约报告（只读，V16 起冻结） =================
 
     @Select("SELECT * FROM order_no_show_reports WHERE id = #{id}")
     Map<String, Object> selectNoShow(@Param("id") UUID id);
-
-    @Select("SELECT * FROM order_no_show_reports WHERE id = #{id} FOR UPDATE")
-    Map<String, Object> lockNoShow(@Param("id") UUID id);
-
-    @Select("SELECT * FROM order_no_show_reports WHERE order_id = #{orderId} ORDER BY created_at, id")
-    List<Map<String, Object>> selectNoShowsByOrder(@Param("orderId") UUID orderId);
-
-    @Update("""
-            UPDATE order_no_show_reports SET status = #{status}, response_note = #{note}, responded_at = clock_timestamp(),
-                   confirmed_at = CASE WHEN #{status} = 'ACKNOWLEDGED' THEN clock_timestamp() END
-            WHERE id = #{id} AND status = 'PENDING'
-            """)
-    int respondNoShow(@Param("id") UUID id, @Param("status") String status, @Param("note") String note);
-
-    @Update("""
-            UPDATE order_no_show_reports SET status = #{status}, decided_at = clock_timestamp(), decided_by = #{staff},
-                   confirmed_at = CASE WHEN #{status} = 'CONFIRMED' THEN clock_timestamp() END
-            WHERE id = #{id} AND status IN ('PENDING','DISPUTED')
-            """)
-    int decideNoShow(@Param("id") UUID id, @Param("status") String status, @Param("staff") UUID staff);
-
-    /** 申诉成功推翻一次已确认的爽约：改为 REJECTED，不再计数。 */
-    @Update("""
-            UPDATE order_no_show_reports SET status = 'REJECTED', confirmed_at = NULL, decided_at = clock_timestamp(), decided_by = #{staff}
-            WHERE id = #{id} AND status IN ('ACKNOWLEDGED','CONFIRMED')
-            """)
-    int overturnNoShow(@Param("id") UUID id, @Param("staff") UUID staff);
-
-    /** 改约、见面（买家确认 / 完成）后，旧档期上尚未确认的报告失效，不能再产生处罚。 */
-    @Update("""
-            UPDATE order_no_show_reports SET status = 'EXPIRED'
-            WHERE order_id = #{orderId} AND status IN ('PENDING','DISPUTED') AND meeting_revision < #{beforeRevision}
-            """)
-    int expireNoShowsBefore(@Param("orderId") UUID orderId, @Param("beforeRevision") int beforeRevision);
-
-    /** 30 天滚动窗口内已确认的爽约次数（对方承认或工作人员确认）。 */
-    @Select("""
-            SELECT count(*) FROM order_no_show_reports n
-            WHERE n.reported_user_id = #{userId} AND n.status IN ('ACKNOWLEDGED','CONFIRMED')
-              AND n.confirmed_at > clock_timestamp() - interval '30 days'
-              AND EXISTS (SELECT 1 FROM order_slot_agreements a WHERE a.order_id = n.order_id AND a.meeting_revision = n.meeting_revision)
-            """)
-    long countConfirmedNoShows(@Param("userId") UUID userId);
 
     // ================= 举报与案件 =================
 
@@ -397,8 +248,9 @@ public interface GovernanceMapper {
     int restoreProduct(@Param("productId") UUID productId, @Param("actionId") UUID actionId);
 
     /**
-     * 与本人有关、可以申诉的处理（7.1E 起含评论隐藏、单条私信隔离；7.1B 起含工作人员确认的爽约）。
-     * active = 处理仍在生效（内容仍隐藏 / 隔离；爽约确认仍在 30 天计数窗口内）。不含举报人或工作人员身份。
+     * 与本人有关、可以申诉的处理（7.1E 起含评论隐藏、单条私信隔离）。
+     * active = 处理仍在生效（内容仍隐藏 / 隔离）。历史上的爽约确认只展示：爽约规则已停用（V16），不再生效、不能申诉。
+     * 不含举报人或工作人员身份。
      */
     @Select("""
             SELECT a.id, a.action_code, a.target_id, a.reason_code, a.created_at,
@@ -410,8 +262,7 @@ public interface GovernanceMapper {
                                                  FROM comments cm WHERE cm.id = a.target_id)
                        WHEN 'QUARANTINE_MESSAGE' THEN (SELECT m.moderation_quarantined_at IS NOT NULL AND m.moderation_quarantine_action_id = a.id
                                                        FROM messages m WHERE m.id = a.target_id)
-                       WHEN 'CONFIRM_NO_SHOW' THEN (SELECT n.status = 'CONFIRMED' AND n.confirmed_at > clock_timestamp() - interval '30 days'
-                                                    FROM order_no_show_reports n WHERE n.id = a.target_id)
+                       WHEN 'CONFIRM_NO_SHOW' THEN false
                    END AS active,
                    ap.id AS appeal_id, ap.status AS appeal_status, ap.created_at AS appeal_created_at, ap.decided_at AS appeal_decided_at
             FROM moderation_actions a LEFT JOIN moderation_appeals ap ON ap.action_id = a.id
@@ -545,9 +396,6 @@ public interface GovernanceMapper {
             JOIN products p ON p.id = o.product_id JOIN campuses c ON c.id = p.campus WHERE o.id = #{id}
             """)
     Map<String, Object> selectOrderTarget(@Param("id") UUID id);
-
-    @Select("SELECT user_id, status, departed_at, arrived_at FROM order_presence WHERE order_id = #{orderId} AND meeting_revision = #{revision}")
-    List<Map<String, Object>> selectPresence(@Param("orderId") UUID orderId, @Param("revision") int revision);
 
     @Select("SELECT id, status FROM circles WHERE id = #{id} FOR UPDATE")
     Map<String, Object> lockCircle(@Param("id") UUID id);

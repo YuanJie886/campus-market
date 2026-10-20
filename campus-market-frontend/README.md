@@ -64,6 +64,11 @@ npm run check:deterministic  # 在未设置 / mock / rest 三种环境下各构�
 # 模块 7：离线演示（build:mock）的「个人资料」里有「设为演示工作人员」开关，用来体验治理工作台；
 # 它只在 Mock 构建里懒加载，REST 构建里被常量折叠删掉（check-bundles 以 demo-staff-switch 标记验证）。
 # 真实部署没有默认工作人员，首个工作人员见 ../campus-market-backend/docs/staff-runbook.md。
+# 阶段 3：离线演示的「找回密码」页（登录页 →「忘记密码？」→ /password-reset）下方有「模拟学校工作人员签发重置码」面板：
+# 输入演示账号即可得到一次性重置码（XXXX-XXXX-XXXX，30 分钟、最多 5 次错误，只存在于当前页面内存，刷新即失效）并自动回填。
+# 它同样只在 Mock 构建里懒加载（check-bundles 以 demo-reset-code 标记验证）；真实部署里重置码只能由本校学校管理员
+# 线下核对身份后在管理后台签发（POST /v1/admin/users/{id}/password-reset，见 ../docs/account-lifecycle.md）。
+# 阶段 4：离线演示上传的图片以 data: 地址保存在本机（localStorage 的 campus_market_mock_uploaded_images_v1，超出浏览器配额时只留在内存里）。
 # 6.1A：商品浏览与搜索需要登录，只显示本校商品；未登录只看到落地页。
 
 # 模块 8：真实浏览器 E2E（REST 构建 + 后端 jar + 一次性 PostgreSQL 16，默认使用本机 Chrome）

@@ -88,58 +88,6 @@ export function allowsFallback(scope: BuildingScope): boolean {
   return scope === 'BUILDING';
 }
 
-/* ---------------------------- 面交点推荐 ---------------------------- */
-
-export interface MeetingPointCandidate extends Coordinate {
-  id: string;
-  name: string;
-}
-
-export interface RankedMeetingPoint<T extends MeetingPointCandidate> {
-  point: T;
-  /** 买家楼栋到该点的直线距离（米）；无法计算时为 null */
-  buyerMeters: number | null;
-  /** 商品楼栋到该点的直线距离（米）；无法计算时为 null */
-  productMeters: number | null;
-  /** 两段之和，用于排序；任一段缺失时为 null */
-  totalMeters: number | null;
-  /** 是否为推荐项（排序第一且距离可算） */
-  recommended: boolean;
-}
-
-/**
- * 按「买家楼栋 + 商品楼栋到面交点的距离之和」推荐面交点。
- *
- * <p>任一楼栋缺坐标时<b>不做伪精确推荐</b>：保持面交点的原有顺序，
- * 只是把距离字段留空，并且不标记任何一项为推荐。宁可不给建议，
- * 也不能用一个看似精确实则无依据的排序引导用户走错地方。
- *
- * <p>推荐永远只是建议：最终面交点仍由用户确认。
- */
-export function rankMeetingPoints<T extends MeetingPointCandidate>(
-  points: readonly T[],
-  buyerBuilding: Coordinate | null | undefined,
-  productBuilding: Coordinate | null | undefined,
-): RankedMeetingPoint<T>[] {
-  const ranked = points.map((point) => {
-    const buyerMeters = haversineMeters(buyerBuilding, point);
-    const productMeters = haversineMeters(productBuilding, point);
-    const totalMeters =
-      buyerMeters === null || productMeters === null ? null : buyerMeters + productMeters;
-    return { point, buyerMeters, productMeters, totalMeters, recommended: false };
-  });
-
-  const allMeasurable = ranked.every((entry) => entry.totalMeters !== null);
-  if (!allMeasurable) return ranked;
-
-  // 距离相同时按 id 收敛，保证同样的输入永远得到同样的顺序
-  ranked.sort((a, b) =>
-    (a.totalMeters as number) - (b.totalMeters as number) || a.point.id.localeCompare(b.point.id),
-  );
-  if (ranked.length > 0) ranked[0].recommended = true;
-  return ranked;
-}
-
 /** 从楼栋列表里查坐标。找不到时返回 null，调用方据此降级。 */
 export function buildingCoordinate(
   buildings: readonly Building[],

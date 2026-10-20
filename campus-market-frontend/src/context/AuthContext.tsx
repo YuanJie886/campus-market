@@ -142,6 +142,20 @@ function useAuthState() {
       requested.current.clear();
     }
   };
+  /**
+   * 服务端已经结束了本账号的会话（注销成功、凭重置码改了密码）：只清掉本页内存里的登录态，
+   * 不再调用 logout 接口（会话与刷新 Cookie 已由服务端处理，再调只会得到 401）。
+   */
+  const endLocalSession = () => {
+    authTokenStore.clearAccessToken();
+    cancelScheduledRefresh();
+    clearPendingInvite();
+    setCurrentUser(null);
+    setUsers([]);
+    setAuthStatus("anonymous");
+    setAuthNotice(null);
+    requested.current.clear();
+  };
   const updateProfile = async (patch: ProfilePatch) => {
     const u = await getApiClient().updateProfile(patch);
     setCurrentUser(u);
@@ -158,6 +172,7 @@ function useAuthState() {
     login,
     register,
     logout,
+    endLocalSession,
     updateProfile,
     loadUsers,
     getUser: (id: string | null | undefined) => users.find((u) => u.id === id),

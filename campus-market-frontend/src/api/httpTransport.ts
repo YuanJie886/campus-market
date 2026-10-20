@@ -43,12 +43,15 @@ export class HttpTransport {
     path: string,
     init: RequestInit = {},
     retry = true,
+    timeoutMs = this.timeoutMs,
   ): Promise<T> {
     const controller = new AbortController(),
-      timer = globalThis.setTimeout(() => controller.abort(), this.timeoutMs);
+      timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (init.body && !headers.has("Content-Type"))
+    // multipart：Content-Type（含 boundary）必须由浏览器生成，不能写成 JSON
+    const multipart = typeof FormData !== "undefined" && init.body instanceof FormData;
+    if (init.body && !multipart && !headers.has("Content-Type"))
       headers.set("Content-Type", "application/json");
     const token = authTokenStore.getAccessToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -68,7 +71,7 @@ export class HttpTransport {
         !/\/auth\/(login|register|refresh|logout)$/.test(path)
       ) {
         await this.refresh();
-        return await this.request<T>(path, init, false);
+        return await this.request<T>(path, init, false, timeoutMs);
       }
       let payload: unknown;
       try {
@@ -129,6 +132,13 @@ export class HttpTransport {
       method: "PUT",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  }
+  /**
+   * multipart 上传（阶段 4 图片）。与其他业务请求同一套认证：内存里的 Bearer 令牌、401 时单飞刷新后重试一次、
+   * 429 不自动重试。FormData 可以重复发送，所以重试时请求体仍然完整。上传比普通请求慢，超时放宽到 60 秒。
+   */
+  upload<T>(path: string, form: FormData, timeoutMs = Math.max(this.timeoutMs, 60_000)) {
+    return this.request<T>(path, { method: "POST", body: form }, true, timeoutMs);
   }
   delete<T>(path: string) {
     return this.request<T>(path, { method: "DELETE" });

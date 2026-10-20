@@ -4,9 +4,7 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import Typography from "@mui/material/Typography";
+import ContactPublicField from "./ContactPublicField";
 import type { Campus, Category, Condition, ProductInput } from "../types";
 import { CAMPUSES, CATEGORIES, CONDITIONS } from "../types";
 import {
@@ -15,7 +13,7 @@ import {
   CATEGORY_GRADIENT,
 } from "../utils/constants";
 import { useNotify } from "../context/NotificationContext";
-import ImageWithFallback from "./ImageWithFallback";
+import ImageUploader from "./ImageUploader";
 import BuildingSelect from "./BuildingSelect";
 import { getApiClient } from "../api/client";
 import { toUserMessage } from "../api/errors";
@@ -81,9 +79,12 @@ interface ProductFormProps {
   initialTextbook?: ProductTextbook | null;
   /** 4.8：从教材版本页进入发布时预先打开该版本的确认框（不会自动关联） */
   presetTextbookEditionId?: string | null;
+  /** 提交失败时服务端的原话（例如内容安全拦截），显示在提交按钮旁 */
+  submitError?: string | null;
 }
 
 const TEXTBOOK_CATEGORY: Category = "教材书籍";
+// 图片张数上限来自 GET /v1/config（默认 9），由 ImageUploader 统一读取；单件、整套、批量三个编辑器一致
 
 /** 从已有声明恢复草稿：只恢复卖家真实填写过的条目，不补任何默认值。 */
 function draftsFrom(disclosure: ProductDisclosure | null | undefined): DeclarationValue {
@@ -109,7 +110,7 @@ type FieldErrors = Partial<
 
 /**
  * 商品表单：发布页与「编辑商品」弹窗共用。
- * 负责字段校验与图片选择（预置图片，不做真实文件上传）。
+ * 负责字段校验与图片（真实上传，或过渡期保留的示例图）。提交失败时服务端的原话显示在提交按钮旁。
  */
 export default function ProductForm({
   initial,
@@ -121,6 +122,7 @@ export default function ProductForm({
   initialInspection,
   initialTextbook,
   presetTextbookEditionId,
+  submitError,
 }: ProductFormProps) {
   const { error } = useNotify();
   const [value, setValue] = useState<ProductFormValue>({
@@ -198,19 +200,8 @@ export default function ProductForm({
     setValue((prev) => ({ ...prev, ...partial }));
   };
 
-  const toggleImage = (url: string) => {
-    setValue((prev) => {
-      const exists = prev.images.includes(url);
-      if (exists) {
-        return { ...prev, images: prev.images.filter((i) => i !== url) };
-      }
-      if (prev.images.length >= 5) {
-        error("最多选择 5 张图片");
-        return prev;
-      }
-      return { ...prev, images: [...prev.images, url] };
-    });
-  };
+  // 正在上传的图片张数：上传完成前不提交，避免漏掉刚选的图片
+  const [uploading, setUploading] = useState(0);
 
   const validate = (): boolean => {
     const next: FieldErrors = {};
@@ -239,7 +230,7 @@ export default function ProductForm({
     if (!value.contact.trim()) next.contact = "请输入联系方式";
     else if (value.contact.trim().length > 100) next.contact = "联系方式最多 100 个字";
 
-    if (value.images.length === 0) next.images = "请至少选择一张商品图片";
+    if (value.images.length === 0) next.images = "请至少上传或选择一张商品图片";
     if (value.visibility === "CIRCLE_ONLY" && value.circleIds.length === 0)
       next.circleIds = "圈子可见需要至少选择一个圈子";
 
@@ -295,6 +286,10 @@ export default function ProductForm({
   const buildingLabelOf = (id: string) => buildingNames[id] ?? "所选楼栋";
   const handleSubmit = async () => {
     if (submitting) return;
+    if (uploading > 0) {
+      error("图片还在上传，请稍候再提交");
+      return;
+    }
     if (template === undefined) {
       error(templateError ?? "验货清单仍在加载，请稍候");
       return;
@@ -404,8 +399,6 @@ export default function ProductForm({
           fullWidth
         />
       </div>
-      {/* 模块 5.6：校内历史成交参考（只是统计，不是估价；价格由卖家自己决定） */}
-
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <TextField
@@ -529,71 +522,23 @@ export default function ProductForm({
         required
       />
 
-      <FormControlLabel control={<Checkbox checked={value.contactPublic} onChange={(e) => patch({ contactPublic: e.target.checked })} />}
-        label="公开展示联系方式" />
-      <p className="text-xs text-slate-500">未勾选时，买家需要点击“我想要”，经你同意后才能查看联系方式。平台只展示商品和联系方式，后续沟通与交易由双方自行联系。</p>
-      {/* 图片选择器 */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <Typography
-            variant="body2"
-            sx={{ fontWeight: 600, color: "text.secondary" }}
-          >
-            商品图片（{value.images.length}/5）
-          </Typography>
-          {errors.images && (
-            <Typography variant="caption" color="error">
-              {errors.images}
-            </Typography>
-          )}
-        </div>
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-          {IMAGE_PRESETS.map((url, index) => {
-            const selected = value.images.includes(url);
-            return (
-              <button
-                key={url}
-                id={index === 0 ? FIELD_IDS.images : undefined}
-                type="button"
-                onClick={() => toggleImage(url)}
-                className={`relative overflow-hidden rounded-xl border-2 transition ${
-                  selected
-                    ? "border-brand-500 ring-2 ring-brand-200"
-                    : "border-transparent"
-                }`}
-                aria-label={`选择图片 ${index + 1}`}
-                aria-pressed={selected}
-              >
-                <ImageWithFallback
-                  src={url}
-                  alt={`预置图片 ${index + 1}`}
-                  emoji={CATEGORY_EMOJI[value.category]}
-                  gradient={CATEGORY_GRADIENT[value.category]}
-                  className="aspect-square w-full"
-                />
-                {/* 纯视觉标记：选中状态已由按钮的 aria-pressed 表达，不能在按钮里再嵌一个可交互的复选框 */}
-                <span
-                  aria-hidden="true"
-                  className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 text-xs font-bold ${
-                    selected ? "border-white bg-brand-600 text-white" : "border-white bg-black/20 text-transparent"
-                  }`}
-                >
-                  ✓
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <FormControlLabel
-          sx={{ mt: 1 }}
-          control={<Checkbox size="small" checked disabled />}
-          label={
-            <span className="text-xs text-slate-400">
-              演示版使用预置图片，不支持真实文件上传
-            </span>
-          }
-        />
-      </div>
+      <ContactPublicField checked={value.contactPublic} onChange={(contactPublic) => patch({ contactPublic })} />
+      {/* 商品图片：真实上传（阶段 4）+ 过渡期保留的示例图 */}
+      <ImageUploader
+        value={value.images}
+        onChange={(images) => {
+          patch({ images });
+          if (errors.images && images.length) setErrors(({ images: _cleared, ...rest }) => rest);
+        }}
+        label="商品图片"
+        inputId={FIELD_IDS.images}
+        presets={IMAGE_PRESETS}
+        presetLabel={(i) => `选择图片 ${i + 1}`}
+        error={errors.images}
+        onPendingChange={setUploading}
+        emoji={CATEGORY_EMOJI[value.category]}
+        gradient={CATEGORY_GRADIENT[value.category]}
+      />
 
       <div id={FIELD_IDS.circleIds} tabIndex={-1}>
         <VisibilityPicker
@@ -612,6 +557,11 @@ export default function ProductForm({
         )}
       </div>
 
+      {submitError && (
+        <Alert severity="error" role="alert">
+          {submitError}
+        </Alert>
+      )}
       <div className="flex justify-end gap-2 pt-1">
         {onCancel && (
           <Button onClick={onCancel} color="inherit">
@@ -622,7 +572,7 @@ export default function ProductForm({
           variant="contained"
           size="large"
           onClick={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || uploading > 0}
         >
           {submitLabel}
         </Button>

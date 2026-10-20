@@ -301,20 +301,11 @@ class CourseTextbookIT {
         }
 
         @Test
-        @DisplayName("9. 编辑：换版本则快照整体替换；重复提交同一版本不改写快照；切离教材分类自动解除关联；订单验货快照不变")
+        @DisplayName("9. 编辑：换版本则快照整体替换；重复提交同一版本不改写快照；切离教材分类自动解除关联")
         void editKeepsSnapshotsHonest() throws Exception {
             User seller = register();
             String id = publishBook(seller, CALCULUS_8, "会被编辑的教材");
             Map<String, Object> first = jdbc.queryForMap("SELECT * FROM product_textbook_details WHERE product_id=?::uuid", id);
-
-            // 下单生成验货快照，再取消，之后卖家才能编辑
-            User buyer = register();
-            MvcResult order = createOrder(buyer, id);
-            assertThat(status(order)).isEqualTo(200);
-            String orderId = data(order).path("id").asText();
-            List<Map<String, Object>> inspectionBefore = jdbc.queryForList(
-                    "SELECT * FROM order_inspection_items WHERE order_id=?::uuid ORDER BY item_code", orderId);
-            perform(json(post("/v1/orders/" + orderId + "/transitions"), Map.of("to", "CANCELLED")), buyer);
 
             assertThat(status(perform(json(patch("/v1/products/" + id), Map.of("textbookEditionId", CALCULUS_8, "title", "会被编辑的教材 v2")), seller))).isEqualTo(200);
             assertThat(jdbc.queryForMap("SELECT * FROM product_textbook_details WHERE product_id=?::uuid", id))
@@ -330,9 +321,6 @@ class CourseTextbookIT {
             assertThat(status(perform(json(patch("/v1/products/" + id), toDigital), seller))).isEqualTo(200);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM product_textbook_details WHERE product_id=?::uuid", Long.class, id)).isZero();
             assertThat(data(perform(get("/v1/products/" + id), seller)).path("textbook").isNull()).isTrue();
-
-            assertThat(jdbc.queryForList("SELECT * FROM order_inspection_items WHERE order_id=?::uuid ORDER BY item_code", orderId))
-                    .as("已生成订单的验货快照不受商品编辑影响").isEqualTo(inspectionBefore);
         }
 
         @Test
@@ -667,17 +655,6 @@ class CourseTextbookIT {
         MvcResult r = perform(json(post("/v1/products"), b), seller);
         assertThat(status(r)).as("发布失败：%s", r.getResponse().getContentAsString()).isEqualTo(200);
         return data(r).path("id").asText();
-    }
-
-    private MvcResult createOrder(User buyer, String productId) throws Exception {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("productId", productId);
-        b.put("meetingPointId", "东校区-library");
-        b.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1)
-                .truncatedTo(java.time.temporal.ChronoUnit.HOURS).toString());
-        b.put("contact", "13800000000");
-        b.put("idempotencyKey", UUID.randomUUID().toString());
-        return perform(json(post("/v1/orders"), b), buyer);
     }
 
     private MvcResult subscribe(User u, Map<String, Object> b) throws Exception {

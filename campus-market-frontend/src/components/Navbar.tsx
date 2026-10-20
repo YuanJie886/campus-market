@@ -34,6 +34,7 @@ import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import { getApiClient } from "../api/client";
 import { useDemandUnreadCount } from "../context/DemandUnreadContext";
+import { contactUnreadLabel, useContactUnreadCounts } from "../context/ContactUnreadContext";
 
 /** 全局顶部导航栏：Logo / 搜索 / 发布 / 消息 / 用户菜单 */
 export default function Navbar() {
@@ -42,6 +43,8 @@ export default function Navbar() {
   const { getUnreadCount } = useMarket();
   const { success, error } = useNotify();
   const { count: demandUnread } = useDemandUnreadCount();
+  // 阶段 1：联系申请未读（卖家的新申请 + 买家收到的同意 / 拒绝 / 撤回同意）
+  const { counts: contactUnread } = useContactUnreadCounts();
 
   const [keyword, setKeyword] = useState("");
   // 模块 7：只有服务端确认的本校平台工作人员才显示工作台入口（权限以后端为准，这里只是体验）
@@ -233,6 +236,24 @@ export default function Navbar() {
               </Badge>
             </IconButton>
           </Tooltip>
+
+          {isAuthenticated && (
+            <Tooltip title="联系申请">
+              <IconButton
+                onClick={() => navigate("/profile/contact-requests")}
+                // 可访问名称里带上数字：读屏用户听到「联系申请，2 条未读」
+                aria-label={contactUnreadLabel(contactUnread.total)}
+                sx={{
+                  borderRadius: 2.5,
+                  "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+                }}
+              >
+                <Badge color="error" badgeContent={contactUnread.total} max={99}>
+                  <ContactMailOutlinedIcon aria-hidden />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
 
           <Tooltip title="消息">
             <IconButton

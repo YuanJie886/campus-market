@@ -12,8 +12,7 @@ import { ApiError } from './api/errors';
 import type { CampusMarketApi, FeedPage, FeedProduct } from './api/contracts';
 import ProductCard from './components/ProductCard';
 import BuildingSelect from './components/BuildingSelect';
-import CampusMap from './components/CampusMap';
-import { seedBuildings, seedMeetingPointCoordinates } from './data/buildings';
+import { seedBuildings } from './data/buildings';
 import type { Product } from './types';
 
 /**
@@ -277,64 +276,5 @@ describe('1.4 楼栋选择（资料页 / 发布页共用）', () => {
     expect(buildingInput).toBeTruthy();
     fireEvent.change(buildingInput!, { target: { value: '' } });
     await waitFor(() => expect(screen.getByText(/不指定楼栋时，买家只会看到校区/)).toBeTruthy());
-  });
-});
-
-describe('1.5 校园示意地图', () => {
-  const eastBuildings = seedBuildings.filter((b) => b.campusId === '东校区');
-  const eastPoints = Object.entries(seedMeetingPointCoordinates)
-    .filter(([id]) => id.startsWith('东校区'))
-    .map(([id, c]) => ({ id, campus: '东校区' as const, name: id.endsWith('library') ? '图书馆门口' : id.endsWith('canteen') ? '食堂入口' : '快递站', ...c }));
-
-  it('17. 楼栋点与面交点都被绘制，图例与「直线估算」说明存在', () => {
-    render(<CampusMap buildings={eastBuildings} meetingPoints={eastPoints}
-      productBuildingId="east-songyuan-4" viewerBuildingId="east-qinyuan-1" />);
-    for (const b of eastBuildings) expect(screen.getByTestId(`map-building-${b.id}`)).toBeTruthy();
-    for (const p of eastPoints) expect(screen.getByTestId(`map-point-${p.id}`)).toBeTruthy();
-    expect(screen.getByText('取货楼栋')).toBeTruthy();
-    expect(screen.getByText('稳定面交点')).toBeTruthy();
-    expect(screen.getByText(/距离为直线估算，实际路线以校园道路为准/)).toBeTruthy();
-  });
-
-  it('18. 推荐恰好一个，且只是建议：点选后才成为候选，不会自动提交', () => {
-    const onPick = vi.fn();
-    render(<CampusMap buildings={eastBuildings} meetingPoints={eastPoints}
-      productBuildingId="east-songyuan-4" viewerBuildingId="east-qinyuan-1" onPick={onPick} />);
-    const list = screen.getByRole('list', { name: '稳定面交点' });
-    expect(within(list).getAllByText('推荐')).toHaveLength(1);
-    expect(onPick).not.toHaveBeenCalled();
-
-    fireEvent.click(within(list).getAllByRole('button')[0]);
-    expect(onPick).toHaveBeenCalledTimes(1);
-  });
-
-  it('19. 缺坐标安全降级：不推荐、给出说明', () => {
-    render(<CampusMap buildings={eastBuildings} meetingPoints={eastPoints}
-      productBuildingId={null} viewerBuildingId="east-qinyuan-1" />);
-    expect(screen.queryByText('推荐')).toBeNull();
-    expect(screen.getByText(/缺少楼栋坐标，无法估算距离/)).toBeTruthy();
-  });
-
-  it('20. 不调用浏览器定位，也不加载任何第三方地图脚本', () => {
-    const geolocation = { getCurrentPosition: vi.fn(), watchPosition: vi.fn() };
-    Object.defineProperty(navigator, 'geolocation', { value: geolocation, configurable: true });
-    const scriptsBefore = document.querySelectorAll('script').length;
-
-    render(<CampusMap buildings={eastBuildings} meetingPoints={eastPoints}
-      productBuildingId="east-songyuan-4" viewerBuildingId="east-qinyuan-1" />);
-
-    expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
-    expect(geolocation.watchPosition).not.toHaveBeenCalled();
-    expect(document.querySelectorAll('script').length).toBe(scriptsBefore);
-    expect(document.querySelector('iframe')).toBeNull();
-  });
-
-  it('21. 移动端不溢出：SVG 以 viewBox 自适应宽度', () => {
-    render(<CampusMap buildings={eastBuildings} meetingPoints={eastPoints} />);
-    const svg = document.querySelector('svg')!;
-    expect(svg.getAttribute('viewBox')).toBeTruthy();
-    expect(svg.getAttribute('class')).toContain('w-full');
-    expect(svg.getAttribute('class')).toContain('max-w-full');
-    expect(svg.getAttribute('width')).toBeNull();   // 不写死像素宽度
   });
 });

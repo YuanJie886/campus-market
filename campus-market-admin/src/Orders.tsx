@@ -1,12 +1,12 @@
 import { type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Avatar, Box, Button, Card, CardContent, Chip, Divider, Rating, Skeleton, Typography } from '@mui/material';
+import { Alert, Avatar, Box, Button, Card, CardContent, Chip, Divider, Rating, Skeleton, Typography } from '@mui/material';
 import ProductIcon from '@mui/icons-material/Inventory2Outlined';
 import PersonIcon from '@mui/icons-material/PersonOutline';
 import ArrowIcon from '@mui/icons-material/ArrowForward';
 import { List, Show, DatagridConfigurable, DateField, NumberField, TextInput, ShowButton, useRecordContext, useShowContext, type FieldProps, type RaRecord } from 'react-admin';
 import { ListActions, ListSummary } from './ListTools';
-import { IdentifierField, PageHeading, StatusBadge, StatusField, statusNames } from './adminUi';
+import { IdentifierField, PageHeading, StatusBadge, StatusField, resourceNames, statusNames } from './adminUi';
 
 interface OrderEvent { id: string; actorId?: string; actorNickname?: string; fromStatus?: string; toStatus?: string; eventCode: string; reason?: string; createdAt: number; meetingRevision?: number }
 interface OrderReview { id: string; reviewerId: string; reviewerNickname: string; rating: number; comment?: string; createdAt: number }
@@ -37,9 +37,15 @@ function PartyCell({ side }: FieldProps & { side: 'buyer' | 'seller' }) {
     const nickname = record[`${side}Nickname`];
     return <Box className="order-party-cell"><Avatar src={record[`${side}Avatar`] || undefined} sx={{ width: 28, height: 28, bgcolor: side === 'buyer' ? '#e5f0ea' : '#edf0f9', color: side === 'buyer' ? '#4a7b5e' : '#737eab', fontSize: 12 }}>{nickname?.slice(0, 1) || <PersonIcon fontSize="small" />}</Avatar><Box><Typography sx={{ fontSize: 12, fontWeight: 600 }}>{nickname || '用户信息未提供'}</Typography><Typography sx={{ fontSize: 10, mt: .5 }} color="text.secondary">{record[`${side}Account`] || record[`${side}Id`]}</Typography></Box></Box>;
 }
+/** 站内交易已停用：订单只作为历史记录只读展示，列表与详情页都显示这条说明。 */
+export const LEGACY_ORDERS_NOTICE = '平台已停用站内交易，现在只展示商品与联系方式。这里是停用前产生的历史订单，已在平台停用站内交易时统一关闭，仅供只读查看，不能新建、编辑或删除。';
+export function LegacyOrdersNotice() {
+    return <Alert severity="info" variant="outlined" role="note" aria-label="历史订单说明" sx={{ mb: 2 }}>{LEGACY_ORDERS_NOTICE}</Alert>;
+}
 export function OrdersList() {
-    return <><PageHeading title="交易订单" description="查看商品、交易双方、成交金额与面交安排，点击订单查看完整记录。" eyebrow="TRANSACTIONS / 交易管理" />
-        <List actions={<ListActions preferenceKey={preferenceKey} />} perPage={25} sort={{ field: 'createdAt', order: 'DESC' }} filters={[<TextInput key="q" source="q" label="搜索订单、商品、买家或卖家" alwaysOn resettable inputProps={{ maxLength: 100 }} sx={{ minWidth: { sm: 290 } }} />]}>
+    return <><PageHeading title={resourceNames.orders} description="查看停用站内交易前的订单：商品、交易双方、成交金额与面交安排，点击订单查看完整记录。" eyebrow="LEGACY ORDERS / 历史记录" />
+        <LegacyOrdersNotice />
+        <List title={resourceNames.orders} actions={<ListActions preferenceKey={preferenceKey} />} perPage={25} sort={{ field: 'createdAt', order: 'DESC' }} filters={[<TextInput key="q" source="q" label="搜索订单、商品、买家或卖家" alwaysOn resettable inputProps={{ maxLength: 100 }} sx={{ minWidth: { sm: 290 } }} />]}>
             <ListSummary /><DatagridConfigurable preferenceKey={preferenceKey} bulkActionButtons={false} rowClick="show" sx={{ '& .RaDatagrid-table': { minWidth: 1050 } }}>
                 <ProductCell source="productTitle" label="交易商品" sortable={false} />
                 <PartyCell side="buyer" source="buyerNickname" label="买家" sortable={false} />
@@ -89,7 +95,8 @@ function OrderDetails() {
     </Box>;
 }
 export function OrderShow() {
-    return <><PageHeading title="订单详情" description="查看交易商品、买卖双方、面交安排和完整交易记录。" eyebrow="ORDER DETAILS / 交易详情" action={<Button component={Link} to="/orders" variant="outlined" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }} startIcon={<ArrowIcon sx={{ transform: 'rotate(180deg)' }} />}>返回订单</Button>} />
-        <Show component="div" actions={false} title="订单详情"><OrderDetails /></Show>
+    return <><PageHeading title="历史订单详情" description="只读查看停用站内交易前的交易商品、买卖双方、面交安排和完整交易记录。" eyebrow="LEGACY ORDER / 历史记录" action={<Button component={Link} to="/orders" variant="outlined" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }} startIcon={<ArrowIcon sx={{ transform: 'rotate(180deg)' }} />}>返回历史订单</Button>} />
+        <LegacyOrdersNotice />
+        <Show component="div" actions={false} title="历史订单详情"><OrderDetails /></Show>
     </>;
 }

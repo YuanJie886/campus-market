@@ -1,6 +1,7 @@
 package com.lulu.campusmarketbackend.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lulu.campusmarketbackend.support.LegacyOrders;
 import com.lulu.campusmarketbackend.support.SupplyApi;
 import com.lulu.campusmarketbackend.support.SupplyApi.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -136,7 +137,7 @@ class AdminIT {
         assertThat(status(api.patch(admin, "/v1/admin/products/" + id, forged))).isEqualTo(400);
     }
     @Test void productHidingAndRestoreUseGovernanceHistoryAndAffectBuyerVisibility() throws Exception {
-        User admin = staff("SENIOR_MODERATOR"), seller = api.register(), buyer = api.register(); String id = product(seller);
+        User admin = staff("SCHOOL_ADMIN"), seller = api.register(), buyer = api.register(); String id = product(seller);
         var old = api.ok(api.get(admin, "/v1/admin/products/" + id));
         var hidden = api.ok(api.post(admin, "/v1/admin/products/" + id + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "商品需重新核实", "version", old.path("version").asText())));
         assertThat(hidden.path("moderationHidden").asBoolean()).isTrue();
@@ -164,13 +165,14 @@ class AdminIT {
         assertThat(status(api.patch(admin, "/v1/admin/products/" + id, editProduct(admin, id, old.path("version").asText())))).isEqualTo(404);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE target_id=?", Integer.class, UUID.fromString(id))).isZero();
     }
-    @Test void activeTradeAndUnresolvedCaseCannotBeOverwrittenByCatalogManagement() throws Exception {
+    @Test void historicalOrdersDoNotLockCatalogButUnresolvedCaseCannotBeOverwritten() throws Exception {
         User admin = staff("SCHOOL_ADMIN"); Trade trade = trade();
         var product = api.ok(api.get(admin, "/v1/admin/products/" + trade.productId()));
-        assertThat(status(api.patch(admin, "/v1/admin/products/" + trade.productId(), editProduct(admin, trade.productId(), product.path("version").asText())))).isEqualTo(409);
-        var hidden = api.ok(api.post(admin, "/v1/admin/products/" + trade.productId() + "/visibility", Map.of("action", "HIDE_PRODUCT", "note", "核实预约商品", "version", product.path("version").asText())));
-        assertThat(hidden.path("status").asText()).isEqualTo("预约中");
+        // V16 已结束全部历史订单：它们只作历史查看，不再阻止目录编辑；订单上的成交价快照不随商品变化
+        var edited = api.ok(api.patch(admin, "/v1/admin/products/" + trade.productId(), editProduct(admin, trade.productId(), product.path("version").asText())));
+        assertThat(edited.path("status").asText()).isEqualTo("在售");
         assertThat(api.ok(api.get(admin, "/v1/admin/orders/" + trade.orderId())).path("price").asInt()).isEqualTo(88);
+        assertThat(api.ok(api.get(admin, "/v1/admin/orders/" + trade.orderId())).path("status").asText()).isEqualTo("EXPIRED");
         String other = product(api.register());
         jdbc.update("INSERT INTO moderation_cases(id,school_id,target_type,target_id) VALUES (?,'pilot','PRODUCT',?)", UUID.randomUUID(), UUID.fromString(other));
         var otherRecord = api.ok(api.get(admin, "/v1/admin/products/" + other));
@@ -185,15 +187,19 @@ class AdminIT {
         assertThat(status(api.get(admin, "/v1/admin/products?moderationHidden=invalid"))).isEqualTo(400);
     }
     private Trade trade() throws Exception {
+        return trade(null);
+    }
+    private Trade trade(String cancelledNote) throws Exception {
         User buyer = api.register(), seller = api.register();
         jdbc.update("UPDATE users SET nickname='买家明月' WHERE id=?", UUID.fromString(buyer.id()));
         jdbc.update("UPDATE users SET nickname='卖家清风' WHERE id=?", UUID.fromString(seller.id()));
         String product = api.ok(api.post(seller, "/v1/products", SupplyApi.single("生活用品", "订单详情测试台灯", 88))).path("id").asText();
-        return new Trade(buyer, seller, product, api.order(buyer, product));
+        return new Trade(buyer, seller, product, cancelledNote == null ? LegacyOrders.expired(jdbc, buyer, product)
+                : LegacyOrders.cancelled(jdbc, buyer, product, cancelledNote));
     }
 
     @Test void ordersIncludeParticipantsProductMeetingAndHistoryWithoutCredentials() throws Exception {
-        User admin = staff("SCHOOL_ADMIN"); Trade trade = trade();
+        User admin = staff("SCHOOL_ADMIN"); Trade trade = trade("临时调整面交安排");
         var summary = api.ok(api.get(admin, "/v1/admin/orders?q=" + trade.orderId())).path("items").get(0);
         assertThat(summary.path("productTitle").asText()).isEqualTo("订单详情测试台灯");
         assertThat(summary.path("buyerNickname").asText()).isEqualTo("买家明月");
@@ -204,8 +210,6 @@ class AdminIT {
         assertThat(summary.path("price").asInt()).isEqualTo(88);
         assertThat(summary.path("meetingPointName").asText()).isNotBlank();
         assertThat(summary.path("meetingAt").asLong()).isPositive();
-        api.ok(api.post(trade.buyer(), "/v1/orders/" + trade.orderId() + "/transitions",
-                Map.of("to", "CANCELLED", "reasonCode", "OTHER", "note", "临时调整面交安排")));
         var detail = api.ok(api.get(admin, "/v1/admin/orders/" + trade.orderId()));
         assertThat(detail.path("productDescription").asText()).isEqualTo("毕业季供给测试");
         assertThat(detail.path("productImages").size()).isEqualTo(1);

@@ -8,31 +8,39 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type {
-  MarketState,
+  Comment,
+  ChatMessage,
+  Conversation,
+  Favorite,
   Product,
   ProductInput,
-  OrderStatus,
-  Review,
-  CanonicalOrderStatus,
 } from "../types";
-import type { MeetingPoint, CreateOrderInput } from "../api/contracts";
 import { getApiClient } from "../api/client";
 import { useAuth } from "./AuthContext";
 import { useNotify } from "./NotificationContext";
 import { toUserMessage } from '../api/errors';
-const empty: MarketState = {
+/**
+ * 页面共享的市场数据。平台只展示商品与联系方式（阶段 1）：这里没有订单、预约或评价。
+ * Mock 持久化数据里仍保留历史订单（数据兼容），但界面不再读取它们。
+ */
+interface MarketData {
+  products: Product[];
+  favorites: Favorite[];
+  comments: Comment[];
+  conversations: Conversation[];
+  messages: ChatMessage[];
+}
+const empty: MarketData = {
   products: [],
-  orders: [],
   favorites: [],
   comments: [],
   conversations: [],
   messages: [],
 };
 function useMarketState() {
-  const [state, setState] = useState<MarketState>(empty);
+  const [state, setState] = useState<MarketData>(empty);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [meetingPoints, setMeetingPoints] = useState<MeetingPoint[]>([]);
   const [unread, setUnread] = useState(0);
   const { currentUser, loading: authLoading, loadUsers } = useAuth();
   const { error } = useNotify();
@@ -53,18 +61,15 @@ function useMarketState() {
       products.push(...result.items);
       if (products.length >= result.total || !result.items.length) break;
     }
-    const [orders, favorites, conversations, points, count] = await Promise.all(
+    const [favorites, conversations, count] = await Promise.all(
       [
-        [] as import("../types").Order[],
         currentUser ? api.listFavorites() : [],
         currentUser ? api.listConversations() : [],
-        [] as MeetingPoint[],
         currentUser ? api.getUnreadCount() : 0,
       ],
     );
     const extraIds = [
       ...new Set([
-        ...orders.map((o) => o.productId),
         ...favorites.map((f) => f.productId),
         ...conversations.map((c) => c.productId),
       ]),
@@ -77,16 +82,13 @@ function useMarketState() {
     setState((prev) => ({
       ...prev,
       products,
-      orders,
       favorites,
       conversations,
     }));
-    setMeetingPoints(points);
     setUnread(count);
     setLoadError("");
     void loadUsers([
       ...products.map((p) => p.sellerId),
-      ...orders.flatMap((o) => [o.buyerId, o.sellerId]),
       ...conversations.flatMap((c) => [c.buyerId, c.sellerId]),
     ]);
   }, [currentUser?.id, api, loadUsers]);
@@ -122,8 +124,6 @@ function useMarketState() {
       ...prev,
       products: [product, ...prev.products.filter((p) => p.id !== product.id)],
     }));
-  const afterMutation = () =>
-    void refresh().catch((e) => setLoadError(e.message));
   const addProduct = async (input: ProductInput) => {
     const { sellerId, ...body } = input;
     const p = await api.createProduct(body);
@@ -146,59 +146,6 @@ function useMarketState() {
     const favorites = await api.listFavorites();
     setState((p) => ({ ...p, favorites }));
     return active;
-  };
-  const createOrder = async (
-    productId: string,
-    _uid: string,
-    meeting: Omit<CreateOrderInput, "productId">,
-  ) => {
-    const o = await api.createOrder({ ...meeting, productId });
-    setState((p) => ({
-      ...p,
-      orders: [o, ...p.orders.filter((x) => x.id !== o.id)],
-      products: p.products.map((x) =>
-        x.id === productId ? { ...x, status: "预约中" } : x,
-      ),
-    }));
-    return o;
-  };
-  const updateOrderStatus = async (
-    id: string,
-    status: OrderStatus | CanonicalOrderStatus,
-    confirmationCode?: string,
-    // 模块 7：取消时的结构化原因与说明
-    cancellation?: { reasonCode?: import("../api/contracts").CancellationReason; note?: string },
-  ) => {
-    const to =
-      (
-        {
-          交易中: "PENDING_MEETING",
-          已取消: "CANCELLED",
-          已完成: "COMPLETED",
-          待确认: "PENDING_SELLER_CONFIRM",
-        } as Record<string, CanonicalOrderStatus>
-      )[status] ?? (status as CanonicalOrderStatus);
-    const o = await api.transitionOrder(id, { to, ...(confirmationCode ? { confirmationCode } : {}), ...(to === "CANCELLED" ? cancellation ?? {} : {}) });
-    setState((p) => ({
-      ...p,
-      orders: p.orders.map((x) => (x.id === id ? o : x)),
-    }));
-    afterMutation();
-  };
-  const addReview = async (id: string, uid: string, review: Review) => {
-    // 只提交接口允许的两个字段：后端 REVIEW_FIELDS = rating / comment，其他字段一律 400（8.1 E2E 发现 createdAt 被一并提交）
-    const saved = await api.addReview(id, { rating: review.rating, comment: review.comment });
-    setState((p) => ({
-      ...p,
-      orders: p.orders.map((o) =>
-        o.id === id
-          ? {
-              ...o,
-              [o.buyerId === uid ? "buyerReview" : "sellerReview"]: saved,
-            }
-          : o,
-      ),
-    }));
   };
   const loadProduct = useCallback(
     async (id: string) => {
@@ -286,7 +233,6 @@ function useMarketState() {
     loading,
     loadError,
     refresh,
-    meetingPoints,
     loadProduct,
     loadMessages,
     getProduct: (id: string) => state.products.find((p) => p.id === id),
@@ -307,12 +253,6 @@ function useMarketState() {
         .filter((f) => f.userId === uid)
         .map((f) => state.products.find((p) => p.id === f.productId))
         .filter((p): p is Product => !!p),
-    createOrder,
-    updateOrderStatus,
-    addReview,
-    getBuyOrders: (id: string) => state.orders.filter((o) => o.buyerId === id),
-    getSellOrders: (id: string) =>
-      state.orders.filter((o) => o.sellerId === id),
     getProductComments: (id: string) =>
       state.comments.filter((c) => c.productId === id),
     addComment,

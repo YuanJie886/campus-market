@@ -136,8 +136,8 @@ class CircleSchemaIT {
     }
 
     @Test
-    @DisplayName("5. 邀请只能存 64 位十六进制哈希、有效期不超过 7 天；圈子订阅只能由在籍成员创建且范围固定为全校；订单可见性快照不可改写")
-    void invitesSubscriptionsOrders() {
+    @DisplayName("5. 邀请只能存 64 位十六进制哈希、有效期不超过 7 天；圈子订阅只能由在籍成员创建且范围固定为全校")
+    void invitesAndSubscriptions() {
         UUID owner = user("东校区");
         UUID stranger = user("东校区");
         UUID c = circle(owner, "CLUB", "邀请约束");
@@ -152,13 +152,6 @@ class CircleSchemaIT {
         assertThatThrownBy(() -> jdbc.update(sub, owner, "CAMPUS", "东校区", "d".repeat(64), c)).as("圈子订阅范围固定为全校").isInstanceOf(DataAccessException.class);
         jdbc.update(sub, owner, "SCHOOL", null, "e".repeat(64), c);
 
-        UUID p = product(owner, "PUBLIC");
-        UUID buyer = user("东校区");
-        UUID order = UUID.randomUUID();
-        jdbc.update("INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact, confirmation_code, "
-                + "idempotency_key, request_hash, expires_at, visibility_snapshot) VALUES (?,?,?,?,1,'CANCELLED','东校区-library',now()+interval '1 day',"
-                + "'1','123456',?,'h',now()+interval '2 days','PUBLIC')", order, p, buyer, owner, "k-" + order);
-        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET visibility_snapshot='CIRCLE_ONLY' WHERE id=?", order)).isInstanceOf(DataAccessException.class);
     }
 
     // ------------------------------------------------------------------

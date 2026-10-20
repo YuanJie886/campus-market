@@ -114,16 +114,6 @@ class ModerationIT {
         return api.post(staff, "/v1/moderation/cases/" + caseId + "/decision", b);
     }
 
-    private static Map<String, Object> orderBody(String productId) {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("productId", productId);
-        b.put("meetingPointId", "东校区-library");
-        b.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1).truncatedTo(java.time.temporal.ChronoUnit.HOURS).toString());
-        b.put("contact", "13800000000");
-        b.put("idempotencyKey", UUID.randomUUID().toString());
-        return b;
-    }
-
     @Nested
     @DisplayName("7.3 工作人员")
     class Staff {
@@ -218,12 +208,11 @@ class ModerationIT {
         }
 
         @Test
-        @DisplayName("4. 举报人身份保密：被举报人只看到限制与原因码；工作人员视图也没有举报人、联系方式、确认码或会话全文；消息举报只快照那一条消息；举报人只看到状态摘要")
+        @DisplayName("4. 举报人身份保密：被举报人只看到限制与原因码；工作人员视图也没有举报人、联系方式（买卖双方已同意联系请求时也一样）或会话全文；消息举报只快照那一条消息；举报人只看到状态摘要")
         void reporterPrivacy(CapturedOutput output) throws Exception {
             User seller = api.register(), buyer = api.register(), reporter = api.register();
             String p = product(seller, "私信骚扰测试");
-            String order = api.order(buyer, p);
-            String code = jdbc.queryForObject("SELECT confirmation_code FROM orders WHERE id=?::uuid", String.class, order);
+            api.approvedContact(seller, buyer, p);
             String conversation = api.ok(api.post(buyer, "/v1/conversations", Map.of("productId", p))).path("id").asText();
             api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "第一条正常消息")));
             String bad = api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "这是一条骚扰消息"))).path("id").asText();
@@ -238,22 +227,21 @@ class ModerationIT {
             JsonNode detail = api.ok(api.get(s, "/v1/moderation/cases/" + messageCase));
             String raw = detail.toString();
             assertThat(raw).contains("这是一条骚扰消息").doesNotContain("第一条正常消息").doesNotContain("之后的另一条消息");
-            assertThat(raw).doesNotContain(buyer.id()).doesNotContain(reporter.id()).doesNotContain("13800000000").doesNotContain(code)
+            assertThat(raw).doesNotContain(buyer.id()).doesNotContain(reporter.id()).doesNotContain("13800000000")
                     .doesNotContain("password").doesNotContain("token").doesNotContain("account");
-            api.ok(decide(s, messageCase, "RESTRICT_BOOKING", "HARASSMENT", 24));
+            api.ok(decide(s, messageCase, "RESTRICT_CONTACT", "HARASSMENT", 24));
 
             JsonNode sellerView = api.ok(api.get(seller, "/v1/me/governance"));
             assertThat(sellerView.path("restrictions")).hasSize(1);
-            assertThat(sellerView.path("restrictions").get(0).path("scope").asText()).isEqualTo("BOOKING");
+            assertThat(sellerView.path("restrictions").get(0).path("scope").asText()).isEqualTo("CONTACT");
             assertThat(sellerView.toString()).doesNotContain(buyer.id()).doesNotContain(s.id()).doesNotContain("HARASSMENT_REPORT");
             JsonNode mine = api.ok(api.get(buyer, "/v1/moderation-reports/mine"));
             assertThat(mine.get(0).path("status").asText()).isEqualTo("CLOSED");
             assertThat(mine.get(0).path("outcome").asText()).isEqualTo("ACTION_TAKEN");
             assertThat(mine.toString()).doesNotContain("RESTRICT").doesNotContain(s.id()).doesNotContain("durationHours");
-            assertThat(api.ok(api.get(reporter, "/v1/users/" + seller.id())).toString()).doesNotContain("restrict").doesNotContain("BOOKING");
-            assertThat(api.ok(api.get(reporter, "/v1/users/" + seller.id() + "/trade-summary")).toString()).doesNotContain("restrict");
-            // 日志里没有消息正文、确认码或令牌
-            assertThat(output.getAll()).doesNotContain("这是一条骚扰消息").doesNotContain(code).doesNotContain(buyer.token()).doesNotContain(s.token());
+            assertThat(api.ok(api.get(reporter, "/v1/users/" + seller.id())).toString()).doesNotContain("restrict").doesNotContain("CONTACT");
+            // 日志里没有消息正文、联系方式或令牌
+            assertThat(output.getAll()).doesNotContain("这是一条骚扰消息").doesNotContain("13800000000").doesNotContain(buyer.token()).doesNotContain(s.token());
         }
     }
 
@@ -261,32 +249,35 @@ class ModerationIT {
     @DisplayName("7.5 / 10 用户限制")
     class Restrictions {
         @Test
-        @DisplayName("5. BOOKING 只禁止新订单：已有订单的接单、取消、消息照常；PUBLISHING 禁止单件 / 打包 / 批量发布，允许保存草稿与下架；CIRCLE_CREATION 只禁止新建圈子")
+        @DisplayName("5. 三种限制同时记录在「我的限制」里；CONTACT 拦截新的联系申请（已有申请照常撤回），消息照常；PUBLISHING 禁止单件 / 打包 / 批量发布，允许保存草稿与下架；CIRCLE_CREATION 只禁止新建圈子")
         void everyEntryPoint() throws Exception {
             User target = api.register(), other = api.register(), reporter = api.register();
             User s = staff("MODERATOR");
             String theirs = product(other, "别人的商品");
-            String existingOrder = api.order(target, product(other, "受限前的订单"));
+            String another = product(other, "受限后才想联系的商品");
+            String earlier = api.requestContact(target, theirs);
             String myProduct = product(target, "受限者自己的商品");
             String myCircle = api.createCircle(target, "受限者的圈子", "PRIVATE");
             String draft = api.createDraft(target, "SINGLE", SupplyApi.single("其他", "草稿", 10)).path("id").asText();
             report(reporter, "USER", target.id(), "FRAUD_SUSPECTED");
             String caseId = caseFor("USER", target.id());
-            api.ok(decide(s, caseId, "RESTRICT_BOOKING", "FRAUD_RISK", 48));
+            api.ok(decide(s, caseId, "RESTRICT_CONTACT", "FRAUD_RISK", 48));
             // 同一目标的第二个案件：施加另外两种限制
             for (String action : List.of("RESTRICT_PUBLISHING", "RESTRICT_CIRCLE_CREATION")) {
                 String c = api.ok(api.post(s, "/v1/moderation/cases", Map.of("targetType", "USER", "targetId", target.id()))).path("id").asText();
                 api.ok(decide(s, c, action, "POLICY_VIOLATION", 48));
             }
 
-            MvcResult booking = api.post(target, "/v1/orders", orderBody(theirs));
-            assertThat(status(booking)).isEqualTo(403);
-            assertThat(api.body(booking).path("data").path("scope").asText()).isEqualTo("BOOKING");
-            assertThat(status(api.transition(other, existingOrder, "PENDING_MEETING"))).as("已有订单照常推进").isEqualTo(200);
+            JsonNode active = api.ok(api.get(target, "/v1/me/governance")).path("restrictions");
+            assertThat(active.findValuesAsText("scope")).containsExactlyInAnyOrder("CONTACT", "PUBLISHING", "CIRCLE_CREATION");
+            MvcResult contact = api.post(target, "/v1/products/" + another + "/contact-request", Map.of());
+            assertThat(status(contact)).as("CONTACT 限制拦截新的联系申请").isEqualTo(403);
+            assertThat(api.body(contact).path("data").path("scope").asText()).isEqualTo("CONTACT");
+            assertThat(api.body(contact).path("message").asText()).contains("「申请联系方式」功能暂时受限");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", Long.class, another)).isZero();
+            assertThat(status(api.post(target, "/v1/contact-requests/" + earlier + "/withdraw", Map.of()))).as("已有申请照常撤回").isEqualTo(200);
             String conversation = api.ok(api.post(target, "/v1/conversations", Map.of("productId", theirs))).path("id").asText();
             assertThat(status(api.post(target, "/v1/conversations/" + conversation + "/messages", Map.of("content", "受限期间仍能沟通")))).isEqualTo(200);
-            assertThat(status(api.post(target, "/v1/orders/" + existingOrder + "/transitions", Map.of("to", "CANCELLED", "reasonCode", "SCHEDULE_CONFLICT"))))
-                    .as("已有订单照常取消").isEqualTo(200);
 
             assertThat(status(api.post(target, "/v1/products", SupplyApi.single("其他", "受限发布", 10)))).isEqualTo(403);
             assertThat(status(api.post(target, "/v1/products", SupplyApi.bundle("受限打包", 30, 2)))).isEqualTo(403);
@@ -308,25 +299,25 @@ class ModerationIT {
             User mod = staff("MODERATOR"), senior = staff("SENIOR_MODERATOR");
             report(reporter, "USER", target.id(), "SPAM");
             String caseId = caseFor("USER", target.id());
-            assertThat(status(decide(mod, caseId, "RESTRICT_BOOKING", "POLICY_VIOLATION", null))).as("必须给期限").isEqualTo(400);
-            assertThat(status(decide(mod, caseId, "RESTRICT_BOOKING", "POLICY_VIOLATION", 721))).isEqualTo(400);
-            assertThat(status(decide(mod, caseId, "RESTRICT_BOOKING", "POLICY_VIOLATION", 169))).isEqualTo(403);
-            assertThat(status(decide(senior, caseId, "RESTRICT_BOOKING", "POLICY_VIOLATION", 720))).isEqualTo(200);
+            assertThat(status(decide(mod, caseId, "RESTRICT_CONTACT", "POLICY_VIOLATION", null))).as("必须给期限").isEqualTo(400);
+            assertThat(status(decide(mod, caseId, "RESTRICT_CONTACT", "POLICY_VIOLATION", 721))).isEqualTo(400);
+            assertThat(status(decide(mod, caseId, "RESTRICT_CONTACT", "POLICY_VIOLATION", 169))).isEqualTo(403);
+            assertThat(status(decide(senior, caseId, "RESTRICT_CONTACT", "POLICY_VIOLATION", 720))).isEqualTo(200);
             Map<String, Object> r = jdbc.queryForMap("SELECT id, extract(epoch FROM ends_at - starts_at) / 86400 AS days FROM user_restrictions WHERE user_id=?::uuid", target.id());
             assertThat(((Number) r.get("days")).doubleValue()).isEqualTo(30.0);
             assertThatThrownBy(() -> jdbc.update("UPDATE user_restrictions SET ends_at = ends_at + interval '1 day' WHERE id=?", r.get("id"))).isInstanceOf(DataAccessException.class);
             assertThatThrownBy(() -> jdbc.update("DELETE FROM user_restrictions WHERE id=?", r.get("id"))).isInstanceOf(DataAccessException.class);
             assertThatThrownBy(() -> jdbc.update("INSERT INTO user_restrictions(id, user_id, school_id, scope, source, case_id, created_by, reason_code, starts_at, ends_at) "
-                    + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'BOOKING', 'CASE', ?::uuid, ?::uuid, 'OTHER', now(), now() + interval '31 days')",
+                    + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'CONTACT', 'CASE', ?::uuid, ?::uuid, 'OTHER', now(), now() + interval '31 days')",
                     target.id(), caseId, senior.id())).as("数据库也不允许超过 30 天").isInstanceOf(DataAccessException.class);
             // 到期自动失效：一条已经过去的限制不再生效
             User expired = api.register();
             jdbc.update("INSERT INTO user_restrictions(id, user_id, school_id, scope, source, case_id, created_by, reason_code, starts_at, ends_at) "
-                    + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'BOOKING', 'CASE', ?::uuid, ?::uuid, 'OTHER', now() - interval '3 days', now() - interval '1 day')",
+                    + "VALUES (gen_random_uuid(), ?::uuid, 'pilot', 'CONTACT', 'CASE', ?::uuid, ?::uuid, 'OTHER', now() - interval '3 days', now() - interval '1 day')",
                     expired.id(), caseId, senior.id());
-            User seller = api.register();
-            assertThat(status(api.post(expired, "/v1/orders", orderBody(product(seller, "到期后可以下单"))))).isEqualTo(200);
             assertThat(api.ok(api.get(expired, "/v1/me/governance")).path("restrictions").get(0).path("active").asBoolean()).isFalse();
+            User seller = api.register();
+            assertThat(api.requestContact(expired, product(seller, "到期后可以申请联系"))).as("到期后照常申请联系").isNotBlank();
         }
     }
 
@@ -334,12 +325,12 @@ class ModerationIT {
     @DisplayName("9 治理动作、结案与申诉")
     class Actions {
         @Test
-        @DisplayName("7. 隐藏商品：他人列表与详情都看不到（与不存在相同），卖家仍能看到，已成立订单的对方仍能读取；动作只增不改；一个案件只有一个结果")
+        @DisplayName("7. 隐藏商品：他人列表与详情都看不到（与不存在相同），卖家仍能看到，已同意联系请求的买家也看不到；动作只增不改；一个案件只有一个结果")
         void hideProduct() throws Exception {
             User seller = api.register(), buyer = api.register(), viewer = api.register(), reporter = api.register();
             String p = product(seller, "违规商品" + UUID.randomUUID().toString().substring(0, 6));
             String title = jdbc.queryForObject("SELECT title FROM products WHERE id=?::uuid", String.class, p);
-            String order = api.order(buyer, p);
+            api.approvedContact(seller, buyer, p);
             report(reporter, "PRODUCT", p, "PROHIBITED_ITEM");
             String caseId = caseFor("PRODUCT", p);
             User a = staff("MODERATOR"), b = staff("MODERATOR");
@@ -352,9 +343,8 @@ class ModerationIT {
             assertThat(status(api.get(viewer, "/v1/products/" + p))).isEqualTo(404);
             assertThat(api.ok(api.get(viewer, "/v1/products?keyword=" + title)).path("total").asLong()).isZero();
             assertThat(api.ok(api.get(seller, "/v1/products/" + p)).path("moderationHidden").asBoolean()).as("卖家看到自己的商品被隐藏").isTrue();
-            assertThat(api.ok(api.get(buyer, "/v1/products/" + p)).has("moderationHidden")).as("隐藏状态不告诉其他人").isFalse();
-            assertThat(status(api.get(buyer, "/v1/products/" + p))).as("已成立订单不被锁死").isEqualTo(200);
-            assertThat(status(api.post(buyer, "/v1/orders/" + order + "/transitions", Map.of("to", "CANCELLED")))).isEqualTo(200);
+            assertThat(status(api.get(buyer, "/v1/products/" + p))).as("已同意的联系请求不能绕过隐藏").isEqualTo(404);
+            assertThat(api.ok(api.get(buyer, "/v1/contact-requests")).toString()).as("联系请求列表也不再出现被隐藏的商品").doesNotContain(p);
 
             String actionId = jdbc.queryForObject("SELECT id::text FROM moderation_actions WHERE case_id=?::uuid", String.class, caseId);
             assertThatThrownBy(() -> jdbc.update("UPDATE moderation_actions SET note='改写' WHERE id=?::uuid", actionId)).isInstanceOf(DataAccessException.class);
@@ -378,12 +368,12 @@ class ModerationIT {
         }
 
         @Test
-        @DisplayName("8. 申诉撤销限制：接受后限制立即结束并写审计；爽约来源的限制同时推翻那次确认，不再计数；已结束的限制不能申诉")
+        @DisplayName("8. 申诉撤销限制：接受后限制立即结束并写审计，可以再次申请联系；已结束的限制不能申诉")
         void appealRestriction() throws Exception {
             User target = api.register(), reporter = api.register();
             User a = staff("MODERATOR"), b = staff("SENIOR_MODERATOR");
             report(reporter, "USER", target.id(), "HARASSMENT");
-            api.ok(decide(a, caseFor("USER", target.id()), "RESTRICT_BOOKING", "HARASSMENT", 72));
+            api.ok(decide(a, caseFor("USER", target.id()), "RESTRICT_CONTACT", "HARASSMENT", 72));
             String restriction = api.ok(api.get(target, "/v1/me/governance")).path("restrictions").get(0).path("id").asText();
             String appeal = api.ok(api.post(target, "/v1/me/appeals", Map.of("restrictionId", restriction, "reason", "我没有骚扰对方"))).path("id").asText();
             JsonNode list = api.ok(api.get(b, "/v1/moderation/appeals?status=PENDING"));
@@ -394,7 +384,7 @@ class ModerationIT {
             assertThat(after.path("revokedAt").isNull()).isFalse();
             assertThat(after.path("appeal").path("status").asText()).isEqualTo("ACCEPTED");
             User seller = api.register();
-            assertThat(status(api.post(target, "/v1/orders", orderBody(product(seller, "撤销后可以下单"))))).isEqualTo(200);
+            assertThat(api.requestContact(target, product(seller, "撤销后可以申请联系"))).as("撤销后照常申请联系").isNotBlank();
             assertThat(status(api.post(target, "/v1/me/appeals", Map.of("restrictionId", restriction, "reason", "再来一次")))).isEqualTo(409);
         }
 
@@ -423,29 +413,5 @@ class ModerationIT {
                     .isEqualTo(senior.id());
         }
 
-        @Test
-        @DisplayName("10. 爽约复核：报告人请求复核后由工作人员确认；只有确认后才计数；工作人员能看到双方的到达声明（不是定位证据）；驳回不计数")
-        void noShowReview() throws Exception {
-            User seller = api.register(), buyer = api.register();
-            String p = product(seller, "爽约复核商品");
-            String order = api.order(buyer, p);
-            api.ok(api.transition(seller, order, "PENDING_MEETING"));
-            api.ok(api.put(buyer, "/v1/orders/" + order + "/presence", Map.of("action", "ARRIVE")));
-            com.lulu.campusmarketbackend.support.SlotClock.endedMinutesAgo(jdbc, order, 60);
-            String report = api.ok(api.post(buyer, "/v1/orders/" + order + "/no-show-reports", Map.of("reasonCode", "DID_NOT_ARRIVE"))).path("id").asText();
-            JsonNode escalated = report(buyer, "NO_SHOW", report, "NO_SHOW_REVIEW");
-            assertThat(escalated.path("status").asText()).isEqualTo("RECEIVED");
-            assertThat(status(api.post(seller, "/v1/moderation-reports", Map.of("targetType", "NO_SHOW", "targetId", report, "reasonCode", "NO_SHOW_REVIEW"))))
-                    .as("只有报告人可以请求复核").isEqualTo(404);
-            User s = staff("MODERATOR");
-            String caseId = caseFor("NO_SHOW", report);
-            JsonNode detail = api.ok(api.get(s, "/v1/moderation/cases/" + caseId));
-            assertThat(detail.path("noShow").path("presence").get(0).path("party").asText()).isEqualTo("REPORTER");
-            assertThat(detail.path("allowedActions").toString()).contains("CONFIRM_NO_SHOW").contains("REJECT_NO_SHOW");
-            api.ok(decide(s, caseId, "CONFIRM_NO_SHOW", "CONFIRMED_NO_SHOW", null));
-            assertThat(jdbc.queryForObject("SELECT status FROM order_no_show_reports WHERE id=?::uuid", String.class, report)).isEqualTo("CONFIRMED");
-            assertThat(api.ok(api.get(seller, "/v1/me/governance")).path("noShowWarning").path("confirmedCount").asInt()).isEqualTo(1);
-            assertThat(status(api.post(seller, "/v1/no-show-reports/" + report + "/acknowledge", Map.of()))).isEqualTo(409);
-        }
     }
 }

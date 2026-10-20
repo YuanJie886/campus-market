@@ -2,8 +2,13 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import Avatar from '@mui/material/Avatar';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import Badge from '@mui/material/Badge';
 import { useAuth } from '../../context/AuthContext';
 import { useMarket } from '../../context/MarketContext';
+import { LegalLinks } from '../../legal/LegalDocumentView';
+import { contactUnreadLabel, useContactUnreadCounts } from '../../context/ContactUnreadContext';
+
+const CONTACT_TAB = '/profile/contact-requests';
 
 const TAB_ROUTES: { label: string; path: string }[] = [
   { label: '个人资料', path: '/profile' },
@@ -13,6 +18,7 @@ const TAB_ROUTES: { label: string; path: string }[] = [
   { label: '教材建议', path: '/profile/textbook-suggestions' },
   { label: '我的举报', path: '/profile/reports' },
   { label: '我的限制', path: '/profile/restrictions' },
+  { label: '账号与安全', path: '/profile/security' },
 ];
 
 /** 个人中心布局：用户概要卡 + 标签页 + 子路由出口 */
@@ -21,6 +27,7 @@ export default function ProfileLayout() {
   const { currentUser } = useAuth();
   const { getSellerProducts, getFavoriteProducts } =
     useMarket();
+  const { counts: contactUnread } = useContactUnreadCounts();
 
   if (!currentUser) {
     return null;
@@ -88,7 +95,11 @@ export default function ProfileLayout() {
           {TAB_ROUTES.map((tab) => (
             <Tab
               key={tab.path}
-              label={tab.label}
+              label={tab.path === CONTACT_TAB && contactUnread.total > 0
+                ? <Badge color="error" badgeContent={contactUnread.total} max={99} sx={{ pr: 1.5 }}><span>{tab.label}</span></Badge>
+                : tab.label}
+              // 联系申请标签的可访问名称带上未读数
+              aria-label={tab.path === CONTACT_TAB ? contactUnreadLabel(contactUnread.total) : undefined}
               component={Link}
               to={tab.path}
               sx={{ minHeight: 46, fontWeight: 600 }}
@@ -98,6 +109,10 @@ export default function ProfileLayout() {
       </div>
 
       <Outlet />
+
+      <nav aria-label="协议与政策" className="text-center text-xs text-slate-500">
+        <LegalLinks />
+      </nav>
     </div>
   );
 }

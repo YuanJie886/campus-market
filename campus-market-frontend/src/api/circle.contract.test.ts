@@ -47,7 +47,6 @@ function product(title: string, extra: Partial<ProductCreateInput> = {}, categor
 function payload(title: string, extra: Partial<ListingPayload> = {}): ListingPayload {
   return { ...(product(title) as unknown as ListingPayload), ...extra };
 }
-const meetingAt = () => { const at = new Date(Date.now() + 86_400_000); at.setMinutes(0, 0, 0); return at.toISOString() };
 
 /** owner 建圈并用邀请码拉 members 进圈；返回圈子 id */
 async function circleWith(owner: string, members: string[], name = `圈子${rnd()}`, visibility: 'PRIVATE' | 'DISCOVERABLE' = 'PRIVATE') {
@@ -235,7 +234,8 @@ describe('6.5 / 6.6 圈子商品的可见性', () => {
     await as('outsider');
     expect(await sees()).toEqual({ list: false, count: false, feed: false, detail: false, comments: false, favorite: false, conversation: false, textbook: false });
     expect((await failure(api.getProduct(secret.id))).message).toBe((await failure(api.getProduct('no-such-product'))).message);
-    expect(await code(api.createOrder({ productId: secret.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() }))).toBe(404);
+    expect(await code(api.requestContact(secret.id))).toBe(404);
+    expect(await code(api.getContactRequest(secret.id))).toBe(404);
     expect((await api.getProduct(open.id)).id).toBe(open.id);
     expect((await api.listProducts({ keyword: open.title, sort: 'latest', page: 1, pageSize: 50 })).total).toBe(1);
   });
@@ -277,24 +277,29 @@ describe('6.5 / 6.6 圈子商品的可见性', () => {
     expect((await api.getProduct(p.id)).visibility).toBe('CIRCLE_ONLY');
   });
 
-  it('12. 订单参与者例外：成员下单后被移出，仍能查看这件商品；但看不到卖家的其他圈子商品；非成员不能下单', async () => {
+  it('12. 联系申请没有参与者例外：成员申请并获同意后被移出，商品、联系方式与申请记录都不再可见；非成员不能申请', async () => {
     await user('seller'); const buyerId = await user('buyer'); await user('outsider');
     const id = await circleWith('seller', ['buyer']);
     await as('seller');
-    const p = await api.createProduct(product('下单后仍可见', { visibility: 'CIRCLE_ONLY', circleIds: [id] }));
+    const p = await api.createProduct(product('申请后移出', { visibility: 'CIRCLE_ONLY', circleIds: [id] }));
     const other = await api.createProduct(product('卖家的另一件圈子商品', { visibility: 'CIRCLE_ONLY', circleIds: [id] }));
     await as('buyer');
-    const order = await api.createOrder({ productId: p.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() });
-    expect(order.productId).toBe(p.id);
+    const request = await api.requestContact(p.id);
+    await as('seller');
+    await api.decideContactRequest(request.id, 'APPROVED');
+    await as('buyer');
+    expect((await api.getProduct(p.id)).contact).toBe('13800000000');
     await as('seller');
     await api.removeCircleMember(id, buyerId);
     await as('buyer');
-    expect((await api.getProduct(p.id)).id).toBe(p.id);
-    expect((await api.getOrderFlow(order.id)).orderId).toBe(order.id);
+    expect(await code(api.getProduct(p.id))).toBe(404);
     expect(await code(api.getProduct(other.id))).toBe(404);
+    expect(await code(api.getContactRequest(p.id))).toBe(404);
+    expect((await api.listContactRequests({ role: 'sent' })).items).toEqual([]);
+    expect((await api.getContactRequestUnreadCount()).updates).toBe(0);
     expect((await api.listProducts({ sort: 'latest', page: 1, pageSize: 50 })).items.map((i) => i.id)).not.toContain(p.id);
     await as('outsider');
-    expect(await code(api.createOrder({ productId: other.id, meetingPointId: '东校区-library', meetingAtIso: meetingAt(), contact: '1', idempotencyKey: rnd() }))).toBe(404);
+    expect(await code(api.requestContact(other.id))).toBe(404);
   });
 });
 
@@ -335,26 +340,6 @@ describe('6.3 圈子订阅', () => {
     expect((await api.listDemandSubscriptions()).find((s) => s.id === sub.id)?.active).toBe(false);
     expect(await code(api.updateDemandSubscription(sub.id, { active: true }))).toBe(404);
   });
-
-  it('15. 公开价格参考排除圈子商品的成交（按订单的可见性快照）', async () => {
-    await user('viewer');
-    const raw = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    for (let i = 0; i < 10; i += 1) {
-      const pid = `pg-${rnd()}`;
-      const visibilitySnapshot = i < 3 ? 'CIRCLE_ONLY' : 'PUBLIC';
-      raw.market.products.push({ id: pid, title: '样本', description: 'd', price: 10, category: '生活用品', condition: '全新', campus: '东校区', images: [], contact: '', sellerId: 'seed', status: '已售出', views: 0, createdAt: Date.now(), listingKind: 'SINGLE' });
-      raw.market.orders.push({ id: `o-${pid}`, productId: pid, buyerId: 'b', sellerId: 'seed', price: 10 + i, status: '已完成', canonicalStatus: 'COMPLETED', createdAt: Date.now(), updatedAt: Date.now(),
-        priceSnapshot: 10 + i, currency: 'CNY', schoolIdSnapshot: 'pilot', categorySnapshot: '生活用品', conditionSnapshot: '全新', listingKindSnapshot: 'SINGLE', textbookEditionIdSnapshot: null, visibilitySnapshot });
-    }
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(raw));
-    api = new MockCampusMarketApi();
-    expect((await api.getPriceGuidance({ category: '生活用品' })).sufficient).toBe(false);
-    const again = JSON.parse(window.localStorage.getItem(DB_STORAGE_KEY)!);
-    for (const o of again.market.orders) if (o.visibilitySnapshot === 'CIRCLE_ONLY') o.visibilitySnapshot = 'PUBLIC';
-    window.localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(again));
-    api = new MockCampusMarketApi();
-    expect(await api.getPriceGuidance({ category: '生活用品' })).toMatchObject({ sufficient: true });
-  });
 });
 
 describe('6.5 批量发布与协助', () => {
@@ -389,12 +374,16 @@ describe('6.5 批量发布与协助', () => {
 });
 
 describe('十 隐私', () => {
-  it('17. 公共资料与履历不展示圈子；我的圈子只含圈子资料与我的角色', async () => {
+  it('17. 公共资料与公开商品不展示圈子；我的圈子只含圈子资料与我的角色', async () => {
     const ownerId = await user('owner'); await user('member'); await user('viewer');
     await circleWith('owner', ['member'], '不外泄的圈子名');
+    await as('owner');
+    const open = await api.createProduct(product('圈主的公开商品'));
     await as('viewer');
     expect(JSON.stringify(await api.getUser(ownerId))).not.toMatch(/circle|不外泄/i);
-    expect(JSON.stringify(await api.getPublicTradeSummary(ownerId))).not.toMatch(/circle|不外泄/i);
+    const view = await api.getProduct(open.id);
+    expect(JSON.stringify(view)).not.toMatch(/不外泄/);
+    expect(view.circles ?? []).toEqual([]);
     await as('member');
     const mine = await api.listMyCircles();
     expect(mine).toHaveLength(1);

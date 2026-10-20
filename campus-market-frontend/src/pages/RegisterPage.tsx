@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotificationContext";
@@ -10,6 +11,10 @@ import { CAMPUSES } from "../types";
 import type { Campus } from "../types";
 import { toUserMessage } from '../api/errors';
 import { clearPendingInvite } from '../utils/pendingInvite';
+import { LegalDialog, LegalLinks, type LegalKind } from '../legal/LegalDocumentView';
+
+/** 未勾选同意时的提示（显示在勾选框下方，并由 role=alert 播报） */
+export const CONSENT_REQUIRED = "请先阅读并勾选同意《用户协议》和《隐私政策》";
 
 /** 注册页 */
 export default function RegisterPage() {
@@ -27,9 +32,21 @@ export default function RegisterPage() {
   const [confirm, setConfirm] = useState("");
   const [campus, setCampus] = useState<Campus>("东校区");
   const [contact, setContact] = useState("");
+  // 必须由用户主动勾选：不预选，未勾选时不发出注册请求
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState(false);
+  const [legal, setLegal] = useState<LegalKind | null>(null);
+  const consentRef = useRef<HTMLInputElement>(null);
+  const consentLabelId = useId();
+  const consentErrorId = useId();
 
   const handleRegister = async () => {
     if (busy) return;
+    if (!agreed) {
+      setConsentError(true);
+      consentRef.current?.focus();
+      return;
+    }
     setBusy(true);
     try {
       if (password !== confirm) {
@@ -127,6 +144,32 @@ export default function RegisterPage() {
             helperText="选填，默认使用你的账号"
           />
 
+          <div>
+            <div className="flex items-start gap-1">
+              <Checkbox
+                checked={agreed}
+                onChange={(e) => { setAgreed(e.target.checked); if (e.target.checked) setConsentError(false); }}
+                inputRef={consentRef}
+                inputProps={{
+                  "aria-labelledby": consentLabelId,
+                  "aria-describedby": consentError ? consentErrorId : undefined,
+                  "aria-invalid": consentError,
+                  "aria-required": true,
+                }}
+                sx={{ mt: -0.75, ml: -1.25 }}
+              />
+              {/* 可访问名称是整句「已阅读并同意《用户协议》《隐私政策》」；两个链接在本页弹窗里打开，已填写的内容不丢 */}
+              <p id={consentLabelId} className="text-sm leading-6 text-slate-700">
+                已阅读并同意<LegalLinks onOpen={setLegal} />
+              </p>
+            </div>
+            {consentError && (
+              <p id={consentErrorId} role="alert" className="ml-8 text-xs text-red-700">
+                {CONSENT_REQUIRED}
+              </p>
+            )}
+          </div>
+
           <Button
             variant="contained"
             size="large"
@@ -145,6 +188,7 @@ export default function RegisterPage() {
           去登录
         </Link>
       </p>
+      <LegalDialog kind={legal} onClose={() => setLegal(null)} />
     </div>
   );
 }

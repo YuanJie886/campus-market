@@ -14,7 +14,8 @@ public class ApiResponseAdvice implements ResponseBodyAdvice<Object> {
 
     @Override
     public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return true;
+        // 阶段 4：图片等二进制响应原样输出，不包进 JSON 信封
+        return !org.springframework.http.converter.ByteArrayHttpMessageConverter.class.isAssignableFrom(converterType);
     }
 
     @Override

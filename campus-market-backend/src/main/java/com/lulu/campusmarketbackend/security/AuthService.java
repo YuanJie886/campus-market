@@ -47,14 +47,17 @@ public class AuthService {
     private final long refreshDays;
 
     private final com.lulu.campusmarketbackend.school.SchoolScope schools;
+    /** 阶段 4：注册昵称同样过内容安全（还没有账号，只做关键词过滤） */
+    private final ContentSafetyService safety;
 
     public AuthService(UserMapper users, SessionMapper sessions, JwtService jwt, DomainMapper mapper, RateLimitService rateLimit,
-                       com.lulu.campusmarketbackend.school.SchoolScope schools,
+                       com.lulu.campusmarketbackend.school.SchoolScope schools, ContentSafetyService safety,
                        @Value("${campus-market.web-origin}") String webOrigin,
                        @Value("${campus-market.secure-cookies}") boolean secureCookies,
                        @Value("${campus-market.refresh-token-days}") long refreshDays) {
         this.users = users; this.sessions = sessions; this.jwt = jwt; this.mapper = mapper; this.rateLimit = rateLimit;
         this.schools = schools;
+        this.safety = safety;
         this.webOrigin = webOrigin; this.secureCookies = secureCookies; this.refreshDays = refreshDays;
         requireCoherentCookiePolicy(webOrigin, secureCookies);
     }
@@ -100,6 +103,7 @@ public class AuthService {
         String account = field(body, "account", 64), password = string(body, "password", 8, 72), nickname = string(body, "nickname", 1, 40), campus = schools.requireCampus(body.get("campus")), contact = optional(body, "contact", 100);
         // 基础校验通过后才计数，避免格式垃圾把限流表撑大
         rateLimit.consume(RateLimitService.Scope.AUTH_REGISTER, RateLimitService.normalizeAccount(account));
+        safety.checkAnonymous(nickname);
         UserEntity user = new UserEntity(); user.setId(UUID.randomUUID()); user.setAccount(account); user.setPasswordHash(passwordEncoder.encode(password)); user.setNickname(nickname); user.setAvatar(""); user.setCampus(campus); user.setContact(contact);
         try { users.insert(user); } catch (org.springframework.dao.DuplicateKeyException e) { throw ApiException.conflict("账号已存在"); }
         return session(users.selectRowById(user.getId()), response);
@@ -133,6 +137,29 @@ public class AuthService {
         checkOrigin(request); String[] pair = refreshPair(request, false);
         if (pair != null) sessions.deleteByHash(UUID.fromString(pair[0]), digest(pair[1]));
         response.addHeader("Set-Cookie", ResponseCookie.from("cm_refresh", "").httpOnly(true).secure(secureCookies).sameSite("Strict").path("/v1/auth").maxAge(0).build().toString());
+    }
+
+    /** 阶段 3：微信登录等其他入口签发会话，与密码登录同一套刷新 Cookie 与访问令牌。 */
+    public Map<String, Object> issueSession(Map<String, Object> user, HttpServletResponse response) {
+        return session(user, response);
+    }
+
+    /** 让浏览器丢弃刷新 Cookie（会话行已由调用方删除）。 */
+    public void clearRefreshCookie(HttpServletResponse response) {
+        response.addHeader("Set-Cookie", ResponseCookie.from("cm_refresh", "").httpOnly(true).secure(secureCookies).sameSite("Strict").path("/v1/auth").maxAge(0).build().toString());
+    }
+
+    /** 当前请求的会话 id（已通过 {@link #authenticate} 校验后调用）。 */
+    public UUID currentSessionId(HttpServletRequest request) {
+        return UUID.fromString(String.valueOf(jwt.verify(request.getHeader("Authorization").substring(7)).get("sid")));
+    }
+
+    /** 与注册相同的口令散列；口令本身从不记录。 */
+    public String hashPassword(String raw) { return passwordEncoder.encode(raw); }
+
+    /** 常量时间比较；用户不存在时也走一次散列，避免时间差异。 */
+    public boolean passwordMatches(Map<String, Object> user, String raw) {
+        return passwordEncoder.matches(raw, user == null ? DUMMY_HASH : String.valueOf(user.get("password_hash"))) && user != null;
     }
 
     private Map<String, Object> session(Map<String, Object> user, HttpServletResponse response) {

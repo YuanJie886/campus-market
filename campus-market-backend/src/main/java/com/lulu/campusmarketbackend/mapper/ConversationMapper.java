@@ -11,11 +11,11 @@ import java.util.UUID;
 @Mapper
 public interface ConversationMapper extends BaseMapper<ConversationEntity> {
     /**
-     * 模块 6：卖家看到自己商品的全部会话；买家只看到仍能读取该商品的会话（product_readable_by：
-     * 商品可见，或他在这件商品上有有效 / 已完成订单）。商品改为圈子可见后，非成员的未成交会话随之消失。
+     * 模块 6：卖家看到自己商品的全部会话；买家只看到仍能看到该商品的会话（product_visible_to；V16 起没有订单参与者例外）。
+     * 商品改为圈子可见、被治理隐藏或买家移出圈子后，买家的会话随之消失。
      */
     @Select("SELECT c.* FROM conversations c JOIN products p ON p.id = c.product_id "
-            + "WHERE c.seller_id=#{uid} OR (c.buyer_id=#{uid} AND product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid})) "
+            + "WHERE c.seller_id=#{uid} OR (c.buyer_id=#{uid} AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid})) "
             + "ORDER BY c.updated_at DESC")
     List<Map<String, Object>> selectRowsByUser(@Param("uid") UUID uid);
     @Select("SELECT * FROM conversations WHERE id=#{id}") ConversationEntity selectByConversationId(@Param("id") UUID id);
@@ -24,6 +24,6 @@ public interface ConversationMapper extends BaseMapper<ConversationEntity> {
     @Update("UPDATE conversations SET updated_at=now() WHERE id=#{id}") int touch(@Param("id") UUID id);
     /** 会话访问：参与者，且（卖家，或买家仍能读取这件商品）。与列表同一条件。 */
     @Select("SELECT count(*) FROM conversations c JOIN products p ON p.id = c.product_id WHERE c.id=#{id} "
-            + "AND (c.seller_id=#{uid} OR (c.buyer_id=#{uid} AND product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid})))")
+            + "AND (c.seller_id=#{uid} OR (c.buyer_id=#{uid} AND product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid})))")
     long countMember(@Param("id") UUID id, @Param("uid") UUID uid);
 }

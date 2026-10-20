@@ -8,7 +8,7 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { toUserMessage } from '../../api/errors';
 import { APPEAL_REASON_MAX, type MyGovernance } from '../../api/contracts';
-import { CORRECTION_LABEL, NOTICE_SECTION_LABEL, RESTRICTION_SOURCE_LABEL, SCOPE_LABEL, SCOPE_STILL_ALLOWED, formatUntil } from '../../utils/governance';
+import { NOTICE_SECTION_LABEL, RESTRICTION_SOURCE_LABEL, REVOKE_REASON_LABEL, SCOPE_LABEL, SCOPE_STILL_ALLOWED, formatUntil } from '../../utils/governance';
 import ErrorSummary, { type ErrorSummaryItem } from '../../components/trust/ErrorSummary';
 
 type Target = { kind: 'restriction' | 'action'; id: string; label: string } | null;
@@ -16,6 +16,7 @@ type Target = { kind: 'restriction' | 'action'; id: string; label: string } | nu
 /**
  * 我的限制：只有本人看得到。每条限制写明范围、到期时间（具体时间 + 还剩多久）、来源类别、仍然可以做的事，
  * 以及申诉状态。每条限制 / 每次商品隐藏可以申诉一次。不显示举报人或工作人员身份。
+ * 阶段 1：爽约自动规则已停用，历史上的爽约确认只作记录展示（服务端返回 active=false、canAppeal=false）。
  */
 /** 申诉状态：没有可以回避的工作人员时明确说明「保持待处理」，不会被自动驳回 */
 function appealStatusText(a: NonNullable<MyGovernance['restrictions'][number]['appeal']>): string {
@@ -27,7 +28,7 @@ const NOTICE_EXPLAIN: Record<'HIDE_PRODUCT' | 'HIDE_COMMENT' | 'QUARANTINE_MESSA
   HIDE_PRODUCT: '其他同学看不到这件商品。',
   HIDE_COMMENT: '这条留言对所有人都只显示「已被平台隐藏」；原文保留，没有删除。',
   QUARANTINE_MESSAGE: '只隔离了这一条私信：双方都只看到占位提示，会话与其他消息照常，可以继续沟通。',
-  CONFIRM_NO_SHOW: '这次确认计入 30 天内的爽约次数（按确认时间计）。申诉成功后不再计入，受影响的自动限制只会缩短或撤销。',
+  CONFIRM_NO_SHOW: '站内交易与爽约规则已经停用，这条记录只作历史展示，不再计入任何限制，也不需要申诉。',
 };
 
 export default function MyRestrictionsPage() {
@@ -100,18 +101,7 @@ export default function MyRestrictionsPage() {
               <li key={r.id} className="rounded-xl border border-amber-300 bg-white p-3 text-sm">
                 <p className="font-semibold text-slate-800">暂时不能：{SCOPE_LABEL[r.scope]}（生效中）</p>
                 <p className="text-slate-700">解除时间：{formatUntil(r.endsAt)}</p>
-                <p className="text-slate-700">来源：{RESTRICTION_SOURCE_LABEL[r.source]}{r.ruleVersion ? `（规则版本 ${r.ruleVersion}）` : ''}</p>
-                {r.basis && r.basis.length > 0 && (
-                  <p className="text-xs text-slate-600">依据：30 天内按确认时间计的 {r.basis.length} 次已确认爽约
-                    （{r.basis.map((b) => `${new Date(b.confirmedAt).toLocaleDateString('zh-CN')}${b.stillConfirmed ? '' : '，已被推翻'}`).join('；')}）</p>
-                )}
-                {r.corrections && r.corrections.length > 0 && (
-                  <ul className="text-xs text-slate-700" aria-label="纠正记录">
-                    {r.corrections.map((c) => (
-                      <li key={c.createdAt}>{CORRECTION_LABEL[c.outcome]}：剩余 {c.remainingCount} 次，解除时间由 {formatUntil(c.previousEndsAt)} 改为 {formatUntil(c.newEndsAt)}</li>
-                    ))}
-                  </ul>
-                )}
+                <p className="text-slate-700">来源：{RESTRICTION_SOURCE_LABEL[r.source]}</p>
                 <p className="text-xs text-slate-600">{SCOPE_STILL_ALLOWED[r.scope]}</p>
                 {r.appeal ? <p className="text-xs text-slate-700">申诉：{appealStatusText(r.appeal)}</p> : null}
                 {r.canAppeal && (
@@ -144,7 +134,7 @@ export default function MyRestrictionsPage() {
       )}
       {otherNotices.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-base font-semibold text-slate-800">留言、私信与爽约确认</h3>
+          <h3 className="text-base font-semibold text-slate-800">留言、私信与历史记录</h3>
           <ul className="space-y-2" aria-label="其他处理记录">
             {otherNotices.map((n) => (
               <li key={n.actionId} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
@@ -166,8 +156,8 @@ export default function MyRestrictionsPage() {
           <summary>已结束的限制（{past.length}）</summary>
           <ul className="mt-1 list-disc pl-5">
             {past.map((r) => (
-              <li key={r.id}>{SCOPE_LABEL[r.scope]} · {r.revokedAt
-                ? `${r.revokeReason === 'RULE_RECOMPUTED' ? '已按规则重算撤销' : '已撤销'}（${new Date(r.revokedAt).toLocaleString('zh-CN')}）`
+              <li key={r.id}>{SCOPE_LABEL[r.scope]} · 来源：{RESTRICTION_SOURCE_LABEL[r.source]} · {r.revokedAt
+                ? `${r.revokeReason ? REVOKE_REASON_LABEL[r.revokeReason] : '已撤销'}（${new Date(r.revokedAt).toLocaleString('zh-CN')}）`
                 : `已于 ${new Date(r.endsAt).toLocaleString('zh-CN')} 到期`}</li>
             ))}
           </ul>
@@ -178,7 +168,7 @@ export default function MyRestrictionsPage() {
         <DialogTitle id={titleId}>提出申诉</DialogTitle>
         <DialogContent className="space-y-3">
           <p className="text-sm text-slate-700">申诉对象：{target?.label}。每条限制或处理只能申诉一次，会由与此事无关的另一位平台工作人员处理；
-            申诉成功会撤销尚未到期的限制或恢复内容，因此受影响的其他自动限制只会被缩短或撤销，不会加重。</p>
+            申诉成功会撤销尚未到期的限制或恢复内容，不会加重任何处理。</p>
           <ErrorSummary ref={summaryRef} title="提交前请先修正以下问题" items={summary} />
           <TextField id={reasonId} label="申诉理由" value={reason} onChange={(e) => setReason(e.target.value)} fullWidth multiline minRows={3}
             inputProps={{ maxLength: APPEAL_REASON_MAX }} helperText={`最多 ${APPEAL_REASON_MAX} 字`} />

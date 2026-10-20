@@ -39,7 +39,7 @@ export const CONDITION_COLOR: Record<string, string> = {
   明显使用痕迹: '#ef4444',
 };
 
-/** 发布页可选的预置图片（稳定公开占位图，避免真实文件上传） */
+/** 发布页可选的预置示例图（外部占位图，过渡期保留；真实图片通过上传） */
 export const IMAGE_PRESETS: string[] = Array.from({ length: 12 }, (_, i) =>
   `https://picsum.photos/seed/cm-preset-${i + 1}/600/600`,
 );

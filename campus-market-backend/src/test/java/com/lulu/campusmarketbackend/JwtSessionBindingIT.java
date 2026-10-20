@@ -87,7 +87,6 @@ class JwtSessionBindingIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         // application-test.yaml 把 driver 固定为 org.h2.Driver，必须覆盖。
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
-        registry.add("campus-market.expiry-job-enabled", () -> "false");
         registry.add("campus-market.jwt-secret", () -> RUNTIME_SECRET);
     }
 

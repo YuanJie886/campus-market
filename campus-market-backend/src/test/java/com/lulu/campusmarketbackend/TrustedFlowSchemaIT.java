@@ -15,8 +15,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,10 +22,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V5 的数据库层约束与触发器（3.1F）。
+ * V5 的数据库层约束与触发器（3.1F）：验货模板与商品声明。
  *
- * <p>每一条都<b>绕过服务层</b>直接写表：不可篡改、只能前进、只有参与方——
- * 这些规则如果只写在 Java 里，一次手工修数据或一个写错的新接口就能打破它们。
+ * <p>每一条都<b>绕过服务层</b>直接写表——这些规则如果只写在 Java 里，一次手工修数据或一个写错的新接口就能打破它们。
+ * 订单验货快照、档期提议、到达记录、流程事件与面交点的约束随站内交易一起退役：V16 起这些表是只读历史，
+ * 任何写入都被拒绝（PostgresSchemaIT「历史交易表只读」）。
  */
 @Testcontainers
 @SpringBootTest(properties = {
@@ -53,22 +52,14 @@ class TrustedFlowSchemaIT {
     }
 
     @Autowired JdbcTemplate jdbc;
-    UUID buyer, seller, stranger, product, order;
+    UUID seller, product;
 
     @BeforeEach
     void fixtures() {
-        buyer = user("buyer");
         seller = user("seller");
-        stranger = user("stranger");
         product = UUID.randomUUID();
         jdbc.update("INSERT INTO products(id,seller_id,title,description,price,category,condition,campus) VALUES (?,?,?,?,?,?,?,?)",
                 product, seller, "t", "d", BigDecimal.TEN, "数码电子", "全新", "东校区");
-        order = UUID.randomUUID();
-        Timestamp later = Timestamp.from(Instant.now().plusSeconds(86_400));
-        jdbc.update("INSERT INTO orders(id,product_id,buyer_id,seller_id,price,status,meeting_point_id,meeting_at,contact,"
-                        + "confirmation_code,idempotency_key,request_hash,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                order, product, buyer, seller, BigDecimal.TEN, "PENDING_MEETING", "东校区-library", later, "c",
-                "123456", "k" + order, "h", later);
     }
 
     private UUID user(String prefix) {
@@ -138,179 +129,5 @@ class TrustedFlowSchemaIT {
         rejects("说明含 HTML", () -> jdbc.update(sql, product, "tpl-digital-v1", "BATTERY", "NORMAL", "<script>"));
         rejects("条目不属于该模板", () -> jdbc.update(sql, product, "tpl-digital-v1", "PAGES_COMPLETE", "NORMAL", ""));
         rejects("同一商品同一条目重复", () -> jdbc.update(sql, product, "tpl-digital-v1", "SCREEN", "NORMAL", ""));
-    }
-
-    // ------------------------------------------------------------------
-    // 订单快照与验货
-    // ------------------------------------------------------------------
-
-    private void pendingInspection() {
-        jdbc.update("INSERT INTO order_inspections(order_id,template_id,template_title_snapshot,template_version,status) "
-                + "VALUES (?,'tpl-digital-v1','数码电子验货清单',1,'PENDING')", order);
-        jdbc.update("INSERT INTO order_inspection_items(order_id,item_code,label_snapshot,description_snapshot,required_snapshot,"
-                + "sort_order,seller_condition_snapshot,seller_note_snapshot) VALUES (?,'SCREEN','屏幕显示正常','',true,2,'NORMAL','')", order);
-    }
-
-    @Test
-    @DisplayName("5. 验货记录的状态组合约束")
-    void inspectionStateShape() {
-        rejects("NOT_PROVIDED 却带模板", () -> jdbc.update(
-                "INSERT INTO order_inspections(order_id,template_id,template_title_snapshot,template_version,status) "
-                        + "VALUES (?,'tpl-digital-v1','t',1,'NOT_PROVIDED')", order));
-        rejects("SUBMITTED 却没有提交人与时间", () -> jdbc.update(
-                "INSERT INTO order_inspections(order_id,template_id,template_title_snapshot,template_version,status) "
-                        + "VALUES (?,'tpl-digital-v1','t',1,'SUBMITTED')", order));
-        rejects("需要处理却没有不一致", () -> jdbc.update(
-                "INSERT INTO order_inspections(order_id,template_id,template_title_snapshot,template_version,status,submitted_at,submitted_by) "
-                        + "VALUES (?,'tpl-digital-v1','t',1,'NEEDS_RESOLUTION',now(),?)", order, buyer));
-        rejects("未知状态", () -> jdbc.update(
-                "INSERT INTO order_inspections(order_id,status) VALUES (?,'已验货')", order));
-    }
-
-    @Test
-    @DisplayName("6. 快照中的卖家声明任何时候都不可改；草稿阶段买家结果可改；最终提交后全部冻结；不可删除")
-    void snapshotImmutability() {
-        pendingInspection();
-        rejects("改卖家声明快照", () -> jdbc.update(
-                "UPDATE order_inspection_items SET seller_condition_snapshot='DEFECT' WHERE order_id=?", order));
-        rejects("改条目文案快照", () -> jdbc.update(
-                "UPDATE order_inspection_items SET label_snapshot='改了' WHERE order_id=?", order));
-
-        // 草稿：买家结果可反复改
-        jdbc.update("UPDATE order_inspection_items SET buyer_result='MISMATCH' WHERE order_id=?", order);
-        jdbc.update("UPDATE order_inspection_items SET buyer_result='MATCH', checked_at=now() WHERE order_id=?", order);
-        jdbc.update("UPDATE order_inspections SET status='SUBMITTED', submitted_at=now(), submitted_by=? WHERE order_id=?", buyer, order);
-
-        rejects("提交后改买家结果", () -> jdbc.update(
-                "UPDATE order_inspection_items SET buyer_result='MISMATCH' WHERE order_id=?", order));
-        rejects("提交后改状态", () -> jdbc.update(
-                "UPDATE order_inspections SET status='PENDING', submitted_at=NULL, submitted_by=NULL WHERE order_id=?", order));
-        rejects("删条目", () -> jdbc.update("DELETE FROM order_inspection_items WHERE order_id=?", order));
-        rejects("删记录", () -> jdbc.update("DELETE FROM order_inspections WHERE order_id=?", order));
-    }
-
-    @Test
-    @DisplayName("7. 买家备注限长、禁 HTML；未给结果不能有检查时间")
-    void buyerInputShape() {
-        pendingInspection();
-        rejects("备注超长", () -> jdbc.update("UPDATE order_inspection_items SET buyer_note=? WHERE order_id=?", "长".repeat(201), order));
-        rejects("备注含 HTML", () -> jdbc.update("UPDATE order_inspection_items SET buyer_note='<b>x</b>' WHERE order_id=?", order));
-        rejects("未知买家结果", () -> jdbc.update("UPDATE order_inspection_items SET buyer_result='OK' WHERE order_id=?", order));
-        rejects("没有结果却有检查时间", () -> jdbc.update("UPDATE order_inspection_items SET checked_at=now() WHERE order_id=?", order));
-    }
-
-    // ------------------------------------------------------------------
-    // 档期提议
-    // ------------------------------------------------------------------
-
-    private static final String PROPOSE = "INSERT INTO order_meeting_proposals(id,order_id,proposer_id,meeting_point_id,starts_at,ends_at,status) "
-            + "VALUES (gen_random_uuid(),?,?,'东校区-library',now() + interval '1 day',now() + interval '1 day' + (?::int * interval '1 minute'),'PENDING')";
-
-    @Test
-    @DisplayName("8. 时间段：结束必须晚于开始，且不超过 2 小时")
-    void proposalWindow() {
-        rejects("结束不晚于开始", () -> jdbc.update(PROPOSE, order, buyer, 0));
-        rejects("超过 2 小时", () -> jdbc.update(PROPOSE, order, buyer, 121));
-        jdbc.update(PROPOSE, order, buyer, 120);
-    }
-
-    @Test
-    @DisplayName("9. 同一订单最多一个待处理提议、最多一个当前协议")
-    void onePendingOneCurrent() {
-        jdbc.update(PROPOSE, order, buyer, 30);
-        rejects("第二个 PENDING", () -> jdbc.update(PROPOSE, order, seller, 30));
-
-        String accepted = "INSERT INTO order_meeting_proposals(id,order_id,proposer_id,meeting_point_id,starts_at,ends_at,status,revision,responded_at,responded_by) "
-                + "VALUES (gen_random_uuid(),?,?,'东校区-library',now()+interval '2 day',now()+interval '2 day 30 minutes','ACCEPTED',?,now(),?)";
-        jdbc.update(accepted, order, buyer, 1, seller);
-        rejects("两个当前协议", () -> jdbc.update(accepted, order, buyer, 2, seller));
-    }
-
-    @Test
-    @DisplayName("10. 不能接受或拒绝自己的提议；撤回只能由发起方；接受必须有版本号")
-    void responderRules() {
-        String responded = "INSERT INTO order_meeting_proposals(id,order_id,proposer_id,meeting_point_id,starts_at,ends_at,status,revision,responded_at,responded_by) "
-                + "VALUES (gen_random_uuid(),?,?,'东校区-library',now()+interval '1 day',now()+interval '1 day 30 minutes',?,?,now(),?)";
-        rejects("自己接受自己", () -> jdbc.update(responded, order, buyer, "ACCEPTED", 1, buyer));
-        rejects("自己拒绝自己", () -> jdbc.update(responded, order, buyer, "REJECTED", null, buyer));
-        rejects("对方替我撤回", () -> jdbc.update(responded, order, buyer, "WITHDRAWN", null, seller));
-        rejects("接受却没有版本号", () -> jdbc.update(responded, order, buyer, "ACCEPTED", null, seller));
-        rejects("拒绝却带版本号", () -> jdbc.update(responded, order, buyer, "REJECTED", 3, seller));
-    }
-
-    @Test
-    @DisplayName("11. 订单当前协议窗口：结束晚于开始且不超过 2 小时；V11 起档期只能随版本号增加（改约握手）变化")
-    void orderMeetingWindow() {
-        // 同时增加版本号（相当于一次被接受的改约），这样被拒绝的原因是 V5 的窗口 CHECK，而不是 V11 的冻结
-        rejects("结束早于开始", () -> jdbc.update("UPDATE orders SET meeting_ends_at = meeting_at - interval '1 minute', meeting_revision = meeting_revision + 1 WHERE id=?", order));
-        rejects("超过 2 小时", () -> jdbc.update("UPDATE orders SET meeting_ends_at = meeting_at + interval '3 hours', meeting_revision = meeting_revision + 1 WHERE id=?", order));
-        rejects("V11：版本号不变时档期冻结", () -> jdbc.update("UPDATE orders SET meeting_ends_at = meeting_at + interval '30 minutes' WHERE id=?", order));
-        jdbc.update("UPDATE orders SET meeting_ends_at = meeting_at + interval '30 minutes', meeting_revision = meeting_revision + 1 WHERE id=?", order);
-    }
-
-    // ------------------------------------------------------------------
-    // 到达状态
-    // ------------------------------------------------------------------
-
-    private static final String PRESENCE = "INSERT INTO order_presence(order_id,user_id,meeting_revision,status,departed_at,arrived_at) VALUES (?,?,0,?,?,?)";
-
-    @Test
-    @DisplayName("12. 只有订单买卖双方能有到达记录")
-    void presenceParticipantsOnly() {
-        rejects("非参与方", () -> jdbc.update(PRESENCE, order, stranger, "DEPARTED", Timestamp.from(Instant.now()), null));
-        jdbc.update(PRESENCE, order, buyer, "DEPARTED", Timestamp.from(Instant.now()), null);
-    }
-
-    @Test
-    @DisplayName("13. 状态组合合法；只能前进；已记录的时间不可改写；不可删除")
-    void presenceMovesForwardOnly() {
-        // 取数据库时间：下面的 arrived_at=now() 也是数据库时间，宿主机与数据库的时钟偏差不能影响「到达不早于出发」的判断
-        Timestamp now = jdbc.queryForObject("SELECT now()", Timestamp.class);
-        rejects("DEPARTED 没有出发时间", () -> jdbc.update(PRESENCE, order, buyer, "DEPARTED", null, null));
-        rejects("到达早于出发", () -> jdbc.update(PRESENCE, order, buyer, "ARRIVED",
-                now, Timestamp.from(now.toInstant().minusSeconds(60))));
-
-        jdbc.update(PRESENCE, order, buyer, "DEPARTED", now, null);
-        jdbc.update("UPDATE order_presence SET status='ARRIVED', arrived_at=now() WHERE order_id=? AND user_id=?", order, buyer);
-        rejects("ARRIVED 退回 DEPARTED", () -> jdbc.update(
-                "UPDATE order_presence SET status='DEPARTED', arrived_at=NULL WHERE order_id=? AND user_id=?", order, buyer));
-        rejects("改写出发时间", () -> jdbc.update(
-                "UPDATE order_presence SET departed_at=now() - interval '1 hour' WHERE order_id=? AND user_id=?", order, buyer));
-        rejects("删除历史", () -> jdbc.update("DELETE FROM order_presence WHERE order_id=?", order));
-
-        // 允许直接「已到」（同楼自提），此时不伪造出发时间
-        jdbc.update(PRESENCE, order, seller, "ARRIVED", null, now);
-    }
-
-    @Test
-    @DisplayName("14. 到达表没有任何坐标、定位精度、路线或设备字段")
-    void presenceStoresNoLocation() {
-        List<String> columns = jdbc.queryForList(
-                "SELECT column_name FROM information_schema.columns WHERE table_name='order_presence'", String.class);
-        assertThat(columns).containsExactlyInAnyOrder(
-                "order_id", "user_id", "meeting_revision", "status", "departed_at", "arrived_at", "updated_at");
-    }
-
-    // ------------------------------------------------------------------
-    // 事件与面交点
-    // ------------------------------------------------------------------
-
-    @Test
-    @DisplayName("15. 流程事件只接受已知机器码，且不存自由文本")
-    void flowEventCodes() {
-        jdbc.update("INSERT INTO order_flow_events(order_id,actor_id,event_code,meeting_revision) VALUES (?,?,'PRESENCE_DEPARTED',0)", order, buyer);
-        rejects("未知机器码", () -> jdbc.update(
-                "INSERT INTO order_flow_events(order_id,actor_id,event_code) VALUES (?,?,'已出发')", order, buyer));
-        List<String> columns = jdbc.queryForList(
-                "SELECT column_name FROM information_schema.columns WHERE table_name='order_flow_events'", String.class);
-        assertThat(columns).noneSatisfy(c -> assertThat(c).containsAnyOf("note", "reason", "payload", "text", "code_value"));
-    }
-
-    @Test
-    @DisplayName("16. 面交点默认启用，可停用")
-    void meetingPointActive() {
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM meeting_points WHERE active", Integer.class)).isEqualTo(12);
-        jdbc.update("UPDATE meeting_points SET active=false WHERE id='北校区-express'");
-        jdbc.update("UPDATE meeting_points SET active=true WHERE id='北校区-express'");
     }
 }

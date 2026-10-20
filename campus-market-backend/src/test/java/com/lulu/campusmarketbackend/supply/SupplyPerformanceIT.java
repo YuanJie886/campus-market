@@ -41,7 +41,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.flyway.enabled=true",
         "spring.flyway.baseline-on-migrate=false",
         "campus-market.rate-limit.listing-draft-create.limit=1000",
-        "campus-market.rate-limit.price-guidance.limit=1000",
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -141,19 +140,8 @@ class SupplyPerformanceIT {
                     WHERE p.listing_kind = 'BUNDLE'
                     """);
         });
-        // 已完成订单：10,000 笔，带成交价快照（取每件已售出商品一笔）
-        jdbc.update("""
-                INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact,
-                                   confirmation_code, idempotency_key, request_hash, expires_at, price_snapshot, currency,
-                                   school_id_snapshot, category_snapshot, condition_snapshot, listing_kind_snapshot)
-                SELECT gen_random_uuid(), p.id, (SELECT id FROM users WHERE account = 'spp-0499'), p.seller_id, p.price, 'COMPLETED',
-                       '东校区-library', now() + interval '1 day', '13800000000', '123456', 'seed-' || p.id, 'h',
-                       now() + interval '2 days', p.price, 'CNY',
-                       (SELECT school_id FROM campuses WHERE id = p.campus), p.category, p.condition, p.listing_kind
-                FROM products p WHERE p.status = '已售出'
-                """);
         for (String table : new String[]{"users", "listing_drafts", "listing_batches", "listing_batch_items", "products",
-                "bundle_items", "orders"}) {
+                "bundle_items"}) {
             jdbc.execute("ANALYZE " + table);
         }
         sampleOwner = jdbc.queryForObject("SELECT id FROM users WHERE account='spp-0042'", UUID.class);
@@ -176,14 +164,13 @@ class SupplyPerformanceIT {
     }
 
     @Test
-    @DisplayName("1. 数据规模：10,000 草稿、1,000 批次、20,000 商品（2,000 件整套打包）、10,000 笔带快照的已完成订单")
+    @DisplayName("1. 数据规模：10,000 草稿、1,000 批次、20,000 商品（2,000 件整套打包）")
     void volume() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_drafts", Long.class)).isGreaterThanOrEqualTo(10_000);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_batches", Long.class)).isGreaterThanOrEqualTo(1_000);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_batch_items", Long.class)).isGreaterThanOrEqualTo(5_000);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Long.class)).isGreaterThanOrEqualTo(20_000);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM products WHERE listing_kind='BUNDLE'", Long.class)).isGreaterThanOrEqualTo(2_000);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM orders WHERE status='COMPLETED' AND price_snapshot IS NOT NULL", Long.class)).isGreaterThanOrEqualTo(10_000);
     }
 
     @Test
@@ -230,7 +217,7 @@ class SupplyPerformanceIT {
     }
 
     @Test
-    @DisplayName("5. 整套打包：明细按主键前缀取回；商品列表卡片摘要是同一条 SQL 的标量子查询（不逐卡查询）；详情与下单的语句条数 2 条与 30 条明细相同")
+    @DisplayName("5. 整套打包：明细按主键前缀取回；商品列表卡片摘要是同一条 SQL 的标量子查询（不逐卡查询）；详情的语句条数 2 条与 30 条明细相同")
     void bundlePlansAndCounts() throws Exception {
         ExplainSupport.Plan items = plan(BUNDLE + "selectItems", params("productId", sampleBundle), "bundle items");
         assertThat(items.seqScanOn("bundle_items")).isFalse();
@@ -249,55 +236,11 @@ class SupplyPerformanceIT {
         System.out.println("STATEMENTS bundle detail 2 items=" + detailSmall + " 30 items=" + detailLarge);
         assertThat(detailLarge).isEqualTo(detailSmall);
 
-        long orderSmall = counter.during(() -> call(() -> api.order(api.register(), small)));
-        long orderLarge = counter.during(() -> call(() -> api.order(api.register(), large)));
-        System.out.println("STATEMENTS bundle order 2 items=" + orderSmall + " 30 items=" + orderLarge);
-        assertThat(orderLarge).as("验货快照一条 INSERT…SELECT 生成全部明细").isEqualTo(orderSmall);
 
         long listCount = counter.during(() -> call(() -> api.ok(api.get(viewer, "/v1/products?pageSize=20"))));
         long listCountBundles = counter.during(() -> call(() -> api.ok(api.get(viewer, "/v1/products?pageSize=20&keyword=perf bundle"))));
         System.out.println("STATEMENTS product list=" + listCount + " bundle-only list=" + listCountBundles);
         assertThat(listCountBundles).isEqualTo(listCount);
-    }
-
-    @Test
-    @DisplayName("6. 价格参考聚合：多校规模下（21 所学校、约 7 万笔已完成订单）只读订单上的维度快照，经覆盖索引（V9 起为 orders_public_trade_guidance，排除圈子商品）聚合，不扫订单全表、不连接商品")
-    void priceGuidancePlan() throws Exception {
-        // 其他 20 所学校的历史成交，使本校只占平台数据的一小部分
-        if (jdbc.queryForObject("SELECT count(*) FROM schools WHERE id LIKE 'perf-s%'", Integer.class) == 0) {
-            jdbc.update("INSERT INTO schools(id,name) SELECT 'perf-s' || g, '性能学校 ' || g FROM generate_series(0, 19) g");
-            jdbc.update("INSERT INTO campuses(id,school_id,name) SELECT 'perf-c' || g, 'perf-s' || g, 'perf-c' || g FROM generate_series(0, 19) g");
-            // V10：卖家与商品同校、买家与商品同校——每所学校各有自己的卖家与买家
-            jdbc.update("INSERT INTO users(id, account, password_hash, nickname, campus) "
-                    + "SELECT gen_random_uuid(), r || '-perf-c' || g, 'x', 'perf', 'perf-c' || g FROM generate_series(0, 19) g, unnest(ARRAY['spp-seller','spp-buyer']) r");
-            jdbc.update("""
-                    INSERT INTO products(id, seller_id, title, description, price, category, condition, campus, status, created_at)
-                    SELECT gen_random_uuid(), (SELECT id FROM users WHERE account = 'spp-seller-perf-c' || (g % 20)), 'other school ' || g, 'd', 10 + g % 90,
-                           (ARRAY['数码电子','教材书籍','生活用品','服饰鞋包','运动户外','其他'])[1 + g % 6], '全新',
-                           'perf-c' || (g % 20), '已售出', now()
-                    FROM generate_series(0, 59999) g
-                    """);
-            jdbc.update("""
-                    INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact,
-                                       confirmation_code, idempotency_key, request_hash, expires_at, price_snapshot, currency,
-                                       school_id_snapshot, category_snapshot, condition_snapshot, listing_kind_snapshot)
-                    SELECT gen_random_uuid(), p.id, (SELECT id FROM users WHERE account = 'spp-buyer-' || p.campus), p.seller_id, p.price, 'COMPLETED',
-                           '东校区-library', now() + interval '1 day', '13800000000', '123456', 'seed-' || p.id, 'h',
-                           now() + interval '2 days', p.price, 'CNY',
-                           (SELECT school_id FROM campuses WHERE id = p.campus), p.category, p.condition, p.listing_kind
-                    FROM products p WHERE p.title LIKE 'other school %'
-                    """);
-            jdbc.execute("VACUUM ANALYZE products");
-            jdbc.execute("VACUUM ANALYZE orders");
-        }
-        for (Map<String, Object> q : List.of(
-                params("schoolId", "pilot", "category", "生活用品", "condition", null, "textbookEditionId", null),
-                params("schoolId", "pilot", "category", "数码电子", "condition", "全新", "textbookEditionId", null))) {
-            ExplainSupport.Plan p = plan(SUPPLY + "selectPriceGuidance", q, "price guidance " + q.get("category"));
-            assertThat(p.seqScanOn("orders")).isFalse();
-            assertThat(p.summary()).as("V8 起只读订单快照，不再连接商品或校区").doesNotContain("(products)").doesNotContain("(campuses)");
-            assertThat(p.indexesUsed()).contains("orders_public_trade_guidance");
-        }
     }
 
     // ------------------------------------------------------------------

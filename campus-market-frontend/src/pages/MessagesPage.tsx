@@ -28,6 +28,9 @@ export default function MessagesPage() {
 
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  // 发送失败时服务端的原话（例如内容安全拦截）显示在输入框上方，消息原文保留以便修改
+  const [sendError, setSendError] = useState<string | null>(null);
+  useEffect(() => { setSendError(null) }, [conversationId]);
   // 模块 7：举报对方发来的某一条消息（只快照这一条，不复制整段会话）
   const [reportingMessage, setReportingMessage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -35,9 +38,11 @@ export default function MessagesPage() {
   const conversations = currentUser
     ? getConversationsForUser(currentUser.id)
     : [];
-  const { loadMessages } = useMarket();
+  const { loadMessages, loading: marketLoading } = useMarket();
   useEffect(() => {
-    if (!conversationId) return;
+    // 等市场数据首次刷新结束再读消息：刷新开始时会作废之前发出的读取（generation），
+    // 否则首屏会显示「暂无消息」，直到下一次 5 秒轮询才出现消息
+    if (!conversationId || marketLoading) return;
     let active = true;
     const load = () =>
       loadMessages(conversationId).catch((e) => {
@@ -51,7 +56,7 @@ export default function MessagesPage() {
       active = false;
       clearInterval(timer);
     };
-  }, [conversationId, loadMessages]);
+  }, [conversationId, loadMessages, marketLoading]);
   const active = conversations.find((c) => c.id === conversationId) ?? null;
   const messages = active ? getMessages(active.id) : [];
 
@@ -86,10 +91,13 @@ export default function MessagesPage() {
         error("请输入消息内容");
         return;
       }
+      setSendError(null);
       await sendMessage(active.id, currentUser.id, content);
       setText("");
     } catch (e) {
-      error(toUserMessage(e));
+      const message = toUserMessage(e);
+      setSendError(message);
+      error(message);
     } finally {
       setBusy(false);
     }
@@ -276,6 +284,7 @@ export default function MessagesPage() {
                   })}
                 </div>
 
+                {sendError && <p role="alert" className="border-t border-slate-100 px-3 pt-2 text-sm text-red-700">{sendError}</p>}
                 <div className="flex items-end gap-2 border-t border-slate-100 px-3 py-2.5">
                   <TextField
                     value={text}

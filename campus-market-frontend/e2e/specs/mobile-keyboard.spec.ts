@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
-import { apiOk, expect, hourStart, open, test } from '../fixtures';
+import { apiOk, expect, open, test } from '../fixtures';
 
-/** 8.1 #15 手机尺寸关键路径；#16 只用键盘完成发布与预约的核心操作 */
+/** 8.1 #15 手机尺寸关键路径；#16 只用键盘完成发布、申请联系与同意的核心操作 */
 
 const single = (title: string) => ({
   title, description: 'E2E 手机与键盘', price: 40, category: '其他', condition: '几乎全新', campus: '东校区',
@@ -22,18 +22,7 @@ async function tabTo(page: Page, target: Locator, max = 80) {
   throw new Error('按 Tab 无法到达目标元素');
 }
 
-/** 在 datetime-local 里逐段输入（年 → 月 → 日 → 时 → 分），全部通过键盘 */
-async function typeDateTime(page: Page, d: Date) {
-  const p = (n: number) => String(n).padStart(2, '0');
-  await page.keyboard.type(String(d.getFullYear()));
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.type(p(d.getMonth() + 1));
-  await page.keyboard.type(p(d.getDate()));
-  await page.keyboard.type(p(d.getHours()));
-  await page.keyboard.type(p(d.getMinutes()));
-}
-
-test('#15 手机尺寸（390×844）：搜索 → 商品详情 → 预约对话框完整可用 → 我的订单；各步都没有横向滚动', async ({ party }) => {
+test('#15 手机尺寸（390×844）：搜索 → 商品详情 → 申请联系 → 联系申请列表；各步都没有横向滚动', async ({ party }) => {
   const seller = await party('手机卖家');
   const title = `E2E 手机台灯 ${Date.now().toString(36)}`;
   const product = await apiOk(seller, 'POST', '/v1/products', single(title));
@@ -43,27 +32,23 @@ test('#15 手机尺寸（390×844）：搜索 → 商品详情 → 预约对话�
   await buyer.page.getByRole('link', { name: `查看闲置：${title}` }).filter({ visible: true }).first().click();
   await expect(buyer.page.getByRole('heading', { name: title }).filter({ visible: true }).first()).toBeVisible();
   await noHorizontalScroll(buyer.page);
-  await buyer.page.getByRole('button', { name: '我想要' }).click();
-  const dialog = buyer.page.getByRole('dialog', { name: '预约校园面交' });
-  await expect(dialog).toBeVisible();
-  const box = await dialog.boundingBox();
-  expect(box!.width).toBeLessThanOrEqual(390);
-  await buyer.page.getByRole('combobox', { name: '面交地点' }).click();
-  await buyer.page.getByRole('option', { name: /图书馆门口/ }).click();
-  const start = hourStart(30);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  await dialog.getByLabel('面交时间').fill(`${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:00`);
-  await expect(dialog.getByTestId('booking-slot')).toContainText('60 分钟');
-  await dialog.getByRole('button', { name: '确认预约' }).scrollIntoViewIfNeeded();
-  await dialog.getByRole('button', { name: '确认预约' }).click();
-  await expect(buyer.page.getByText('预约成功，等待卖家确认')).toBeVisible();
-  await expect(buyer.page).toHaveURL(/\/profile\/orders$/);
-  await expect(buyer.page.getByText(title)).toBeVisible();
+  const want = buyer.page.getByRole('button', { name: '我想要' });
+  await want.scrollIntoViewIfNeeded();
+  const box = await want.boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  await want.click();
+  await expect(buyer.page.getByText('联系申请已发送，等待卖家同意')).toBeVisible();
+  await expect(buyer.page.getByRole('button', { name: '等待卖家同意' })).toBeDisabled();
   await noHorizontalScroll(buyer.page);
-  expect((await apiOk(buyer, 'GET', '/v1/orders?role=buyer'))[0].productId).toBe(product.id);
+  await open(buyer, '/profile/contact-requests');
+  await buyer.page.getByRole('tab', { name: '我发出的申请' }).click();
+  await expect(buyer.page.getByRole('link', { name: title })).toBeVisible();
+  await expect(buyer.page.getByText('等待卖家同意')).toBeVisible();
+  await noHorizontalScroll(buyer.page);
+  expect((await apiOk(buyer, 'GET', `/v1/products/${product.id}/contact-request`)).status).toBe('PENDING');
 });
 
-test('#16 只用键盘：发布一件商品（Tab 定位、键入、方向键选分类、空格选图片、回车提交），再用键盘完成预约', async ({ party }) => {
+test('#16 只用键盘：发布一件商品（Tab 定位、键入、方向键选分类、空格选图片、回车提交），买家用键盘申请联系，卖家用键盘同意', async ({ party }) => {
   const seller = await party('键盘卖家');
   const page = seller.page;
   const title = `E2E 键盘发布 ${Date.now().toString(36)}`;
@@ -87,7 +72,7 @@ test('#16 只用键盘：发布一件商品（Tab 定位、键入、方向键选
   await page.keyboard.type('13800000000');
   await tabTo(page, page.getByRole('button', { name: '选择图片 1', exact: true }));
   await page.keyboard.press('Space');
-  await expect(page.getByText(/商品图片（1\/5）/)).toBeVisible();
+  await expect(page.getByText(/商品图片（1\/9）/)).toBeVisible();
   await tabTo(page, page.getByRole('button', { name: '立即发布' }));
   await page.keyboard.press('Enter');
   await expect(page.getByText('发布成功，快去看看你的宝贝吧～')).toBeVisible();
@@ -99,21 +84,13 @@ test('#16 只用键盘：发布一件商品（Tab 定位、键入、方向键选
   await open(buyer, `/product/${product.id}`);
   await tabTo(bp, bp.getByRole('button', { name: '我想要' }));
   await bp.keyboard.press('Enter');
-  const dialog = bp.getByRole('dialog', { name: '预约校园面交' });
-  const point = bp.getByRole('combobox', { name: '面交地点' });
-  await tabTo(bp, point);
-  await bp.keyboard.press('Enter');
-  await bp.keyboard.press('ArrowDown');
-  await bp.keyboard.press('Enter');                     // 用方向键选一个面交点
-  await expect(point).toContainText(/东校区 · /);
-  await tabTo(bp, dialog.getByLabel('面交时间'));
-  const start = hourStart(30);
-  await typeDateTime(bp, start);
-  await expect(dialog.getByTestId('booking-slot')).toContainText('（60 分钟）');
-  await tabTo(bp, dialog.getByRole('button', { name: '确认预约' }));
-  await bp.keyboard.press('Enter');
-  await expect(bp.getByText('预约成功，等待卖家确认')).toBeVisible();
-  const order = (await apiOk(buyer, 'GET', '/v1/orders?role=buyer'))[0];
-  expect(Date.parse(order.meetingAtIso)).toBe(start.getTime());
-  expect(Date.parse(order.meetingEndsAtIso) - Date.parse(order.meetingAtIso)).toBe(60 * 60_000);
+  await expect(bp.getByText('联系申请已发送，等待卖家同意')).toBeVisible();
+
+  await open(seller, '/profile/contact-requests');
+  await tabTo(page, page.getByRole('button', { name: '同意展示联系方式' }));
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('已同意，仅该买家可以查看联系方式')).toBeVisible();
+  expect((await apiOk(buyer, 'GET', `/v1/products/${product.id}/contact-request`)).status).toBe('APPROVED');
+  await open(buyer, `/product/${product.id}`);
+  await expect(bp.getByText('卖家联系方式：13800000000')).toBeVisible();
 });

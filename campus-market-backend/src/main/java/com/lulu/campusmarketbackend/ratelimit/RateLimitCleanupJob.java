@@ -9,7 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 定期删除已过期的限流计数行。
  *
- * <p>与 {@code OrderExpiryJob} 职责完全分开：那个处理订单业务超时，这个只做基础设施清理。
  *
  * <p>整个 Bean 由 {@code campus-market.rate-limit.cleanup-enabled} 条件装配，
  * 关闭时 Bean 不创建、{@code @Scheduled} 不注册，因此不会有定时线程去建连接或开事务。

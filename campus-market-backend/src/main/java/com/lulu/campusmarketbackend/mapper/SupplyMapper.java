@@ -214,34 +214,6 @@ public interface SupplyMapper {
 
     // ================= 价格参考 =================
 
-    /**
-     * 校内历史成交价的聚合（只返回聚合值，没有任何单笔记录）。
-     * 口径（V8 起只读订单上的不可变快照）：同一学校、已完成、单件（排除整套打包）、有成交价与统计维度快照。
-     * 不连接商品或校区：商品成交后改分类、成色、校区或教材版本，都不会让历史样本移动。
-     */
-    @Select("""
-            <script>
-            SELECT count(*) AS sample_count,
-                   percentile_cont(0.5)  WITHIN GROUP (ORDER BY o.price_snapshot) AS median,
-                   percentile_cont(0.25) WITHIN GROUP (ORDER BY o.price_snapshot) AS lower_quartile,
-                   percentile_cont(0.75) WITHIN GROUP (ORDER BY o.price_snapshot) AS upper_quartile,
-                   to_char(date_trunc('month', min(o.updated_at)), 'YYYY-MM') AS period_start,
-                   to_char(date_trunc('month', max(o.updated_at)), 'YYYY-MM') AS period_end
-            FROM orders o
-            WHERE o.status = 'COMPLETED'
-              AND o.price_snapshot IS NOT NULL
-              AND o.listing_kind_snapshot = 'SINGLE'
-              AND o.visibility_snapshot IS DISTINCT FROM 'CIRCLE_ONLY'
-              AND o.school_id_snapshot = #{schoolId}
-              AND o.category_snapshot = #{category}
-              <if test="condition != null">AND o.condition_snapshot = #{condition}</if>
-              <if test="textbookEditionId != null">AND o.textbook_edition_id_snapshot = #{textbookEditionId}</if>
-            </script>
-            """)
-    Map<String, Object> selectPriceGuidance(@Param("schoolId") String schoolId, @Param("category") String category,
-                                            @Param("condition") String condition,
-                                            @Param("textbookEditionId") String textbookEditionId);
-
     @Select("SELECT id, school_id FROM campuses")
     List<Map<String, Object>> selectCampusSchools();
 }

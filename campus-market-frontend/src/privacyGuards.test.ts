@@ -89,11 +89,13 @@ describe('模块 3 可信面交红线', () => {
     return text.slice(from, text.indexOf(end, from + start.length));
   };
   const nonMock = production.filter(([path]) => !path.includes('/mock') && !path.includes('mockCampusMarketApi') && !path.includes('mockMigrations'));
+  const contracts = () => production.find(([path]) => path.endsWith('api/contracts.ts'))![1];
 
-  it('13. 出发/到达与验货代码不接触任何定位或设备接口', () => {
-    const trust = production.filter(([path]) => path.includes('/trust/') || path.endsWith('OrderFlowPage.tsx'));
-    expect(trust.length).toBeGreaterThan(4);
-    expect(trust.filter(([, text]) => /navigator\.|geolocation|DeviceOrientation|getCurrentPosition/.test(text)).map(([p]) => p)).toEqual([]);
+  it('13. 卖家声明、联系申请与全部界面代码都不接触任何定位或设备接口', () => {
+    // 阶段 1 移除了出发 / 到达与订单验货界面；这条红线扩大到全部生产代码，而不只是可信面交目录
+    const trust = production.filter(([path]) => path.includes('/trust/'));
+    expect(trust.length).toBeGreaterThanOrEqual(3);
+    expect(offenders(/navigator\.(geolocation|mediaDevices|bluetooth|usb|serial)|DeviceOrientation|DeviceMotion|getCurrentPosition|watchPosition/)).toEqual([]);
   });
 
   it('14. 不存在信用分 / 靠谱指数一类的字段或文案', () => {
@@ -105,26 +107,35 @@ describe('模块 3 可信面交红线', () => {
       .toEqual([]);
   });
 
-  it('16. 前端从不替服务端设置 submittedAt / checkedAt / arrivedAt / departedAt', () => {
+  it('16. 前端从不替服务端设置 submittedAt / checkedAt / arrivedAt / departedAt / decidedAt / 已读时间', () => {
     expect(nonMock
       .filter(([path]) => !path.endsWith('api/contracts.ts'))
-      .filter(([, text]) => /\b(submittedAt|checkedAt|arrivedAt|departedAt)(Iso)?\s*:/.test(text))
+      .filter(([, text]) => /\b(submittedAt|checkedAt|arrivedAt|departedAt|decidedAt|sellerSeenAt|buyerSeenAt)(Iso)?\s*:/.test(text))
       .map(([p]) => p)).toEqual([]);
     for (const input of [
-      segment('api/contracts.ts', 'export interface InspectionResultInput', '\n'),
-      segment('api/contracts.ts', 'export interface MeetingProposalInput', '\n'),
       segment('api/contracts.ts', 'export interface DisclosureInput', '\n'),
-    ]) expect(input).not.toMatch(/(submitted|checked|arrived|departed|created|responded|updated)At|sellerId|buyerId|orderId|productId|templateVersion|proposerId|userId|status/);
+      segment('api/contracts.ts', 'export interface ModerationReportInput', '\n'),
+      segment('api/contracts.ts', 'export interface ModerationDecisionInput', '\n'),
+      segment('api/contracts.ts', 'export interface AppealInput', '\n'),
+    ]) expect(input).not.toMatch(/(submitted|checked|arrived|departed|created|responded|updated|decided)At|sellerId|buyerId|orderId|productId|templateVersion|proposerId|userId|status/);
   });
 
-  it('17. 验货提交只发送 items；公共履历类型没有宿舍楼 / 联系方式 / 账号', () => {
+  it('17. 联系申请的写请求只带接口列出的字段；申请对象类型里没有联系方式 / 宿舍楼 / 账号；公共履历类型已移除', () => {
     const rest = production.find(([path]) => path.endsWith('api/restCampusMarketApi.ts'))![1];
-    const inspectionCalls = [...rest.matchAll(/\/inspection(\/submit)?`,\s*([^)]*)\)/g)].map((m) => m[2].trim());
-    expect(inspectionCalls).toEqual(['{ items }', '{ items }']);
-    const summary = segment('api/contracts.ts', 'export interface PublicTradeSummary', '\n');
-    expect(summary).not.toMatch(/dormBuildingId|contact|account|productId|orderId|buyer|seller/);
-    const card = production.find(([path]) => path.endsWith('PublicTradeSummaryCard.tsx'))![1];
-    expect(card).not.toMatch(/dormBuildingId|\.contact|\.account|getProduct|listOrders/);
+    // POST 的第二个参数就是请求体：同意 / 拒绝只带 status，标记已读只带 role；申请、撤回、撤回同意不带请求体
+    const contactWrites = [...rest.matchAll(/this\.transport\.post<[^>]*>\(`?'?([^`',]*contact-request[^`',]*)`?'?(?:,\s*([^)]*))?\)/g)]
+      .map((m) => `${m[1].replace(/\$\{[^}]*\}/g, ':id')} ${m[2]?.trim() ?? '-'}`).sort();
+    expect(contactWrites).toEqual([
+      '/v1/contact-requests/:id/decision { status }',
+      '/v1/contact-requests/:id/revoke -',
+      '/v1/contact-requests/:id/withdraw -',
+      '/v1/contact-requests/read { role }',
+      '/v1/products/:id/contact-request -',
+    ]);
+    const request = segment('api/contracts.ts', 'export interface ContactRequest {', '\n}');
+    expect(request).not.toMatch(/dormBuildingId|contact\s*:|account|phone|wechat/i);
+    expect(contracts()).not.toMatch(/export interface PublicTradeSummary/);
+    expect(production.some(([path]) => path.endsWith('PublicTradeSummaryCard.tsx'))).toBe(false);
   });
 
   it('18. 不引入 WebSocket / 实时推送', () => {
@@ -133,13 +144,12 @@ describe('模块 3 可信面交红线', () => {
 });
 
 describe('3.8 收口红线', () => {
-  it('19. 界面不复制买家确认条件：页面与组件不自行比较验货状态来决定能否确认', () => {
-    // 「确认面交」按钮所在的两个页面只读服务端给出的 buyerConfirmAllowed / buyerConfirmBlockReason。
-    // （InspectionPanel 根据验货状态决定验货记录怎么展示，那是展示验货本身，不是确认条件。）
-    const ui = production.filter(([path]) => path.endsWith('pages/profile/OrdersPage.tsx') || path.endsWith('pages/OrderFlowPage.tsx'));
-    expect(ui).toHaveLength(2);
-    expect(ui.filter(([, text]) => /inspectionStatus\s*===|inspection\.status\s*===\s*['"](PENDING|NEEDS_RESOLUTION)['"]|buyerConfirmBlockReason\s*===/.test(text))
-      .map(([p]) => p)).toEqual([]);
+  it('19. 订单 / 验货 / 档期 / 到达界面已移除：没有任何生产代码调用停用的交易接口或复制买家确认条件', () => {
+    // 原来的约束是「确认面交按钮只读服务端给出的 buyerConfirmAllowed」；阶段 1 起这些页面与接口都不存在，
+    // 因此改为更强的约束：任何页面、组件或适配层都不能再出现这些调用与判断
+    expect(production.filter(([path]) => /pages\/OrderFlowPage\.tsx|pages\/profile\/(OrdersPage|TradeHistoryPage)\.tsx/.test(path))).toEqual([]);
+    expect(offenders(/\b(getOrderFlow|saveInspectionDraft|submitInspection|proposeMeeting|acceptMeeting|rejectMeeting|withdrawMeeting|updatePresence|createOrder|transitionOrder|listOrders|addReview|getOwnTradeHistory|getPublicTradeSummary|listMeetingPoints)\s*\(/)).toEqual([]);
+    expect(offenders(/inspectionStatus\s*===|buyerConfirmBlockReason|buyerConfirmAllowed/)).toEqual([]);
   });
 
   it('20. 不出现平台仲裁 / 判责 / 赔付 / 担保退款一类的说法', () => {

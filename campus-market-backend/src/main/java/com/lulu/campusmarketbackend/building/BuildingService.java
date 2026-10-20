@@ -56,8 +56,4 @@ public class BuildingService {
         return DomainMapper.text(row.get("id"));
     }
 
-    /** 某校区的稳定面交点（含坐标）。 */
-    public List<Map<String, Object>> meetingPoints(String campus) {
-        return buildings.selectMeetingPointsByCampus(campus).stream().map(mapper::meetingPoint).toList();
-    }
 }

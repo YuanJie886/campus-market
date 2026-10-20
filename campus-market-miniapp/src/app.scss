@@ -422,6 +422,20 @@ button[disabled='true'], .page taro-button-core[disabled='true'] { opacity: .5; 
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   color: #7B8C71; font-size: 10px; gap: 4px;
 }
+.photo-state {
+  position: absolute; left: 6px; right: 6px; top: 50%; transform: translateY(-50%);
+  padding: 4px 6px; border-radius: 8px; background: rgba(20, 32, 27, .66); color: #fff;
+  font-size: 10px; line-height: 1.4; text-align: center; z-index: 1;
+}
+.photo-state.failed { background: rgba(176, 69, 58, .88); display: flex; flex-direction: column; }
+.photo-retry { text-decoration: underline; margin-top: 2px; }
+.photo-item.uploading image, .photo-item.uploading .taro-img, .photo-item.uploading taro-image-core { opacity: .6; }
+.photo-order { position: absolute; top: 3px; left: 3px; display: flex; gap: 4px; z-index: 2; }
+.photo-move {
+  width: 22px; height: 22px; border-radius: 50%; background: rgba(20, 32, 27, .78); color: #fff;
+  text-align: center; line-height: 20px; font-size: 15px;
+}
+.photo-move.disabled { visibility: hidden; }
 .sample-images { display: flex; gap: 6px; flex-wrap: wrap; }
 .sample-images image, .sample-images .taro-img, .sample-images taro-image-core { width: 42px; height: 42px; border-radius: 8px; }
 .inline-input { display: flex; gap: 8px; }
@@ -483,6 +497,9 @@ button[disabled='true'], .page taro-button-core[disabled='true'] { opacity: .5; 
 .req-foot .req-time { margin-left: auto; font-size: 11px; color: var(--ink-4); }
 .req-card.done { opacity: .78; }
 .req-card.dead { opacity: .62; }
+.req-card.unread { box-shadow: inset 3px 0 0 var(--brand); }
+.req-new { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 6px; background: #d4462f; color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; vertical-align: middle; }
+.detail-withdraw { display: block; text-align: center; font-size: 12px; color: var(--ink-3); padding: 4px 0 8px; text-decoration: underline; }
 
 /* ============================================================
    我的 / 我的发布 / 登录
@@ -517,3 +534,55 @@ button[disabled='true'], .page taro-button-core[disabled='true'] { opacity: .5; 
 }
 .login-page .form-card .primary { margin-top: 22px; }
 .login-switch { display: block; text-align: center; margin-top: 16px; color: var(--brand); font-size: 12.5px; padding: 8px; }
+.forgot-link { margin-top: 0; color: var(--ink-3); }
+.wechat-hint { display: block; margin-top: 10px; text-align: center; }
+.bind-notice { align-items: flex-start; line-height: 1.7; }
+.bind-notice .text-action { margin: 0; padding: 0 0 0 8px; }
+
+/* ---------- 账号：修改密码 / 找回 / 注销 / 微信绑定 ---------- */
+.danger-text { color: var(--danger); }
+.menu-note { display: block; padding: 0 0 12px; }
+.bullet { display: block; position: relative; padding-left: 14px; margin-top: 8px; font-size: 13px; line-height: 1.7; color: var(--ink-2); }
+.bullet::before { content: ''; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-4); }
+.danger-button {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 46px; padding: 0 16px; box-sizing: border-box;
+  font-size: 15px; font-weight: 600; background: var(--danger); color: #fff;
+}
+.page taro-button-core.danger-button[disabled='false'], .page taro-button-core.danger-button { color: #fff; }
+
+/* ---------- 用户协议 / 隐私政策 ---------- */
+.legal-link { color: var(--brand); font-weight: 500; }
+.legal-footnote { margin-top: 12px; }
+.agreement-row { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0 4px; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+.agreement-box {
+  flex-shrink: 0; width: 16px; height: 16px; margin-top: 2px; border-radius: 4px; border: 1px solid var(--ink-4);
+  background: var(--surface); color: #fff; font-size: 11px; line-height: 16px; text-align: center;
+}
+.agreement-box.checked { background: var(--brand); border-color: var(--brand); }
+.agreement-text { flex: 1; min-width: 0; }
+.legal-page { padding-bottom: 40px; }
+.legal-draft {
+  margin: 4px 0 16px; padding: 10px 12px; border-radius: 12px; background: var(--warn-bg); color: var(--warn);
+  font-size: 14px; font-weight: 700; text-align: center;
+}
+.legal-title { display: block; font-size: 20px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.legal-meta { display: block; font-size: 12px; color: var(--ink-3); }
+.legal-section { margin-top: 18px; }
+.legal-heading { display: block; font-size: 15px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.legal-paragraph { display: block; font-size: 13px; color: var(--ink-2); line-height: 1.8; margin-bottom: 6px; }
+
+/* ---------- 微信隐私授权弹窗 ---------- */
+.privacy-mask {
+  position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 1000;
+  background: rgba(20, 32, 27, .5); display: flex; align-items: flex-end;
+}
+.privacy-dialog {
+  width: 100%; box-sizing: border-box; background: var(--surface); border-radius: 24px 24px 0 0;
+  padding: 24px 20px 32px; display: flex; flex-direction: column;
+}
+.privacy-title { font-size: 17px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.privacy-lead { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.privacy-item { font-size: 12px; color: var(--ink-3); line-height: 1.7; }
+.privacy-actions { display: flex; gap: 12px; margin-top: 20px; }
+.privacy-actions button { flex: 1; }

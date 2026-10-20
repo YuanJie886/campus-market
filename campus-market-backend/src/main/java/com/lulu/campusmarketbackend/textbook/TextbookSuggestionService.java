@@ -35,9 +35,12 @@ public class TextbookSuggestionService {
     private final CatalogService catalogService;
     private final UserMapper users;
     private final RateLimitService rateLimit;
+    private final com.lulu.campusmarketbackend.security.ContentSafetyService safety;
 
     public TextbookSuggestionService(CatalogMapper catalog, CatalogService catalogService, UserMapper users,
-                                     RateLimitService rateLimit) {
+                                     RateLimitService rateLimit,
+                                     com.lulu.campusmarketbackend.security.ContentSafetyService safety) {
+        this.safety = safety;
         this.catalog = catalog;
         this.catalogService = catalogService;
         this.users = users;
@@ -100,6 +103,10 @@ public class TextbookSuggestionService {
                 throw ApiException.badRequest("该 ISBN 已在目录中，不需要再填写书目信息");
             }
         }
+
+        // 自由文本（书名、作者、出版社、版次、备注）与商品文本同一套内容安全检查；拦截不消耗每日建议配额
+        safety.check(userId, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.TEXTBOOK_SUGGESTION,
+                title, authors, publisher, editionLabel, note);
 
         String fingerprint = TextbookFingerprint.sha256(String.join("\n", "sg-v1",
                 "offering=" + offeringId, "edition=" + nz(editionId), "isbn=" + nz(isbn13),

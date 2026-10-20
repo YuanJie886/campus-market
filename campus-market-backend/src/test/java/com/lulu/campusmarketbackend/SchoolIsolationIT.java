@@ -21,9 +21,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -97,7 +94,7 @@ class SchoolIsolationIT {
     }
 
     @Test
-    @DisplayName("1. 未登录：商品列表 / feed / 详情 / 评论 / 浏览计数 / 他人资料 / 公共履历一律 401，响应里没有任何商品内容")
+    @DisplayName("1. 未登录：商品列表 / feed / 详情 / 评论 / 浏览计数 / 他人资料 / 联系请求一律 401，响应里没有任何商品内容")
     void anonymousCannotReadProducts() throws Exception {
         User seller = api.register();
         String title = tag();
@@ -110,13 +107,14 @@ class SchoolIsolationIT {
                 mockMvc.perform(get("/v1/products/" + id + "/comments")).andReturn(),
                 mockMvc.perform(post("/v1/products/" + id + "/view")).andReturn(),
                 mockMvc.perform(get("/v1/users/" + seller.id())).andReturn(),
-                mockMvc.perform(get("/v1/users/" + seller.id() + "/trade-summary")).andReturn())) {
+                mockMvc.perform(get("/v1/products/" + id + "/contact-request")).andReturn(),
+                mockMvc.perform(post("/v1/products/" + id + "/contact-request")).andReturn(),
+                mockMvc.perform(get("/v1/contact-requests")).andReturn())) {
             assertThat(status(r)).as(r.getRequest().getRequestURI()).isEqualTo(401);
             assertThat(r.getResponse().getContentAsString()).doesNotContain(title);
         }
-        // 非用户数据（楼栋、面交点、验货模板）保持公开
+        // 非用户数据（楼栋）保持公开；面交点接口已随交易流程移除
         assertThat(status(mockMvc.perform(get("/v1/buildings").param("campus", "东校区")).andReturn())).isEqualTo(200);
-        assertThat(status(mockMvc.perform(get("/v1/meeting-points")).andReturn())).isEqualTo(200);
     }
 
     @Test
@@ -151,7 +149,7 @@ class SchoolIsolationIT {
     }
 
     @Test
-    @DisplayName("3. 他校商品直接 ID 访问与不存在相同（404、同一句话）：详情 / 评论 / 浏览 / 收藏 / 会话 / 下单 / 卖家资料 / 公共履历")
+    @DisplayName("3. 他校商品直接 ID 访问与不存在相同（404、同一句话）：详情 / 评论 / 浏览 / 收藏 / 会话 / 联系请求 / 卖家资料")
     void directAccessIs404() throws Exception {
         User pilotSeller = api.register(), lake = api.register(LAKE);
         String title = tag();
@@ -169,20 +167,13 @@ class SchoolIsolationIT {
         assertThat(api.ok(api.get(lake, "/v1/favorites"))).isEmpty();
         assertThat(status(api.post(lake, "/v1/conversations", Map.of("productId", a)))).isEqualTo(404);
 
-        Map<String, Object> order = new LinkedHashMap<>();
-        order.put("productId", a);
-        order.put("meetingPointId", "东校区-library");
-        order.put("meetingAtIso", OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).truncatedTo(ChronoUnit.HOURS).toString());
-        order.put("contact", "13800000000");
-        order.put("idempotencyKey", UUID.randomUUID().toString());
-        assertThat(status(api.post(lake, "/v1/orders", order))).as("他校 PUBLIC 商品也不能下单").isEqualTo(404);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM orders WHERE product_id=?::uuid", Long.class, a)).isZero();
+        assertThat(status(api.post(lake, "/v1/products/" + a + "/contact-request", Map.of()))).as("他校 PUBLIC 商品也不能申请联系").isEqualTo(404);
+        assertThat(status(api.get(lake, "/v1/products/" + a + "/contact-request"))).isEqualTo(404);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", Long.class, a)).isZero();
 
         assertThat(status(api.get(lake, "/v1/users/" + pilotSeller.id()))).isEqualTo(404);
-        assertThat(status(api.get(lake, "/v1/users/" + pilotSeller.id() + "/trade-summary"))).isEqualTo(404);
         User sameSchool = api.register();
         assertThat(status(api.get(sameSchool, "/v1/users/" + pilotSeller.id()))).isEqualTo(200);
-        assertThat(status(api.get(sameSchool, "/v1/users/" + pilotSeller.id() + "/trade-summary"))).isEqualTo(200);
     }
 
     @Test
@@ -229,7 +220,7 @@ class SchoolIsolationIT {
     }
 
     @Test
-    @DisplayName("6. 数据库兜底：商品校区必须与卖家同校、新订单买家必须与商品同校（绕过接口直接写库也会失败）")
+    @DisplayName("6. 数据库兜底：商品校区必须与卖家同校、联系申请人必须与商品同校（绕过接口直接写库也会失败）")
     void databaseGuards() throws Exception {
         User pilot = api.register(), lake = api.register(LAKE);
         assertThatThrownBy(() -> jdbc.update("INSERT INTO products(id, seller_id, title, description, price, category, condition, campus, status) "
@@ -237,9 +228,10 @@ class SchoolIsolationIT {
                 .isInstanceOf(DataAccessException.class);
         String mine = publish(pilot, "东校区", tag());
         assertThatThrownBy(() -> jdbc.update("UPDATE products SET campus=? WHERE id=?::uuid", LAKE, mine)).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO orders(id, product_id, buyer_id, seller_id, price, status, meeting_point_id, meeting_at, contact, "
-                + "confirmation_code, idempotency_key, request_hash, expires_at) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 1, 'PENDING_SELLER_CONFIRM', "
-                + "'东校区-library', now() + interval '1 day', 'c', '123456', 'k', 'h', now() + interval '2 days')", mine, lake.id(), pilot.id()))
-                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO contact_requests(id, product_id, buyer_id, seller_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)",
+                mine, lake.id(), pilot.id())).as("他校用户的联系申请").isInstanceOf(DataAccessException.class);
+        User peer = api.register();
+        jdbc.update("INSERT INTO contact_requests(id, product_id, buyer_id, seller_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid)",
+                mine, peer.id(), pilot.id());
     }
 }

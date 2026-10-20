@@ -49,7 +49,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "campus-market.rate-limit.circle-invite-redeem.limit=6",
         "campus-market.rate-limit.circle-create.limit=100",
         "campus-market.rate-limit.circle-invite-create.limit=200",
-        "campus-market.rate-limit.price-guidance.limit=100",
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -416,7 +415,7 @@ class CircleMarketIT {
         }
 
         @Test
-        @DisplayName("12. 订单参与者例外：成员下单后被移出圈子，仍能查看这件商品并完成交易；但看不到卖家的其他圈子商品；非成员不能下单")
+        @DisplayName("12. 圈子商品的联系请求：非成员不能申请（与不存在同一个 404）；成员申请并被同意后移出圈子，不再能查看这件商品或卖家的其他圈子商品，联系请求列表也不再出现它")
         void participantException() throws Exception {
             User seller = api.register();
             String circle = api.createCircle(seller, "参与者例外圈", "PRIVATE");
@@ -425,20 +424,16 @@ class CircleMarketIT {
             String product = api.circleProduct(seller, "先下单后被移除", circle);
             String another = api.circleProduct(seller, "卖家的另一件圈子商品", circle);
             User stranger = api.register();
-            assertThat(status(api.post(stranger, "/v1/orders", orderBody(product)))).as("非成员不能购买").isEqualTo(404);
+            assertThat(status(api.post(stranger, "/v1/products/" + product + "/contact-request", Map.of()))).as("非成员不能申请联系").isEqualTo(404);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", Long.class, product)).isZero();
 
-            String orderId = api.order(buyer, product);
+            api.approvedContact(seller, buyer, product);
+            assertThat(api.ok(api.get(buyer, "/v1/products/" + product)).path("contact").asText()).as("同意后成员看到联系方式").isNotBlank();
             api.ok(api.delete(seller, "/v1/circles/" + circle + "/members/" + buyer.id()));
-            assertThat(status(api.get(buyer, "/v1/products/" + product))).as("订单参与者仍可读").isEqualTo(200);
-            assertThat(status(api.get(buyer, "/v1/products/" + another))).as("不恢复对其他圈子商品的访问").isEqualTo(404);
+            assertThat(status(api.get(buyer, "/v1/products/" + product))).as("联系请求不构成参与者例外").isEqualTo(404);
+            assertThat(status(api.get(buyer, "/v1/products/" + another))).as("也看不到其他圈子商品").isEqualTo(404);
             assertThat(ids(api.ok(api.get(buyer, "/v1/products?keyword=卖家的另一件")).path("items"))).isEmpty();
-            api.ok(api.transition(seller, orderId, "PENDING_MEETING"));
-            api.ok(api.submitAll(buyer, orderId, "MATCH"));
-            api.ok(api.transition(buyer, orderId, "BUYER_CONFIRMED"));
-            String code = jdbc.queryForObject("SELECT confirmation_code FROM orders WHERE id=?::uuid", String.class, orderId);
-            api.ok(api.post(seller, "/v1/orders/" + orderId + "/transitions", Map.of("to", "COMPLETED", "confirmationCode", code)));
-            assertThat(jdbc.queryForObject("SELECT status FROM products WHERE id=?::uuid", String.class, product)).isEqualTo("已售出");
-            assertThat(jdbc.queryForObject("SELECT visibility_snapshot FROM orders WHERE id=?::uuid", String.class, orderId)).isEqualTo("CIRCLE_ONLY");
+            assertThat(api.ok(api.get(buyer, "/v1/contact-requests")).toString()).as("列表不再出现移出后的圈子商品").doesNotContain(product);
         }
     }
 
@@ -495,28 +490,6 @@ class CircleMarketIT {
             assertThat(status(api.patch(member, "/v1/demand-subscriptions/" + subId, Map.of("active", true)))).isEqualTo(404);
         }
 
-        @Test
-        @DisplayName("15. 公开价格参考排除圈子商品的成交（按订单的可见性快照）")
-        void priceGuidanceExcludesCircleTrades() throws Exception {
-            User seller = api.register();
-            String circle = api.createCircle(seller, "价格隔离圈", "PRIVATE");
-            User viewer = api.register();
-            List<String> orders = new ArrayList<>();
-            for (int i = 1; i <= 8; i++) {
-                User buyer = api.register();
-                api.join(seller, circle, buyer);
-                Map<String, Object> b = single("运动户外", "圈内成交 " + i, 900 + i);
-                b.put("visibility", "CIRCLE_ONLY");
-                b.put("circleIds", List.of(circle));
-                String product = api.ok(api.post(seller, "/v1/products", b)).path("id").asText();
-                orders.add(api.complete(seller, buyer, product,
-                        id -> jdbc.queryForObject("SELECT confirmation_code FROM orders WHERE id=?::uuid", String.class, id)));
-            }
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM orders WHERE id = ANY(?::uuid[]) AND visibility_snapshot='CIRCLE_ONLY' AND status='COMPLETED'",
-                    Integer.class, (Object) orders.toArray(String[]::new))).isEqualTo(8);
-            JsonNode g = api.ok(api.get(viewer, "/v1/price-guidance?category=运动户外"));
-            assertThat(g.path("sufficient").asBoolean()).as("8 笔圈内成交都不进入公开统计").isFalse();
-        }
     }
 
     // ==================================================================
@@ -580,13 +553,12 @@ class CircleMarketIT {
     class Privacy {
 
         @Test
-        @DisplayName("17. 用户公开履历与公共资料不展示圈子；我的圈子只含圈子资料与我的角色，不含其他成员")
+        @DisplayName("17. 用户公共资料不展示圈子；我的圈子只含圈子资料与我的角色，不含其他成员")
         void publicProfile() throws Exception {
             User owner = api.register();
             String circle = api.createCircle(owner, "履历隐私圈", "PRIVATE");
             User member = api.register();
             api.join(owner, circle, member);
-            assertThat(api.ok(api.get(member, "/v1/users/" + member.id() + "/trade-summary")).toString()).doesNotContain("履历隐私圈").doesNotContain(circle);
             assertThat(api.ok(api.get(api.register(), "/v1/users/" + member.id())).toString()).doesNotContain("履历隐私圈").doesNotContain(circle);
             JsonNode mine = api.ok(api.get(member, "/v1/circles/mine"));
             assertThat(mine.toString()).contains("履历隐私圈").doesNotContain(owner.id());
@@ -633,16 +605,6 @@ class CircleMarketIT {
     }
 
     // ------------------------------------------------------------------
-
-    private Map<String, Object> orderBody(String productId) {
-        Map<String, Object> b = new LinkedHashMap<>();
-        b.put("productId", productId);
-        b.put("meetingPointId", "东校区-library");
-        b.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1).truncatedTo(java.time.temporal.ChronoUnit.HOURS).toString());
-        b.put("contact", "13800000000");
-        b.put("idempotencyKey", UUID.randomUUID().toString());
-        return b;
-    }
 
     private List<String> inboxIds(User user) throws Exception {
         List<String> result = new ArrayList<>();

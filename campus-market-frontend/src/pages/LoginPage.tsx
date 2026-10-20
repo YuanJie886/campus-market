@@ -9,6 +9,7 @@ import { useAuth, DEMO_ACCOUNT, DEMO_PASSWORD } from "../context/AuthContext";
 import { useNotify } from "../context/NotificationContext";
 import { toUserMessage } from '../api/errors';
 import { clearPendingInvite, hasPendingInvite } from '../utils/pendingInvite';
+import { LegalLinks } from '../legal/LegalDocumentView';
 
 interface LocationState {
   from?: string;
@@ -118,6 +119,9 @@ export default function LoginPage() {
               if (e.key === "Enter") handleLogin();
             }}
           />
+          <p className="-mt-2 text-right text-sm">
+            <Link to="/password-reset" className="font-semibold text-brand-600">忘记密码？</Link>
+          </p>
 
           <Button
             variant="contained"
@@ -158,6 +162,9 @@ export default function LoginPage() {
           立即注册
         </Link>
       </p>
+      <nav aria-label="协议与政策" className="text-center text-xs text-slate-500">
+        <LegalLinks />
+      </nav>
     </div>
   );
 }

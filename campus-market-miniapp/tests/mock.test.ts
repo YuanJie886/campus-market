@@ -27,7 +27,7 @@ describe('小程序演示业务', () => {
     expect((await api.requestContact('demo-product-0')).id).toBe(request.id);
     await expect(api.decide(request.id, 'APPROVED')).rejects.toThrow('不存在');
     await api.login('seller001', 'demo12345');
-    expect(await api.contacts()).toHaveLength(1);
+    expect((await api.contacts({ role: 'received' })).items.map((r) => r.id)).toEqual([request.id]);
     await api.decide(request.id, 'APPROVED');
     await api.login('buyer001', 'demo12345');
     expect((await api.detail('demo-product-0')).contact).toBeTruthy();
@@ -37,15 +37,18 @@ describe('小程序演示业务', () => {
     expect((await restored.restore())?.id).toBe('demo-buyer');
     expect((await restored.detail('demo-product-0')).contact).toBeTruthy();
   });
-  it('公开联系方式可直接查看，拒绝不授权且不能再次更改结论', async () => {
+  it('公开联系方式可直接查看，拒绝不授权、不能再次更改结论，再次申请 409', async () => {
     const { api } = setup(); await api.login('buyer001', 'demo12345');
     expect((await api.detail('demo-product-2')).contact).toBeTruthy();
+    await expect(api.requestContact('demo-product-2')).rejects.toMatchObject({ code: 409, message: '卖家已公开联系方式，请直接查看' });
     const r = await api.requestContact('demo-product-1');
     await api.login('seller001', 'demo12345'); await api.decide(r.id, 'REJECTED');
-    await expect(api.decide(r.id, 'APPROVED')).rejects.toThrow('已处理');
+    await api.decide(r.id, 'REJECTED');
+    await expect(api.decide(r.id, 'APPROVED')).rejects.toMatchObject({ code: 409, message: '该申请已处理' });
     await api.login('buyer001', 'demo12345');
     expect((await api.detail('demo-product-1')).contact).toBe('');
-    expect((await api.requestContact('demo-product-1')).status).toBe('REJECTED');
+    await expect(api.requestContact('demo-product-1')).rejects.toMatchObject({ code: 409, message: '卖家已拒绝这次申请，不能再次申请' });
+    expect((await api.contactState('demo-product-1'))?.status).toBe('REJECTED');
   });
   it('收藏按用户隔离；发布、编辑、下架、售出和重新上架持久化', async () => {
     const { api, storage } = setup(); await api.login('buyer001', 'demo12345');

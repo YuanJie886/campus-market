@@ -177,7 +177,7 @@ class AssistInviteIT {
     }
 
     @Test
-    @DisplayName("4. 所有者检查后发布：seller 与 published_by 都是所有者，assisted_by 记录协助人；协助人事后不能编辑，也看不到订单与确认码")
+    @DisplayName("4. 所有者检查后发布：seller 与 published_by 都是所有者，assisted_by 记录协助人；协助人事后不能编辑，也看不到、不能处理这件商品的联系请求")
     void ownerPublishes() throws Exception {
         User owner = api.register();
         String draft = api.createDraft(owner, "SINGLE", single("生活用品", "待协助发布", 30)).path("id").asText();
@@ -200,11 +200,11 @@ class AssistInviteIT {
 
         assertThat(status(api.saveDraft(assistant, draft, 2, Map.of("title", "发布后再改"), null))).isIn(404, 409);
         User buyer = api.register();
-        String orderId = api.order(buyer, productId);
-        assertThat(status(api.get(assistant, "/v1/orders/" + orderId + "/flow"))).isIn(403, 404);
-        assertThat(api.ok(api.get(assistant, "/v1/orders?role=all")).toString()).doesNotContain(orderId);
+        String request = api.requestContact(buyer, productId);
+        assertThat(api.ok(api.get(assistant, "/v1/contact-requests")).toString()).doesNotContain(request).doesNotContain(productId);
+        assertThat(status(api.decideContact(assistant, request, "APPROVED"))).as("只有所有者能处理联系请求").isEqualTo(404);
+        assertThat(jdbc.queryForObject("SELECT status FROM contact_requests WHERE id=?::uuid", String.class, request)).isEqualTo("PENDING");
         assertThat(status(api.patch(assistant, "/v1/products/" + productId, Map.of("title", "协助人改商品")))).isIn(403, 404);
-        assertThat(api.ok(api.get(assistant, "/v1/me/trade-history")).toString()).doesNotContain(productId);
     }
 
     @Test

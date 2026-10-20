@@ -62,6 +62,8 @@ export default function ProductDetailPage() {
 
   const [imageIndex, setImageIndex] = useState(0);
   const [commentText, setCommentText] = useState("");
+  // 留言失败时服务端的原话（例如内容安全拦截）显示在留言框下方
+  const [commentError, setCommentError] = useState<string | null>(null);
   // 模块 7：举报商品或某条留言
   const [reporting, setReporting] = useState<{ type: 'PRODUCT' | 'COMMENT'; id: string; label: string } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -103,7 +105,8 @@ export default function ProductDetailPage() {
       try {
         const request = await getApiClient().getContactRequest(id);
         if (active) { setContactRequest(request); setContactError(''); }
-        if (request?.status === 'APPROVED') await loadProduct(id);
+        // 已同意：重新读取详情拿到联系方式；卖家撤回同意：重新读取，让缓存里的联系方式立即消失
+        if (request?.status === 'APPROVED' || request?.status === 'REVOKED') await loadProduct(id);
       } catch (e) { if (active) setContactError(toUserMessage(e)); }
       finally { if (active) setContactLoading(false); }
     };
@@ -173,6 +176,17 @@ export default function ProductDetailPage() {
   const isOwner = currentUser?.id === product.sellerId;
   const favorited = isFavorite(currentUser?.id, product.id);
   const soldOut = product.status !== "在售";
+  const requestStatus = contactRequest?.status ?? null;
+  // 卖家撤回同意后，即使本地缓存里还有旧的联系方式也不再显示（服务端已不再返回）
+  const contactShown = product.contact && (isOwner || product.contactPublic || requestStatus !== 'REVOKED') ? product.contact : '';
+  const canRequest = !isOwner && !soldOut && !contactShown && !product.contactPublic && (requestStatus === null || requestStatus === 'WITHDRAWN');
+  const wantLabel = isOwner ? "这是我发布的" : contactBusy ? "发送中…"
+    : contactShown || product.contactPublic || requestStatus === "APPROVED" ? "查看联系方式"
+    : requestStatus === "PENDING" ? "等待卖家同意"
+    : requestStatus === "REJECTED" ? "卖家已拒绝"
+    : requestStatus === "REVOKED" ? "卖家已撤回同意"
+    : soldOut ? "暂不可联系"
+    : requestStatus === "WITHDRAWN" ? "重新申请" : "我想要";
 
   const requireLogin = (): boolean => {
     if (!currentUser) {
@@ -193,20 +207,52 @@ export default function ProductDetailPage() {
     }
   };
 
+  const refreshContactRequest = async () => {
+    try {
+      setContactRequest(await getApiClient().getContactRequest(product.id));
+      await loadProduct(product.id);
+      setContactError('');
+    } catch (e) { setContactError(toUserMessage(e)); }
+  };
+
   const handleWant = async () => {
-    if (requireLogin() || isOwner || soldOut || contactBusy) return;
-    if (product.contact || product.contactPublic || contactRequest?.status === 'APPROVED') {
-      info(product.contact ? '卖家联系方式已展示，请通过该方式联系卖家' : '卖家尚未填写联系方式，可通过站内留言提醒卖家补充');
+    if (requireLogin() || isOwner || contactBusy) return;
+    if (contactShown || product.contactPublic || requestStatus === 'APPROVED') {
+      info(contactShown ? '卖家联系方式已展示，请通过该方式联系卖家' : '卖家尚未填写联系方式，可通过站内留言提醒卖家补充');
       return;
     }
+    if (!canRequest) return;
     setContactBusy(true);
     try {
       const request = await getApiClient().requestContact(product.id);
       setContactRequest(request); setContactError('');
       if (request.status === 'APPROVED') await loadProduct(product.id);
       success(request.status === 'PENDING' ? '联系申请已发送，等待卖家同意' : '卖家已处理该申请');
-    } catch (e) { error(toUserMessage(e)); }
+    } catch (e) {
+      // 服务端的原话（例如「申请联系方式」限制的解除时间、已拒绝 / 已撤回同意不能再次申请）原样显示
+      const message = toUserMessage(e);
+      setContactError(message);
+      error(message);
+      // 409 说明申请状态已经变化（例如卖家刚刚拒绝或撤回同意）：重新读取，按钮随之更新
+      if ((e as { code?: number }).code === 409) {
+        try { setContactRequest(await getApiClient().getContactRequest(product.id)); } catch { /* 保留上面的错误提示 */ }
+      }
+    }
     finally { setContactBusy(false); }
+  };
+
+  const handleWithdraw = async () => {
+    if (!contactRequest || contactRequest.status !== 'PENDING' || contactBusy) return;
+    setContactBusy(true);
+    try {
+      setContactRequest(await getApiClient().withdrawContactRequest(contactRequest.id));
+      setContactError('');
+      success('已撤回联系申请，需要时可以重新申请');
+    } catch (e) {
+      const message = toUserMessage(e);
+      setContactError(message);
+      error(message);
+    } finally { setContactBusy(false); }
   };
 
   const handleContact = async () => {
@@ -235,12 +281,15 @@ export default function ProductDetailPage() {
         error("请输入留言内容");
         return;
       }
+      setCommentError(null);
       await addComment(product.id, currentUser!.id, content, replyTo);
       setCommentText("");
       setReplyTo(null);
       success("留言成功");
     } catch (e) {
-      error(toUserMessage(e));
+      const message = toUserMessage(e);
+      setCommentError(message);
+      error(message);
     }
   };
 
@@ -377,13 +426,18 @@ export default function ProductDetailPage() {
                 variant="contained"
                 size="large"
                 fullWidth
-                disabled={soldOut || isOwner || contactBusy || contactLoading || contactRequest?.status === "PENDING" || contactRequest?.status === "REJECTED"}
+                disabled={isOwner || contactBusy || contactLoading || !(canRequest || contactShown || product.contactPublic || requestStatus === "APPROVED")}
                 startIcon={<TouchAppOutlinedIcon />}
                 onClick={handleWant}
                 sx={{ py: 1.2 }}
               >
-                {isOwner ? "这是我发布的" : soldOut ? "暂不可联系" : contactBusy ? "发送中…" : contactRequest?.status === "PENDING" ? "等待卖家同意" : contactRequest?.status === "REJECTED" ? "卖家已拒绝" : product.contact || product.contactPublic || contactRequest?.status === "APPROVED" ? "查看联系方式" : "我想要"}
+                {wantLabel}
               </Button>
+              {!isOwner && requestStatus === "PENDING" && (
+                <Button variant="outlined" color="inherit" size="large" fullWidth disabled={contactBusy} onClick={handleWithdraw} sx={{ py: 1.2 }}>
+                  撤回申请
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 size="large"
@@ -416,11 +470,20 @@ export default function ProductDetailPage() {
               </div>
             </div>
             <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              {product.contact ? <p className="break-all text-sm text-slate-800">{isOwner ? '本人联系方式' : '卖家联系方式'}：{product.contact}</p> : isOwner ? <p>本人联系方式：未填写</p> : product.contactPublic || contactRequest?.status === 'APPROVED' ? <p>卖家尚未填写联系方式，可通过站内留言联系卖家。</p> : <p>{contactRequest?.status === 'REJECTED' ? '卖家未同意展示联系方式。' : contactRequest?.status === 'PENDING' ? '已发送联系申请，等待卖家同意后即可查看联系方式。' : '卖家未公开联系方式，点击“我想要”申请，经卖家同意后展示。'}</p>}
+              {contactShown ? <p className="break-all text-sm text-slate-800">{isOwner ? '本人联系方式' : '卖家联系方式'}：{contactShown}</p>
+                : isOwner ? <p>本人联系方式：未填写</p>
+                : product.contactPublic || requestStatus === 'APPROVED' ? <p>卖家尚未填写联系方式，可通过站内留言联系卖家。</p>
+                : <p>{requestStatus === 'REJECTED' ? '卖家未同意展示联系方式。'
+                  : requestStatus === 'REVOKED' ? '卖家已撤回对你这次申请的同意，联系方式已不再向你展示；这件商品不能再次申请，可以通过站内留言继续沟通。'
+                  : requestStatus === 'PENDING' ? '已发送联系申请，等待卖家同意后即可查看联系方式。你也可以撤回这次申请。'
+                  : requestStatus === 'WITHDRAWN' ? '你已撤回这次联系申请。需要时可以点击“重新申请”，卖家会重新收到申请。'
+                  : '卖家未公开联系方式，点击“我想要”申请，经卖家同意后展示。'}</p>}
               {isOwner && <p className="mt-1">{product.contactPublic ? '已公开展示联系方式' : '需经你同意后向申请的买家展示联系方式'} · <Link to="/profile/contact-requests" className="text-brand-700">管理联系申请</Link></p>}
-              {!isOwner && !product.contact && <Button size="small" onClick={async () => { try { setContactRequest(await getApiClient().getContactRequest(product.id)); await loadProduct(product.id); setContactError(''); } catch (e) { setContactError(toUserMessage(e)); } }}>刷新申请状态</Button>}
+              {!isOwner && !contactShown && <Button size="small" onClick={() => void refreshContactRequest()}>刷新申请状态</Button>}
               {contactError && <p role="alert" className="mt-1 text-red-600">{contactError}</p>}
               <p className="mt-2">平台仅展示商品与卖家提供的联系方式，不提供交易、预约或履约服务。后续沟通及交易以双方通过实际联系方式约定为准。</p>
+              {/* 8.0：如实说明——学校与校区由注册者自行选择，平台不核验身份 */}
+              <p className="mt-1">注册时的学校与校区由用户自行选择，平台目前不核验学籍或身份。</p>
             </div>
             {isOwner && product.moderationHidden && (
               <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note">
@@ -474,7 +537,7 @@ export default function ProductDetailPage() {
       {product.listingKind === 'BUNDLE' && (
         <section aria-labelledby="product-bundle-title" className="rounded-2xl border border-amber-200 bg-white p-4 shadow-card md:p-5" data-listing-kind="BUNDLE">
           <h2 id="product-bundle-title" className="mb-1 text-sm font-bold text-slate-700">整套转让明细</h2>
-          <p className="text-sm font-semibold text-amber-900">整套出售，不支持单独下单。</p>
+          <p className="text-sm font-semibold text-amber-900">整套出售，不单独出售其中的物品。</p>
           {(() => {
             const items = product.bundleItems ?? [];
             const quantity = items.reduce((n, i) => n + i.quantity, 0);
@@ -498,7 +561,7 @@ export default function ProductDetailPage() {
                     ))}
                   </tbody>
                 </table>
-                <p className="mt-2 text-xs text-slate-600">面交验货时逐项核对；任何一项与描述不符，都可以在订单里标记不一致。</p>
+                <p className="mt-2 text-xs text-slate-600">以上明细由卖家填写，当面查看时请逐项核对；平台不做鉴定或担保。</p>
               </>
             );
           })()}
@@ -554,6 +617,7 @@ export default function ProductDetailPage() {
             )}
           </div>
         </div>
+        {commentError && <p role="alert" className="mt-2 text-sm text-red-700">{commentError}</p>}
 
         <div className="mt-4 flex flex-col gap-3">
           {topComments.length === 0 && (

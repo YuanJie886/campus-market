@@ -2,7 +2,6 @@ package com.lulu.campusmarketbackend.ratelimit;
 
 import com.lulu.campusmarketbackend.api.ApiException;
 import com.lulu.campusmarketbackend.mapper.RateLimitMapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,9 +30,6 @@ import java.util.Map;
  * PostgreSQL 的 {@code INSERT ... ON CONFLICT DO UPDATE ... RETURNING} 本身就是
  * 原子的，足以承担当前量级，且不新增运维依赖。
  *
- * <h2>与订单级限制的关系</h2>
- * 订单的 {@code code_attempts <= 5} 是该订单确认码的持久化安全不变量，仍然生效。
- * 本限流是<b>纵深防御</b>，限制同一用户跨订单的总尝试速率，不替代订单级硬限制。
  */
 @Service
 public class RateLimitService {
@@ -43,7 +39,6 @@ public class RateLimitService {
         AUTH_LOGIN("auth_login"),
         AUTH_REGISTER("auth_register"),
         AUTH_REFRESH("auth_refresh"),
-        ORDER_CONFIRMATION_CODE("order_confirmation_code"),
         /** 模块 4：每个用户每日可提交的教材建议数（只计新建，幂等重复提交不计） */
         TEXTBOOK_SUGGESTION("textbook_suggestion"),
         // 模块 5：全部按登录用户计，不按 IP
@@ -52,16 +47,25 @@ public class RateLimitService {
         ASSIST_INVITE_CREATE("assist_invite_create"),
         /** 每一次兑换尝试都计数（成功或失败），多次错误兑换触发 429 */
         ASSIST_INVITE_REDEEM("assist_invite_redeem"),
-        PRICE_GUIDANCE("price_guidance"),
         // 模块 6：同样按登录用户计
         CIRCLE_CREATE("circle_create"),
         CIRCLE_INVITE_CREATE("circle_invite_create"),
         /** 每一次兑换尝试都计数（成功或失败） */
         CIRCLE_INVITE_REDEEM("circle_invite_redeem"),
-        // 模块 7：举报、爽约报告与申诉按登录用户计
+        // 模块 7：举报与申诉按登录用户计
         MODERATION_REPORT("moderation_report"),
-        NO_SHOW_REPORT("no_show_report"),
-        APPEAL_SUBMIT("appeal_submit");
+        APPEAL_SUBMIT("appeal_submit"),
+        /** 阶段 1：发起联系申请（新建与撤回后重新申请都计数；对同一件商品的重复请求幂等返回、不计数） */
+        CONTACT_REQUEST("contact_request"),
+        /** 阶段 2：运营后台按工作人员计；读取（列表、详情、导出）与写入（授权、商品管理、复核）分开计数 */
+        ADMIN_READ("admin_read"),
+        ADMIN_WRITE("admin_write"),
+        /** 阶段 3：修改密码与注销（按用户）、重置码兑换（按账号，含错误尝试）、微信登录（全局，防止被用来放大调用微信接口） */
+        ACCOUNT_SECURITY("account_security"),
+        PASSWORD_RESET("password_reset"),
+        WECHAT_LOGIN("wechat_login"),
+        /** 阶段 4：图片上传按用户计 */
+        IMAGE_UPLOAD("image_upload");
 
         private final String key;
         Scope(String key) { this.key = key; }

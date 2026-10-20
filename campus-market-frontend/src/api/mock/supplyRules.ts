@@ -173,8 +173,9 @@ export function validateListing(payload: ListingPayload, draftType: ListingKind,
   const campus = String(p.campus);
   if (!ctx.campusValid(campus)) return result('INVALID_FIELD', null, '校区无效');
   const images = p.images;
-  if (!Array.isArray(images) || images.length > 9 || images.some((u) => typeof u !== 'string' || u.length > 2048 || !/^https?:\/\//.test(u))) {
-    return result('INVALID_FIELD', null, '图片必须使用 HTTP(S) 地址');
+  // 与后端 MarketService.images 相同：上传图片的引用（upload:<id>）或 HTTP(S) 地址
+  if (!Array.isArray(images) || images.length > 9 || images.some((u) => typeof u !== 'string' || u.length > 2048 || !(/^https?:\/\//.test(u) || /^upload:(?:[0-9a-fA-F-]{36}|uuid_[\w-]+)$/.test(u)))) {
+    return result('INVALID_FIELD', null, '图片必须是上传的图片或 HTTP(S) 地址');
   }
   if (p.contact !== undefined && p.contact !== null && (typeof p.contact !== 'string' || p.contact.trim().length > 100)) {
     return result('INVALID_FIELD', null, 'contact 长度无效');
@@ -214,30 +215,6 @@ export function validateListing(payload: ListingPayload, draftType: ListingKind,
     if (!ctx.editionInSchoolOf(p.textbookEditionId, campus)) return result('INVALID_TEXTBOOK', 'textbookEditionId', '教材版本不存在');
   }
   return VALID;
-}
-
-// ---------------------------------------------------------------------------
-// 价格参考（PriceGuidanceService）
-// ---------------------------------------------------------------------------
-
-/** 与 PostgreSQL percentile_cont 相同的线性插值。values 必须非空。 */
-export function percentileCont(values: number[], fraction: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const position = fraction * (sorted.length - 1);
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
-}
-
-/** 样本数下界档位：8、9 → 8；10 及以上向下取到 5 的倍数。 */
-export function sampleBucket(count: number): number {
-  return count < 10 ? 8 : count - (count % 5);
-}
-
-/** 按量级取整：百元以下到 1 元、千元以下到 5 元、以上到 10 元（四舍五入）。 */
-export function roundGuidance(value: number): number {
-  const step = value < 100 ? 1 : value < 1000 ? 5 : 10;
-  return Math.round(Math.round(value * 100) / 100 / step) * step;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,9 @@ describe('6 文案边界', () => {
     expect(stripComments(sources['./pages/circles/CircleCreatePage.tsx'])).toContain('未经学校核实');
   });
   it('退出确认的三条后果与后端数量上限保持一致', () => {
-    expect(LEAVE_CONSEQUENCES.join('')).toMatch(/圈子订阅将停用.*私密商品将不可见.*已经成立的订单不受影响/);
+    // REWRITTEN（阶段 1 联系模型）：第三条从「已经成立的订单不受影响」改为联系申请随可见范围失效；界面不再把订单说成现有功能
+    expect(LEAVE_CONSEQUENCES.join('')).toMatch(/圈子订阅将停用.*私密商品将不可见.*联系申请会从列表中消失/);
+    expect(LEAVE_CONSEQUENCES.join('')).not.toMatch(/订单/);
     expect(CIRCLE_MAX_PER_PRODUCT).toBe(5);
     expect(V9).toMatch(/BETWEEN 1 AND 5|<= 5|> 5/);
   });
@@ -40,13 +42,16 @@ describe('6 隐私', () => {
     expect(offenders(circleFiles, /setSearchParams|useSearchParams|\?q=\$\{|search:\s*`/)).toEqual([]);
     expect(offenders(circleFiles, /console\.(log|info|warn|error|debug)|analytics|gtag|track\(/)).toEqual([]);
   });
-  it('用户类型（公开资料由它派生）与公开履历类型里没有圈子字段', () => {
+  it('用户类型（公开资料由它派生）与联系申请类型里没有圈子字段；公开履历类型已随站内交易移除', () => {
     const types = Object.values(import.meta.glob('../packages/types/index.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>)[0] ?? '';
     const userType = /export interface User \{[\s\S]*?\n\}/.exec(types)?.[0] ?? '';
     expect(userType).toContain('nickname');
     expect(userType).not.toMatch(/circle/i);
     expect(types).toMatch(/export type PublicUser = Omit<User,/);
     const contracts = sources['./api/contracts.ts'];
-    expect(/export interface PublicTradeSummary \{[^}]*\}/.exec(contracts)?.[0]).not.toMatch(/circle/i);
+    expect(contracts).not.toMatch(/export interface PublicTradeSummary/);
+    const contact = /export interface ContactRequest \{[\s\S]*?\n\}/.exec(contracts)?.[0] ?? '';
+    expect(contact).toContain('productId');
+    expect(contact).not.toMatch(/circle|contact:/i);
   });
 });

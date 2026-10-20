@@ -1,11 +1,19 @@
 import { Component } from 'react'
 import Taro from '@tarojs/taro'
 import { CoverView, CoverImage } from '@tarojs/components'
+import { unread } from '../state'
+import { badgeText } from '../contacts'
 import './index.scss'
 
+const NOTIFICATIONS = '/pages/notifications/index'
+
 export default class CustomTabBar extends Component {
+  private unsubscribe: (() => void) | null = null
+
   state = {
     selected: 0,
+    // 联系申请未读数（卖家未读的新申请 + 买家未读的结果）；自定义 tabBar 下 setTabBarBadge 不生效，角标在这里渲染
+    badge: '',
     list: [
       {
         pagePath: '/pages/market/index',
@@ -54,10 +62,16 @@ export default class CustomTabBar extends Component {
     if (selected !== -1) {
       this.setState({ selected })
     }
+    this.unsubscribe = unread.subscribe((count) => this.setState({ badge: badgeText(count.total) }))
+  }
+
+  componentWillUnmount() {
+    this.unsubscribe?.()
+    this.unsubscribe = null
   }
 
   render() {
-    const { selected, list } = this.state
+    const { selected, list, badge } = this.state
 
     return (
       <CoverView className='custom-tab-bar'>
@@ -87,6 +101,9 @@ export default class CustomTabBar extends Component {
                   >
                     {item.text}
                   </CoverView>
+                  {item.pagePath === NOTIFICATIONS && badge ? (
+                    <CoverView className='tab-badge'>{badge}</CoverView>
+                  ) : null}
                 </>
               )}
             </CoverView>

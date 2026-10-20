@@ -1,0 +1,22 @@
+# 阶段 2：依赖更新提醒。只开 PR，不自动合并；每周一次，避免噪音。
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /campus-market-backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /campus-market-frontend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /campus-market-admin
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /campus-market-miniapp
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

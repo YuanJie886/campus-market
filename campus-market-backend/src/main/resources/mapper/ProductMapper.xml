@@ -33,7 +33,7 @@
 
     <!--
       模块 6：权威可见性条件（V9 的 SQL 函数，唯一实现）。所有列表、计数、feed 都用它；
-      单个商品的直接访问在 Java 侧用同一套函数的 product_readable_by（见 ProductVisibility）。
+      单个商品的直接访问同样用 product_visible_to（见 ProductVisibility；V16 起没有订单参与者例外）。
     -->
     <sql id="visibleToViewer">
         product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{uid,javaType=java.util.UUID,jdbcType=OTHER})
@@ -65,8 +65,8 @@
     </select>
 
     <!--
-      面向查看者的单个商品读取（详情、分享链接）。readable 列就是 V9 的 product_readable_by：
-      调用方据此决定 404，与列表的 product_visible_to 出自同一套函数。
+      面向查看者的单个商品读取（详情、分享链接）。readable 列与列表出自同一个 product_visible_to：
+      调用方据此决定 404。
     -->
     <select id="selectRowForViewer" resultType="map">
         SELECT p.*, b.name AS building_name, b.zone AS building_zone, <include refid="textbookColumns"/>, <include refid="circleColumns"/>,

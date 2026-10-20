@@ -220,8 +220,8 @@ public interface CircleMapper {
     @Select("SELECT circle_id FROM product_circle_visibility WHERE product_id = #{productId} ORDER BY circle_id")
     List<UUID> selectProductCircleIds(@Param("productId") UUID productId);
 
-    /** 单个商品的权威可读判断（V9 product_readable_by）。商品不存在时返回 null。 */
-    @Select("SELECT product_readable_by(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{viewer}) FROM products p WHERE p.id = #{productId}")
+    /** 单个商品的权威可读判断（product_visible_to；V16 起与 product_readable_by 等价）。商品不存在时返回 null。 */
+    @Select("SELECT product_visible_to(p.id, p.visibility, p.seller_id, p.campus, p.moderation_hidden_at, #{viewer}) FROM products p WHERE p.id = #{productId}")
     Boolean selectReadable(@Param("productId") UUID productId, @Param("viewer") UUID viewer);
 
     /** 批量发布预校验用：某用户在籍的在用圈子 id（一条语句）。 */

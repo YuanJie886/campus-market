@@ -1,17 +1,33 @@
-import type { CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePatch, ProductQuery, ProductPage, ProductCreateInput, ProductPatch, CreateOrderInput, OrderTransitionInput, ReviewInput, CommentInput } from './contracts';
-import type { User, Product, Favorite, Order, Review, Comment, Conversation, ChatMessage, ProductStatus } from '../types';
+import type { CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePatch, ProductQuery, ProductPage, ProductCreateInput, ProductPatch, CommentInput, ContactRequest, ContactRequestPage, ContactRequestQuery, ContactRequestRole, ContactUnreadCounts } from './contracts';
+import type { User, Product, Favorite, Comment, Conversation, ChatMessage, ProductStatus } from '../types';
 import { HttpTransport } from './httpTransport';
+import { ApiError } from './errors';
+import { normalizeClientConfig } from './contracts';
 import { authTokenStore } from '../utils/authTokenStore';
 export class RestCampusMarketApi implements CampusMarketApi {
   constructor(private readonly transport: HttpTransport) {}
-  getContactRequest(id: string) { return this.transport.get<import('./contracts').ContactRequest | null>(`/v1/products/${encodeURIComponent(id)}/contact-request`) }
-  requestContact(id: string) { return this.transport.post<import('./contracts').ContactRequest>(`/v1/products/${encodeURIComponent(id)}/contact-request`) }
-  listContactRequests() { return this.transport.get<import('./contracts').ContactRequest[]>('/v1/contact-requests') }
-  decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED') {
-    return this.transport.post<import('./contracts').ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/decision`, { status });
+  // ---------------- 联系申请（阶段 1）：请求体只带接口列出的字段，未知字段后端一律 400 ----------------
+  getContactRequest(productId: string) { return this.transport.get<ContactRequest | null>(`/v1/products/${encodeURIComponent(productId)}/contact-request`) }
+  /** 请求体为空：身份、商品与卖家都由服务端决定 */
+  requestContact(productId: string) { return this.transport.post<ContactRequest>(`/v1/products/${encodeURIComponent(productId)}/contact-request`) }
+  listContactRequests(query: ContactRequestQuery = {}) {
+    const params = new URLSearchParams();
+    // 固定顺序，只下发调用方给出的参数（role 缺省时由服务端按 received 处理）
+    for (const key of ['role', 'status', 'page', 'size'] as const) {
+      const value = query[key];
+      if (value !== undefined && value !== null) params.set(key, String(value));
+    }
+    const qs = params.toString();
+    return this.transport.get<ContactRequestPage>(`/v1/contact-requests${qs ? `?${qs}` : ''}`);
   }
+  getContactRequestUnreadCount() { return this.transport.get<ContactUnreadCounts>('/v1/contact-requests/unread-count') }
+  markContactRequestsRead(role: ContactRequestRole) { return this.transport.post<ContactUnreadCounts>('/v1/contact-requests/read', { role }) }
+  decideContactRequest(id: string, status: 'APPROVED' | 'REJECTED') {
+    return this.transport.post<ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/decision`, { status });
+  }
+  withdrawContactRequest(id: string) { return this.transport.post<ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/withdraw`) }
+  revokeContactRequest(id: string) { return this.transport.post<ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/revoke`) }
   getUser(id: string): Promise<import('../types').PublicUser> { return this.transport.get(`/v1/users/${encodeURIComponent(id)}`) }
-  listMeetingPoints(): Promise<import('./contracts').MeetingPoint[]> { return this.transport.get('/v1/meeting-points') }
   listBuildings(campus: import('../types').Campus, zone?: string): Promise<import('../types').Building[]> {
     const params = new URLSearchParams({ campus });
     if (zone) params.set('zone', zone);
@@ -29,6 +45,37 @@ export class RestCampusMarketApi implements CampusMarketApi {
   }
   getCurrentUser(): Promise<User | null> { return this.transport.get<User>('/v1/auth/me').catch((e) => { if ((e as { code?: number }).code === 401) return null; throw e }) }
   updateProfile(patch: ProfilePatch): Promise<User> { return this.transport.patch<User>('/v1/auth/me', patch) }
+  // ---------------- 阶段 3：账号生命周期（请求体只带后端读取的字段） ----------------
+  changePassword(input: { currentPassword: string; newPassword: string }) {
+    return this.transport.post<import('./contracts').PasswordChangeResult>('/v1/auth/password',
+      { currentPassword: input.currentPassword, newPassword: input.newPassword });
+  }
+  resetPasswordWithCode(input: import('./contracts').PasswordResetInput) {
+    return this.transport.post<{ reset: boolean }>('/v1/auth/password-reset',
+      { account: input.account, code: input.code, newPassword: input.newPassword });
+  }
+  /** 成功后服务端已结束全部会话并清除刷新 Cookie；内存里的访问令牌同时丢弃 */
+  async deleteAccount(input: { password: string; confirmation: string }) {
+    const result = await this.transport.post<import('./contracts').AccountDeletionResult>('/v1/auth/me/deletion',
+      { password: input.password, confirmation: input.confirmation });
+    authTokenStore.clearAccessToken();
+    return result;
+  }
+  /** GET /v1/config（无需登录）。旧后端没有这个接口时 404，按默认规则（9 张、5 MB、JPEG / PNG、允许外部图片）处理 */
+  async getClientConfig(): Promise<import('./contracts').ClientConfig> {
+    try {
+      return normalizeClientConfig(await this.transport.get<unknown>('/v1/config'));
+    } catch (e) {
+      if (e instanceof ApiError && (e.httpStatus === 404 || e.code === 404)) return normalizeClientConfig(null);
+      throw e;
+    }
+  }
+  // ---------------- 阶段 4：图片上传（multipart 字段 file；认证与 401 刷新与其他请求相同） ----------------
+  uploadImage(file: File) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.transport.upload<import('./contracts').UploadedImage>('/v1/images', form);
+  }
   async logout(): Promise<void> { try { await this.transport.post('/v1/auth/logout') } finally { authTokenStore.clearAccessToken() } }
   listProducts(query: ProductQuery): Promise<ProductPage> { const params = new URLSearchParams(); Object.entries(query).forEach(([key, value]) => { if (value !== undefined && value !== '') params.set(key, String(value)) }); return this.transport.get<ProductPage>(`/v1/products?${params.toString()}`) }
   getProduct(id: string): Promise<Product> { return this.transport.get<Product>(`/v1/products/${encodeURIComponent(id)}`) }
@@ -40,40 +87,10 @@ export class RestCampusMarketApi implements CampusMarketApi {
     });
     return this.transport.get<import('./contracts').FeedPage>(`/v1/products/feed?${params.toString()}`);
   }
-  // ---------------- 可信面交（模块 3） ----------------
+  // ---------------- 卖家声明（模块 3） ----------------
   getInspectionTemplate(category: import('../types').Category) {
     return this.transport.get<import('./contracts').InspectionTemplate | null>(
       `/v1/inspection-templates?category=${encodeURIComponent(category)}`);
-  }
-  getOrderFlow(orderId: string) {
-    return this.transport.get<import('./contracts').OrderFlow>(`/v1/orders/${encodeURIComponent(orderId)}/flow`);
-  }
-  saveInspectionDraft(orderId: string, items: import('./contracts').InspectionResultInput[]) {
-    return this.transport.put<import('./contracts').OrderFlow>(`/v1/orders/${encodeURIComponent(orderId)}/inspection`, { items });
-  }
-  submitInspection(orderId: string, items: import('./contracts').InspectionResultInput[]) {
-    return this.transport.post<import('./contracts').OrderFlow>(`/v1/orders/${encodeURIComponent(orderId)}/inspection/submit`, { items });
-  }
-  proposeMeeting(orderId: string, input: import('./contracts').MeetingProposalInput) {
-    return this.transport.post<import('./contracts').OrderFlow>(`/v1/orders/${encodeURIComponent(orderId)}/meeting-proposals`, input);
-  }
-  acceptMeeting(orderId: string, proposalId: string) {
-    return this.transport.post<import('./contracts').OrderFlow>(
-      `/v1/orders/${encodeURIComponent(orderId)}/meeting-proposals/${encodeURIComponent(proposalId)}/accept`);
-  }
-  rejectMeeting(orderId: string, proposalId: string) {
-    return this.transport.post<import('./contracts').OrderFlow>(
-      `/v1/orders/${encodeURIComponent(orderId)}/meeting-proposals/${encodeURIComponent(proposalId)}/reject`);
-  }
-  withdrawMeeting(orderId: string, proposalId: string) {
-    return this.transport.post<import('./contracts').OrderFlow>(
-      `/v1/orders/${encodeURIComponent(orderId)}/meeting-proposals/${encodeURIComponent(proposalId)}/withdraw`);
-  }
-  updatePresence(orderId: string, action: 'DEPART' | 'ARRIVE') {
-    return this.transport.put<import('./contracts').OrderFlow>(`/v1/orders/${encodeURIComponent(orderId)}/presence`, { action });
-  }
-  getOwnTradeHistory() {
-    return this.transport.get<import('./contracts').OwnTradeHistory>('/v1/me/trade-history');
   }
   listCourses(query: import('./contracts').CourseQuery) {
     const params = new URLSearchParams();
@@ -124,13 +141,13 @@ export class RestCampusMarketApi implements CampusMarketApi {
   }
   // ---------------- 毕业季通用供给引擎（模块 5） ----------------
   createListingDraft(input: { draftType?: import('./contracts').ListingKind; payload?: import('./contracts').ListingPayload }) {
-    return this.transport.post<import('./contracts').ListingDraft>('/v1/listing-drafts', input);
+    return this.transport.post<import('./contracts').ListingDraft>('/v1/listing-drafts', withPayloadImageRefs(input));
   }
   listListingDrafts() { return this.transport.get<import('./contracts').ListingDraft[]>('/v1/listing-drafts') }
   listAssistingDrafts() { return this.transport.get<import('./contracts').ListingDraft[]>('/v1/listing-drafts/assisting') }
   getListingDraft(id: string) { return this.transport.get<import('./contracts').ListingDraft>(`/v1/listing-drafts/${encodeURIComponent(id)}`) }
   updateListingDraft(id: string, input: { expectedVersion: number; payload?: import('./contracts').ListingPayload; status?: 'DRAFT' | 'READY' }) {
-    return this.transport.patch<import('./contracts').ListingDraft>(`/v1/listing-drafts/${encodeURIComponent(id)}`, input);
+    return this.transport.patch<import('./contracts').ListingDraft>(`/v1/listing-drafts/${encodeURIComponent(id)}`, withPayloadImageRefs(input));
   }
   discardListingDraft(id: string) { return this.transport.delete<import('./contracts').ListingDraft>(`/v1/listing-drafts/${encodeURIComponent(id)}`) }
   createListingBatch(input: { draftIds?: string[] }) { return this.transport.post<import('./contracts').ListingBatch>('/v1/listing-batches', input) }
@@ -158,12 +175,6 @@ export class RestCampusMarketApi implements CampusMarketApi {
   listAssistEvents(id: string) {
     return this.transport.get<import('./contracts').AssistEvent[]>(`/v1/listing-assist-invites/${encodeURIComponent(id)}/events`);
   }
-  getPriceGuidance(query: import('./contracts').PriceGuidanceQuery) {
-    const params = new URLSearchParams({ category: query.category });
-    if (query.condition) params.set('condition', query.condition);
-    if (query.textbookEditionId) params.set('textbookEditionId', query.textbookEditionId);
-    return this.transport.get<import('./contracts').PriceGuidance>(`/v1/price-guidance?${params.toString()}`);
-  }
   getTextbook(editionId: string, sort?: 'nearest' | 'latest') {
     return this.transport.get<import('./contracts').TextbookDetail>(
       `/v1/textbooks/${encodeURIComponent(editionId)}${sort ? `?sort=${sort}` : ''}`);
@@ -179,9 +190,6 @@ export class RestCampusMarketApi implements CampusMarketApi {
   }
   withdrawTextbookSuggestion(id: string) {
     return this.transport.delete<import('./contracts').TextbookSuggestion>(`/v1/textbook-suggestions/${encodeURIComponent(id)}`);
-  }
-  getPublicTradeSummary(userId: string) {
-    return this.transport.get<import('./contracts').PublicTradeSummary>(`/v1/users/${encodeURIComponent(userId)}/trade-summary`);
   }
   createDemandSubscription(input: import('./contracts').DemandConditions) {
     return this.transport.post<import('./contracts').DemandSubscribeResult>('/v1/demand-subscriptions', input);
@@ -207,8 +215,8 @@ export class RestCampusMarketApi implements CampusMarketApi {
   async dismissDemandMatch(id: string): Promise<number> {
     return (await this.transport.post<{ count: number }>(`/v1/demand-matches/${encodeURIComponent(id)}/dismiss`)).count;
   }
-  createProduct(input: ProductCreateInput): Promise<Product> { return this.transport.post<Product>('/v1/products', input) }
-  updateProduct(id: string, patch: ProductPatch): Promise<Product> { return this.transport.patch<Product>(`/v1/products/${encodeURIComponent(id)}`, patch) }
+  createProduct(input: ProductCreateInput): Promise<Product> { return this.transport.post<Product>('/v1/products', withImageRefs(input)) }
+  updateProduct(id: string, patch: ProductPatch): Promise<Product> { return this.transport.patch<Product>(`/v1/products/${encodeURIComponent(id)}`, withImageRefs(patch)) }
   setProductStatus(id: string, status: ProductStatus): Promise<Product> { return this.transport.post<Product>(`/v1/products/${encodeURIComponent(id)}/status`, { status }) }
   incrementProductViews(id: string): Promise<void> { return this.transport.post<void>(`/v1/products/${encodeURIComponent(id)}/view`) }
   listFavorites(): Promise<Favorite[]> { return this.transport.get<Favorite[]>('/v1/favorites') }
@@ -219,10 +227,6 @@ export class RestCampusMarketApi implements CampusMarketApi {
       ? this.transport.put<{ active: boolean }>(path).then((r) => r.active)
       : this.transport.delete<{ active: boolean }>(path).then((r) => r.active);
   }
-  createOrder(input: CreateOrderInput): Promise<Order> { return this.transport.post<Order>('/v1/orders', input, { 'Idempotency-Key': input.idempotencyKey }) }
-  transitionOrder(id: string, input: OrderTransitionInput): Promise<Order> { return this.transport.post<Order>(`/v1/orders/${encodeURIComponent(id)}/transitions`, { ...input, to: input.to }) }
-  listOrders(role: 'buyer'|'seller'|'all'): Promise<Order[]> { return this.transport.get<Order[]>(`/v1/orders?role=${role}`) }
-  addReview(orderId: string, input: ReviewInput): Promise<Review> { return this.transport.post<Review>(`/v1/orders/${encodeURIComponent(orderId)}/reviews`, { rating: input.rating, comment: input.comment }) }
   listComments(productId: string): Promise<Comment[]> { return this.transport.get<Comment[]>(`/v1/products/${encodeURIComponent(productId)}/comments`) }
   addComment(input: CommentInput): Promise<Comment> { return this.transport.post<Comment>(`/v1/products/${encodeURIComponent(input.productId)}/comments`, { content: input.content, parentId: input.parentId }) }
   listConversations(): Promise<Conversation[]> { return this.transport.get<Conversation[]>('/v1/conversations') }
@@ -230,19 +234,7 @@ export class RestCampusMarketApi implements CampusMarketApi {
   listMessages(conversationId: string): Promise<ChatMessage[]> { return this.transport.get<ChatMessage[]>(`/v1/conversations/${encodeURIComponent(conversationId)}/messages`) }
   sendMessage(conversationId: string, content: string): Promise<ChatMessage> { return this.transport.post<ChatMessage>(`/v1/conversations/${encodeURIComponent(conversationId)}/messages`, { content }) }
   getUnreadCount(): Promise<number> { return this.transport.get<{ count: number }>('/v1/messages/unread').then((r) => r.count) }
-  // ---- 模块 7：交易承诺与可信治理 ----
-  getOrderNoShow(orderId: string) {
-    return this.transport.get<import('./contracts').OrderNoShowView>(`/v1/orders/${encodeURIComponent(orderId)}/no-show-reports`);
-  }
-  reportNoShow(orderId: string, input: { reasonCode: import('./contracts').NoShowReason; note?: string }) {
-    return this.transport.post<import('./contracts').NoShowReport>(`/v1/orders/${encodeURIComponent(orderId)}/no-show-reports`, input);
-  }
-  acknowledgeNoShow(reportId: string, note?: string) {
-    return this.transport.post<import('./contracts').NoShowReport>(`/v1/no-show-reports/${encodeURIComponent(reportId)}/acknowledge`, note ? { note } : {});
-  }
-  disputeNoShow(reportId: string, note: string) {
-    return this.transport.post<import('./contracts').NoShowReport>(`/v1/no-show-reports/${encodeURIComponent(reportId)}/dispute`, { note });
-  }
+  // ---- 模块 7：可信治理 ----
   createModerationReport(input: import('./contracts').ModerationReportInput) {
     return this.transport.post<import('./contracts').MyModerationReport>('/v1/moderation-reports', input);
   }
@@ -257,7 +249,7 @@ export class RestCampusMarketApi implements CampusMarketApi {
     return this.transport.get<import('./contracts').ModerationCasePage>(`/v1/moderation/cases${qs ? `?${qs}` : ''}`);
   }
   getModerationCase(id: string) { return this.transport.get<import('./contracts').ModerationCaseDetail>(`/v1/moderation/cases/${encodeURIComponent(id)}`) }
-  openModerationCase(input: { targetType: import('./contracts').ModerationTargetType; targetId: string }) {
+  openModerationCase(input: { targetType: import('./contracts').ReportableTargetType; targetId: string }) {
     return this.transport.post<import('./contracts').ModerationCaseDetail>('/v1/moderation/cases', input);
   }
   claimModerationCase(id: string) {
@@ -275,4 +267,21 @@ export class RestCampusMarketApi implements CampusMarketApi {
   decideModerationAppeal(id: string, input: import('./contracts').AppealDecisionInput) {
     return this.transport.post<import('./contracts').StaffAppeal>(`/v1/moderation/appeals/${encodeURIComponent(id)}/decision`, input);
   }
+}
+
+/**
+ * 商品响应里的上传图片是短时签名地址（/v1/images/{id}?exp=…&sig=…，可能已按 API 基址补全），
+ * 后端只接受 upload:<id> 引用或外部 http(s) 地址。编辑时把签名地址还原成引用；其他值原样提交。
+ */
+const SIGNED_IMAGE = /^(?:https?:\/\/[^/]+)?(?:\/[^?#]*)?\/v1\/images\/([0-9a-fA-F-]{36})(?:[?#].*)?$/;
+export function imageRefOf(value: string): string {
+  const match = SIGNED_IMAGE.exec(value);
+  return match ? `upload:${match[1]}` : value;
+}
+function withImageRefs<T extends { images?: string[] }>(input: T): T {
+  return input.images ? { ...input, images: input.images.map(imageRefOf) } : input;
+}
+/** 草稿响应里的上传图片同样是签名地址；保存草稿时同样还原成 upload:<id> 引用（其余字段原样） */
+function withPayloadImageRefs<T extends { payload?: import('./contracts').ListingPayload }>(input: T): T {
+  return input.payload ? { ...input, payload: withImageRefs(input.payload) } : input;
 }

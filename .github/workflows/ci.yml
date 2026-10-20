@@ -114,6 +114,48 @@ jobs:
           npx playwright install --with-deps chromium
           npm run test:e2e
 
+  miniapp:
+    name: 微信小程序（类型检查、单元测试、Mock 与 REST 构建）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-miniapp/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Mock 构建（默认）
+        run: npm run build:weapp
+      - name: REST 构建
+        run: npm run build:weapp:rest
+      # check:wxss 依赖微信开发者工具自带的 wcsc 编译器，GitHub 托管运行器上没有，只在本机发布前执行
+
+  dependency-audit:
+    name: 依赖漏洞扫描（生产依赖；网页与后台有 high 及以上即失败）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 网页
+        working-directory: campus-market-frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: 复用后台
+        working-directory: campus-market-admin
+        run: npm audit --omit=dev --audit-level=high
+      # 小程序的 Taro 工具链目前有已知高危依赖（阶段 4 处理）：先如实报告，不阻塞合并
+      - name: 微信小程序（只报告）
+        working-directory: campus-market-miniapp
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
   e2e:
     name: 真实浏览器 E2E（Chromium + 后端 jar + 一次性 PostgreSQL 16）
     needs: backend

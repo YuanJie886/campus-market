@@ -17,12 +17,18 @@ interface ProductRecord extends RaRecord {
     history?: { id: string; action: string; actorNickname: string; note?: string; createdAt: number }[];
 }
 const categories = ['数码电子', '教材书籍', '生活用品', '服饰鞋包', '运动户外', '其他'];
-const states = ['在售', '预约中', '已售出', '已下架'];
+// 站内交易停用后不再有「预约中」商品（V16 已恢复在售）。
+const states = ['在售', '已售出', '已下架'];
 const choices = (values: string[]) => values.map(id => ({ id, name: id }));
 const money = (value?: number) => value == null ? '—' : new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(value);
 const time = (value?: number) => value == null ? '—' : new Date(value).toLocaleString('zh-CN', { hour12: false });
 const actions: Record<string, string> = { EDIT_PRODUCT: '编辑商品', HIDE_PRODUCT: '管理下架', RESTORE_PRODUCT: '恢复展示' };
 const preferenceKey = 'products.management.v2';
+/** 与后端 AdminService.updateProduct 一致：历史订单不再阻止编辑，只有已售出的商品不能编辑。 */
+export const isProductEditable = (status: string) => ['在售', '已下架'].includes(status);
+export const SOLD_PRODUCT_EDIT_NOTE = '已售出的商品不能编辑，仍可进行展示管理。';
+/** 阶段 2：只有学校管理员有 products:write；高级审核员与审核员一样只读。 */
+export const PRODUCT_READ_ONLY_NOTE = '当前角色可查看商品，信息编辑和展示管理需要学校管理员权限。';
 function ProductCell(_: FieldProps) {
     const record = useRecordContext<ProductRecord>();
     return record ? <Box className="order-product-cell"><Avatar variant="rounded" src={record.image} className="order-thumbnail"><ProductIcon /></Avatar><Box><Typography sx={{ fontSize: 12, fontWeight: 600 }}>{record.title}</Typography><Typography sx={{ fontSize: 11, mt: .5 }} color="text.secondary">{record.condition || '未记录成色'} · {record.listingKind === 'BUNDLE' ? '整套打包' : '单件商品'}</Typography></Box></Box> : null;
@@ -39,14 +45,14 @@ export function ProductsList() {
     return <><PageHeading title="商品目录" description="管理本校商品信息、卖家与展示状态，所有变更均记录操作原因。" eyebrow="CATALOG / 商品管理" />
         <List perPage={25} sort={{ field: 'createdAt', order: 'DESC' }} actions={<ListActions preferenceKey={preferenceKey} />} filters={[
             <TextInput key="q" source="q" label="搜索商品、编号或卖家" alwaysOn resettable inputProps={{ maxLength: 100 }} />,
-            <SelectInput key="status" source="status" label="交易状态" choices={choices(states)} alwaysOn />,
+            <SelectInput key="status" source="status" label="商品状态" choices={choices(states)} alwaysOn />,
             <SelectInput key="category" source="category" label="商品分类" choices={choices(categories)} alwaysOn />,
             <SelectInput key="moderationHidden" source="moderationHidden" label="展示管理" choices={[{ id: 'false', name: '正常展示' }, { id: 'true', name: '管理下架' }]} alwaysOn />,
             <TextInput key="campus" source="campus" label="所在校区（完整名称）" resettable inputProps={{ maxLength: 100 }} />,
         ]}><ListSummary /><DatagridConfigurable preferenceKey={preferenceKey} bulkActionButtons={false} rowClick="show" sx={{ '& .RaDatagrid-table': { minWidth: 1100 } }}>
             <ProductCell source="title" label="商品信息" /><SellerCell source="sellerNickname" label="卖家" sortable={false} />
             <TextField source="category" label="分类" sortable={false} /><NumberField source="price" locales="zh-CN" label="价格" options={{ style: 'currency', currency: 'CNY' }} />
-            <StatusField source="status" label="交易状态" sortable={false} /><VisibilityCell source="moderationHidden" label="展示状态" sortable={false} />
+            <StatusField source="status" label="商品状态" sortable={false} /><VisibilityCell source="moderationHidden" label="展示状态" sortable={false} />
             <TextField source="campus" label="校区" sortable={false} /><DateField source="createdAt" locales="zh-CN" label="发布时间" showTime /><ShowButton label="管理详情" />
         </DatagridConfigurable></List></>;
 }
@@ -59,7 +65,7 @@ function ProductManagement({ record }: { record: ProductRecord }) {
     const [title, setTitle] = useState(''), [description, setDescription] = useState(''), [price, setPrice] = useState(''), [note, setNote] = useState('');
     const [confirm, setConfirm] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
     const [snapshot, setSnapshot] = useState<ProductRecord>(record);
-    const editable = ['在售', '已下架'].includes(record.status);
+    const editable = isProductEditable(record.status);
     const open = (value: 'edit' | 'visibility') => {
         setSnapshot(record); setTitle(record.title); setDescription(record.description || ''); setPrice(String(record.price)); setNote(''); setError(''); setConfirm(false); setMode(value);
     };
@@ -78,15 +84,15 @@ function ProductManagement({ record }: { record: ProductRecord }) {
             if ((failure as { status?: number }).status === 409) refresh();
         } finally { setBusy(false); }
     };
-    if (!canAccess) return <Alert severity="info">当前角色可查看商品，信息编辑和展示管理需要学校管理员或高级审核员权限。</Alert>;
+    if (!canAccess) return <Alert severity="info">{PRODUCT_READ_ONLY_NOTE}</Alert>;
     if (identity?.id === record.sellerId) return <Alert severity="info">本人发布的商品需要由其他工作人员管理。</Alert>;
     return <><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap><Button variant="outlined" startIcon={<EditIcon />} disabled={!editable} onClick={() => open('edit')}>编辑商品</Button><Button variant="contained" color={record.moderationHidden ? 'primary' : 'warning'} startIcon={record.moderationHidden ? <RestoreIcon /> : <HideIcon />} onClick={() => open('visibility')}>{record.moderationHidden ? '恢复展示' : '管理下架'}</Button></Stack>
-        {!editable && <Typography sx={{ fontSize: 12, mt: 1.5 }} color="text.secondary">预约中或已售出的商品保留交易信息，可进行展示管理。</Typography>}
+        {!editable && <Typography sx={{ fontSize: 12, mt: 1.5 }} color="text.secondary">{SOLD_PRODUCT_EDIT_NOTE}</Typography>}
         <Dialog open={mode !== null} onClose={() => { if (!busy) setMode(null); }} fullWidth maxWidth="sm"><DialogTitle>{confirm ? `确认${label}` : label}</DialogTitle><DialogContent>
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
             <Typography sx={{ mb: 2, fontWeight: 600 }}>{snapshot.title}</Typography>
             {confirm ? <Stack spacing={2}>{mode === 'edit' && <Box><Typography>标题：{title}</Typography><Typography>价格：{money(snapshot.price)} → {money(Number(price))}</Typography><Typography sx={{ whiteSpace: 'pre-wrap', mt: 1 }}>描述：{description}</Typography></Box>}<Typography sx={{ overflowWrap: 'anywhere' }}>操作原因：{note}</Typography><Alert severity="warning">确认后立即生效，并记录操作者、原因和处理时间。</Alert></Stack> : <Stack spacing={2}>
-                {mode === 'edit' ? <><Input label="商品标题" value={title} onChange={event => setTitle(event.target.value)} inputProps={{ maxLength: 100 }} fullWidth /><Input label="商品描述" value={description} onChange={event => setDescription(event.target.value)} multiline minRows={4} inputProps={{ maxLength: 4000 }} fullWidth /><Input label="商品价格（元）" value={price} onChange={event => setPrice(event.target.value)} inputProps={{ inputMode: 'decimal' }} fullWidth /><Alert severity="info">修改当前商品信息；订单已记录的成交金额和交易快照保持原样。</Alert></> : <Alert severity="info">{snapshot.moderationHidden ? '解除管理隐藏。卖家已下架或售出的商品仍保留原交易状态。' : '商品将从买家浏览和新预约入口中隐藏，已有订单继续保留。'}</Alert>}
+                {mode === 'edit' ? <><Input label="商品标题" value={title} onChange={event => setTitle(event.target.value)} inputProps={{ maxLength: 100 }} fullWidth /><Input label="商品描述" value={description} onChange={event => setDescription(event.target.value)} multiline minRows={4} inputProps={{ maxLength: 4000 }} fullWidth /><Input label="商品价格（元）" value={price} onChange={event => setPrice(event.target.value)} inputProps={{ inputMode: 'decimal' }} fullWidth /><Alert severity="info">修改当前商品信息；历史订单保存的成交金额和交易快照保持原样。</Alert></> : <Alert severity="info">{snapshot.moderationHidden ? '解除管理隐藏。卖家已下架或售出的商品仍保持原状态。' : '商品将从买家浏览、搜索和联系申请入口中隐藏。'}</Alert>}
                 <Input label="操作原因" value={note} onChange={event => setNote(event.target.value)} multiline minRows={2} required inputProps={{ maxLength: 500 }} helperText={`${note.length}/500`} fullWidth />
             </Stack>}
         </DialogContent><DialogActions><Button disabled={busy} onClick={() => confirm ? setConfirm(false) : setMode(null)}>{confirm ? '返回修改' : '取消'}</Button><Button variant="contained" disabled={!valid || busy} onClick={() => confirm ? void submit() : setConfirm(true)}>{busy ? '保存中…' : confirm ? '确认提交' : '预览变更'}</Button></DialogActions></Dialog>

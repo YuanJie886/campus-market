@@ -54,10 +54,14 @@ public class CircleService {
     private final BuildingFeedService feeds;
 
     private final com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions;
+    /** 圈子名称与简介对本校用户可见（DISCOVERABLE 可被搜索），与商品文本同一套内容安全检查 */
+    private final com.lulu.campusmarketbackend.security.ContentSafetyService safety;
 
     public CircleService(CircleMapper circles, RateLimitService rateLimit, BuildingFeedService feeds,
-                         com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions) {
+                         com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions,
+                         com.lulu.campusmarketbackend.security.ContentSafetyService safety) {
         this.restrictions = restrictions;
+        this.safety = safety;
         this.circles = circles;
         this.rateLimit = rateLimit;
         this.feeds = feeds;
@@ -76,6 +80,8 @@ public class CircleService {
         String name = name(body.get("name"));
         String description = description(body.get("description"));
         String visibility = body.get("visibility") == null ? "PRIVATE" : enumValue(body.get("visibility"), VISIBILITIES, "可见范围");
+        // 被拦截的文本不消耗建圈配额（与商品发布一致：校验失败不计数）；拦截事件只记原因与指纹
+        safety.check(me, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.CIRCLE, name, description);
         rateLimit.consume(RateLimitService.Scope.CIRCLE_CREATE, uid);
         UUID id = UUID.randomUUID();
         circles.insertCircle(id, school, type, name, description, visibility, me);
@@ -135,13 +141,16 @@ public class CircleService {
         String name = body.containsKey("name") ? name(body.get("name")) : DomainMapper.text(circle.get("name"));
         String description = body.containsKey("description") ? description(body.get("description")) : DomainMapper.text(circle.get("description"));
         String visibility = body.containsKey("visibility") ? enumValue(body.get("visibility"), VISIBILITIES, "可见范围") : DomainMapper.text(circle.get("visibility"));
+        // 只检查本次提交的文本：没有改动的旧名称 / 简介不重复送检
+        safety.check(me, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.CIRCLE,
+                body.containsKey("name") ? name : null, body.containsKey("description") ? description : null);
         circles.updateCircle(circleId, type, name, description, visibility);
         circles.insertEvent(circleId, me, null, "CIRCLE_UPDATED", null);
         return view(circles.selectCircle(circleId), role);
     }
 
     /**
-     * 归档（只有所有者，不可撤销）：圈子商品对成员不再可见（仍有效或已完成订单的参与者照常完成交易），
+     * 归档（只有所有者，不可撤销）：圈子商品对成员不再可见，
      * 全部圈子订阅停用、匹配失效，未兑换的邀请全部撤销。成员关系保留作为历史。
      */
     @Transactional
@@ -352,7 +361,7 @@ public class CircleService {
 
     /**
      * 退出（自己）或移除（他人）。OWNER 不能直接退出；MODERATOR 只能移除 MEMBER；MEMBER 只能退出自己。
-     * 离开后：他在这个圈子的订阅停用、匹配失效（未读清零），圈子商品立即不可见；已经成立的订单不受影响。
+     * 离开后：他在这个圈子的订阅停用、匹配失效（未读清零），圈子商品与其上的联系申请立即不可见。
      */
     @Transactional
     public Map<String, Object> removeMember(String uid, String id, String targetId) {

@@ -110,7 +110,7 @@ export default function CircleDetailPage() {
       {!member ? (
         <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">你还不是这个圈子的成员。加入需要成员给你的邀请码。</p>
       ) : archived ? (
-        <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">这个圈子已归档：不能再发布、订阅或邀请新成员。已经成立的订单不受影响。</p>
+        <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">这个圈子已归档：不能再发布、订阅或邀请新成员。</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           <Button component={Link} to={`/circles/${encodeURIComponent(circle.id)}/products`} variant="contained" size="small">圈子商品</Button>

@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
-import Checkbox from '@mui/material/Checkbox';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import ContactPublicField from '../ContactPublicField';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
@@ -10,9 +9,9 @@ import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus, type Category, type Cond
 import { IMAGE_PRESETS } from '../../utils/constants';
 import { averagePerItem } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
+import ImageUploader from '../ImageUploader';
 import ErrorSummary, { type ErrorSummaryItem } from '../trust/ErrorSummary';
 import BundleEditor, { emptyBundleRow, itemsFromRows, type BundleRow } from './BundleEditor';
-import PriceGuidanceCard from './PriceGuidanceCard';
 import VisibilityPicker from '../circle/VisibilityPicker';
 import type { ProductVisibility } from '../../api/contracts';
 
@@ -20,13 +19,16 @@ interface Props {
   initial: { contact: string; campus: Campus; buildingId: string | null };
   onSubmit: (data: Omit<ProductInput, 'sellerId'>) => void | Promise<void>;
   onCancel?: () => void;
+  /** 发布失败时服务端的原话（例如内容安全拦截），显示在发布按钮旁 */
+  submitError?: string | null;
 }
 
 /**
  * 整套打包发布（5.4）：一个商品主体（标题、总价、主分类或「其他 / 混合物品」）+ 2～30 条明细。
- * 整套出售，不支持单独下单；验货时逐条核对明细。分类与成色都不预选。
+ * 整套展示，买家只能针对整套申请查看联系方式（明细不能单独申请）。分类与成色都不预选。
+ * 平台不再提供历史成交价格参考（交易功能已移除），因此这里不展示价格参考卡片。
  */
-export default function BundleProductForm({ initial, onSubmit, onCancel }: Props) {
+export default function BundleProductForm({ initial, onSubmit, onCancel, submitError }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -42,6 +44,7 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
   const [circleIds, setCircleIds] = useState<string[]>([]);
   const [summary, setSummary] = useState<ErrorSummaryItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(0);
   const summaryRef = useRef<HTMLDivElement>(null);
   const focus = (id: string) => () => document.getElementById(id)?.focus();
 
@@ -55,7 +58,8 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
     if (!/^\d+(\.\d{1,2})?$/.test(price.trim())) problems.push({ key: 'price', message: '请填写整套总价（最多两位小数）', focus: focus('bundle-price') });
     if (!category) problems.push({ key: 'category', message: '请选择主分类（混合物品请选「其他 / 混合物品」）', focus: focus('bundle-category') });
     if (!condition) problems.push({ key: 'condition', message: '请选择整体成色', focus: focus('bundle-condition') });
-    if (!images.length) problems.push({ key: 'images', message: '请至少选择一张图片', focus: focus('bundle-image-0') });
+    if (!images.length) problems.push({ key: 'images', message: '请至少上传或选择一张图片', focus: focus('bundle-images-upload') });
+    if (uploading > 0) problems.push({ key: 'uploading', message: '图片还在上传，请稍候再提交', focus: focus('bundle-images-upload') });
     if (rows.length < BUNDLE_MIN_ITEMS || rows.length > BUNDLE_MAX_ITEMS) {
       problems.push({ key: 'rows', message: `打包明细需要 ${BUNDLE_MIN_ITEMS}～${BUNDLE_MAX_ITEMS} 行`, focus: focus('bundle-form-bundle-add') });
     }
@@ -98,38 +102,23 @@ export default function BundleProductForm({ initial, onSubmit, onCancel }: Props
           {CONDITIONS.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
         </TextField>
       </div>
-      <p className="text-xs text-slate-600">整套打包不参与同类单件的成交价统计，下面的参考只针对主分类的单件商品。</p>
-      <PriceGuidanceCard category={category} />
       <TextField select label="校区" value={campus} onChange={(e) => { setCampus(e.target.value as Campus); setBuildingId(null) }} size="small">
         {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
       </TextField>
       <BuildingSelect campus={campus} value={buildingId} onChange={setBuildingId} emptyLabel="不指定楼栋" zoneLabel="取货园区" buildingLabel="取货楼栋" />
-      <fieldset className="space-y-1">
-        <legend className="text-sm font-semibold text-slate-700">商品图片（{images.length}/9，演示版使用预置图片）</legend>
-        <div className="grid grid-cols-6 gap-2">
-          {IMAGE_PRESETS.slice(0, 6).map((url, i) => {
-            const selected = images.includes(url);
-            return (
-              <button key={url} id={`bundle-image-${i}`} type="button" aria-pressed={selected} aria-label={`整套选择图片 ${i + 1}`}
-                onClick={() => setImages(selected ? images.filter((x) => x !== url) : [...images, url].slice(0, 9))}
-                className={`h-10 rounded-lg border-2 text-xs ${selected ? 'border-teal-700 bg-teal-50' : 'border-slate-200'}`}>
-                {selected ? '已选' : `图 ${i + 1}`}
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
-      <FormControlLabel control={<Checkbox checked={contactPublic} onChange={(e) => setContactPublic(e.target.checked)} />} label="公开展示联系方式" />
-      <p className="text-xs text-slate-500">未勾选时，买家需点击“我想要”，经你同意后才能查看联系方式。</p>
+      <ImageUploader value={images} onChange={setImages} label="商品图片" inputId="bundle-images-upload"
+        presets={IMAGE_PRESETS.slice(0, 6)} presetVariant="compact" presetLabel={(i) => `整套选择图片 ${i + 1}`} onPendingChange={setUploading} />
+      <ContactPublicField checked={contactPublic} onChange={setContactPublic} />
       <TextField label="联系方式" value={contact} onChange={(e) => setContact(e.target.value)} size="small" fullWidth inputProps={{ maxLength: 100 }} />
       <BundleEditor rows={rows} onChange={setRows} idPrefix="bundle-form-bundle" />
       <div id="bundle-visibility" tabIndex={-1}>
         <VisibilityPicker visibility={visibility} circleIds={circleIds}
           onChange={(next) => { setVisibility(next.visibility); setCircleIds(next.circleIds) }} />
       </div>
+      {submitError && <Alert severity="error" role="alert">{submitError}</Alert>}
       <div className="flex justify-end gap-2">
         {onCancel && <Button color="inherit" onClick={onCancel}>取消</Button>}
-        <Button variant="contained" onClick={() => void submit()} disabled={submitting}>发布整套</Button>
+        <Button variant="contained" onClick={() => void submit()} disabled={submitting || uploading > 0}>发布整套</Button>
       </div>
     </div>
   );

@@ -33,7 +33,7 @@ test('#6 私密圈子：成员能看到圈子商品，非成员打开同一个�
   expect(search.total).toBe(0);
 });
 
-test('#7 两所学校：他校用户看不到本校商品（详情 404、搜索 0 条），带 schoolId 参数 400；不能预约他校商品', async ({ party }) => {
+test('#7 两所学校：他校用户看不到本校商品（详情 404、搜索 0 条），带 schoolId 参数 400；不能申请他校商品的联系方式', async ({ party }) => {
   const lakeCampus = ensureSecondSchool();
   const seller = await party('试点卖家');
   const lake = await party('湖畔同学', { campus: lakeCampus });
@@ -47,10 +47,9 @@ test('#7 两所学校：他校用户看不到本校商品（详情 404、搜索 
   await expect(lake.page.getByRole('link', { name: `查看闲置：${title}` })).toHaveCount(0);
   expect((await apiOk(lake, 'GET', `/v1/products?keyword=${encodeURIComponent(title)}`)).total).toBe(0);
   expect((await apiCall(lake, 'GET', '/v1/products?schoolId=pilot')).status).toBe(400);
-  const book = await apiCall(lake, 'POST', '/v1/orders', {
-    productId: product.id, meetingPointId: '东校区-library', meetingAtIso: new Date(Date.now() + 86_400_000).toISOString(), contact: '1', idempotencyKey: crypto.randomUUID(),
-  }, { 'Idempotency-Key': crypto.randomUUID() });
-  expect(book.status).toBe(404);
+  const request = await apiCall(lake, 'POST', `/v1/products/${product.id}/contact-request`, {});
+  expect(request.status).toBe(404);
+  expect(request.body.message).not.toBe('接口不存在');
   // 本校同学照常看到
   const peer = await party('试点同学');
   await open(peer, `/?keyword=${encodeURIComponent(title)}`);

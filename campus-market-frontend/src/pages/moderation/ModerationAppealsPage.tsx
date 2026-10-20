@@ -9,11 +9,11 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { ApiError, toUserMessage } from '../../api/errors';
 import type { StaffAppeal, StaffAppealPage } from '../../api/contracts';
-import { ACTION_LABEL, SCOPE_LABEL, formatUntil } from '../../utils/governance';
+import { ACTION_LABEL, RESTRICTION_SOURCE_LABEL, SCOPE_LABEL, formatUntil } from '../../utils/governance';
 
 /**
  * 平台工作人员：本校的申诉。申诉必须由做出原处理之外的另一位工作人员决定；
- * 接受会撤销尚未到期的限制（爽约来源的同时推翻那次确认）或恢复被隐藏的商品。每个决定都有二次确认。
+ * 接受会撤销尚未到期的限制，或恢复被隐藏的商品 / 留言、解除私信隔离。每个决定都有二次确认。
  */
 export default function ModerationAppealsPage() {
   const [data, setData] = useState<StaffAppealPage | null>(null);
@@ -68,7 +68,7 @@ export default function ModerationAppealsPage() {
             <li key={a.id} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
               <p className="font-semibold text-slate-800">
                 {a.subject.kind === 'RESTRICTION'
-                  ? `限制「${SCOPE_LABEL[a.subject.scope]}」· ${a.subject.sourceType === 'SYSTEM_RULE' ? `公开规则自动生成（${a.subject.ruleVersion ?? ''}）· ` : ''}${a.subject.active ? `至 ${formatUntil(a.subject.endsAt)}` : '已结束'}`
+                  ? `限制「${SCOPE_LABEL[a.subject.scope]}」· ${a.subject.sourceType === 'SYSTEM_RULE' ? `${RESTRICTION_SOURCE_LABEL.SYSTEM_RULE} · ` : ''}${a.subject.active ? `至 ${formatUntil(a.subject.endsAt)}` : '已结束'}`
                   : `处理「${ACTION_LABEL[a.subject.actionCode as keyof typeof ACTION_LABEL] ?? a.subject.actionCode}」`}
               </p>
               <p className="text-slate-700">申诉理由：{a.reason}</p>
@@ -86,7 +86,7 @@ export default function ModerationAppealsPage() {
         <DialogTitle id={titleId}>{pending?.accept ? '接受这条申诉？' : '驳回这条申诉？'}</DialogTitle>
         <DialogContent className="space-y-2">
           <p className="text-sm text-slate-700">
-            {pending?.accept ? '接受后会立即撤销尚未到期的限制或恢复商品，并写入审计。' : '驳回后原处理保持不变，申诉人不能再次申诉。'}
+            {pending?.accept ? '接受后会立即撤销尚未到期的限制或恢复被处理的内容，并写入审计。' : '驳回后原处理保持不变，申诉人不能再次申诉。'}
           </p>
           <TextField label="说明（选填）" value={note} onChange={(e) => setNote(e.target.value)} fullWidth multiline minRows={2} inputProps={{ maxLength: 500 }} />
         </DialogContent>

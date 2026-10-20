@@ -15,13 +15,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -159,76 +156,18 @@ class BundleListingIT {
     }
 
     @Test
-    @DisplayName("4. 只生成一个订单：下单后整套进入预约中，第二个买家 409；明细不是商品，不能单独下单")
-    void singleOrder() throws Exception {
+    @DisplayName("4. 整套只有一个联系入口：联系请求针对整套商品，申请后整套仍在售、不生成订单；明细不是商品，不能单独申请联系")
+    void singleContactEntry() throws Exception {
         User seller = api.register();
-        String id = api.ok(api.post(seller, "/v1/products", bundle("整套只能一单", 99, 6))).path("id").asText();
-        User buyer = api.register();
-        String orderId = api.order(buyer, id);
-        assertThat(jdbc.queryForObject("SELECT status FROM products WHERE id=?::uuid", String.class, id)).isEqualTo("预约中");
-
-        Map<String, Object> second = new LinkedHashMap<>();
-        second.put("productId", id);
-        second.put("meetingPointId", "东校区-library");
-        second.put("meetingAtIso", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusDays(1).truncatedTo(java.time.temporal.ChronoUnit.HOURS).toString());
-        second.put("contact", "13800000000");
-        second.put("idempotencyKey", UUID.randomUUID().toString());
-        assertThat(status(api.post(api.register(), "/v1/orders", second))).isEqualTo(409);
-        second.put("productId", "I01");
-        second.put("idempotencyKey", UUID.randomUUID().toString());
-        assertThat(status(api.post(api.register(), "/v1/orders", second))).as("明细编码不是商品").isIn(400, 404);
-        assertThat(count("SELECT count(*) FROM orders WHERE product_id=?::uuid", id)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT price_snapshot FROM orders WHERE id=?::uuid", java.math.BigDecimal.class, orderId))
-                .isEqualByComparingTo("99");
-    }
-
-    @Test
-    @DisplayName("5. 验货：一份订单验货记录，每条明细一条基础核对（含分类模板的核对要点）；全部一致 → 确认 → 完成，整套已售出")
-    void inspectionAndCompletion() throws Exception {
-        User seller = api.register();
-        String id = api.ok(api.post(seller, "/v1/products", bundle("整套验货完成", 150, 4))).path("id").asText();
-        User buyer = api.register();
-        String orderId = api.order(buyer, id);
-        api.ok(api.transition(seller, orderId, "PENDING_MEETING"));
-        JsonNode inspection = api.flow(buyer, orderId).path("inspection");
-        assertThat(count("SELECT count(*) FROM order_inspections WHERE order_id=?::uuid", orderId)).isEqualTo(1);
-        assertThat(inspection.path("items")).hasSize(4);
-        JsonNode first = inspection.path("items").get(0);
-        assertThat(first.path("code").asText()).isEqualTo("B01_I01");
-        assertThat(first.path("label").asText()).contains("明细1");
-        assertThat(first.path("description").asText()).contains("生活用品").contains("轻微使用痕迹");
-        assertThat(inspection.path("items").get(2).path("description").asText()).as("数码电子带分类模板的核对要点").contains("核对要点");
-
-        api.ok(api.submitAll(buyer, orderId, "MATCH"));
-        api.ok(api.transition(buyer, orderId, "BUYER_CONFIRMED"));
-        String code = jdbc.queryForObject("SELECT confirmation_code FROM orders WHERE id=?::uuid", String.class, orderId);
-        api.ok(api.post(seller, "/v1/orders/" + orderId + "/transitions", Map.of("to", "COMPLETED", "confirmationCode", code)));
-        assertThat(jdbc.queryForObject("SELECT status FROM products WHERE id=?::uuid", String.class, id)).isEqualTo("已售出");
-        assertThat(count("SELECT count(*) FROM bundle_items WHERE product_id=?::uuid", id)).as("明细随整套保留").isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("6. 任一明细不一致 → 订单 DISPUTED，确认被拦；只能取消，整套回到在售")
-    void mismatchDisputes() throws Exception {
-        User seller = api.register();
-        String id = api.ok(api.post(seller, "/v1/products", bundle("整套有一件不符", 150, 5))).path("id").asText();
-        User buyer = api.register();
-        String orderId = api.order(buyer, id);
-        api.ok(api.transition(seller, orderId, "PENDING_MEETING"));
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (JsonNode item : api.flow(buyer, orderId).path("inspection").path("items")) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("itemCode", item.path("code").asText());
-            row.put("result", items.size() == 3 ? "MISMATCH" : "MATCH");
-            if (items.size() == 3) row.put("note", "第 4 件与描述不符");
-            items.add(row);
-        }
-        api.ok(api.submit(buyer, orderId, items));
-        assertThat(jdbc.queryForObject("SELECT status FROM orders WHERE id=?::uuid", String.class, orderId)).isEqualTo("DISPUTED");
-        assertThat(api.flow(buyer, orderId).path("buyerConfirmBlockReason").asText()).isEqualTo("INSPECTION_MISMATCH");
-        assertThat(status(api.transition(buyer, orderId, "BUYER_CONFIRMED"))).isEqualTo(409);
-        api.ok(api.transition(buyer, orderId, "CANCELLED"));
+        String id = api.ok(api.post(seller, "/v1/products", bundle("整套只有一个入口", 99, 6))).path("id").asText();
+        User buyer = api.register(), another = api.register();
+        api.approvedContact(seller, buyer, id);
+        api.requestContact(another, id);
         assertThat(jdbc.queryForObject("SELECT status FROM products WHERE id=?::uuid", String.class, id)).isEqualTo("在售");
+        assertThat(count("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", id)).isEqualTo(2);
+        assertThat(count("SELECT count(*) FROM orders WHERE product_id=?::uuid", id)).isZero();
+        assertThat(status(api.post(api.register(), "/v1/products/I01/contact-request", Map.of()))).as("明细编码不是商品").isIn(400, 404);
+        assertThat(count("SELECT count(*) FROM bundle_items WHERE product_id=?::uuid", id)).as("明细随整套保留").isEqualTo(6);
     }
 
     @Test

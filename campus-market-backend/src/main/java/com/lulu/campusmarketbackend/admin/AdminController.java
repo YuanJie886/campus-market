@@ -15,24 +15,37 @@ public class AdminController {
     private final AdminService admin;
     private final AdminPermissions access;
     private final StaffModerationService moderation;
+    private final com.lulu.campusmarketbackend.security.AccountService accounts;
 
-    public AdminController(AuthService auth, AdminService admin, AdminPermissions access, StaffModerationService moderation) {
-        this.auth = auth; this.admin = admin; this.access = access; this.moderation = moderation;
+    public AdminController(AuthService auth, AdminService admin, AdminPermissions access, StaffModerationService moderation,
+                           com.lulu.campusmarketbackend.security.AccountService accounts) {
+        this.auth = auth; this.admin = admin; this.access = access; this.moderation = moderation; this.accounts = accounts;
     }
     @GetMapping("/me")
     public Map<String, Object> me(HttpServletRequest request) { return admin.me(auth.authenticate(request, false)); }
 
-    @GetMapping("/{resource:users|products|orders|audit|roles}")
+    @GetMapping("/{resource:users|products|orders|audit|roles|role-requests|read-audit}")
     public Map<String, Object> list(HttpServletRequest request, @PathVariable String resource, @RequestParam Map<String, String> query) {
-        return admin.list(auth.authenticate(request, false), resource, query);
+        return admin.list(auth.authenticate(request, false), resource, query, RequestIdFilter.currentRequestId(request));
     }
-    @GetMapping("/{resource:users|products|orders|audit|roles}/{id}")
+    @GetMapping("/{resource:users|products|orders|audit|roles|role-requests|read-audit}/{id}")
     public Map<String, Object> one(HttpServletRequest request, @PathVariable String resource, @PathVariable String id) {
-        return admin.one(auth.authenticate(request, false), resource, id);
+        return admin.one(auth.authenticate(request, false), resource, id, RequestIdFilter.currentRequestId(request));
+    }
+    /** 阶段 2：涉及学校管理员的变更由另一位学校管理员确认 / 驳回，发起人可以撤回。 */
+    @PostMapping("/role-requests/{id}/{decision:approve|reject|cancel}")
+    public Map<String, Object> decideRoleRequest(HttpServletRequest request, @PathVariable String id, @PathVariable String decision,
+                                                 @RequestBody(required = false) Map<String, Object> body) {
+        return admin.decideRoleRequest(auth.authenticate(request, false), id, decision, body, RequestIdFilter.currentRequestId(request));
     }
     @PatchMapping("/users/{id}/staff")
     public Map<String, Object> staff(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
         return admin.updateStaff(auth.authenticate(request, false), id, body, RequestIdFilter.currentRequestId(request));
+    }
+    /** 阶段 3：学校管理员线下核对身份后为本校用户签发一次性重置码（只显示一次）。 */
+    @PostMapping("/users/{id}/password-reset")
+    public Map<String, Object> passwordReset(HttpServletRequest request, @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        return accounts.issueResetCode(auth.authenticate(request, false), id, body, RequestIdFilter.currentRequestId(request));
     }
     @PatchMapping("/products/{id}")
     public Map<String, Object> product(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {

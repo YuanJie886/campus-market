@@ -19,15 +19,11 @@ public class ModerationCases {
     }
 
     /** 取得（必要时新建）目标的未结案件，并对案件行加锁。 */
-    public Map<String, Object> ensure(String schoolId, String targetType, UUID targetId, UUID noShowReportId) {
+    public Map<String, Object> ensure(String schoolId, String targetType, UUID targetId) {
         Map<String, Object> open = governance.lockOpenCase(schoolId, targetType, targetId);
         if (open != null) return open;
-        governance.insertCase(UUID.randomUUID(), schoolId, targetType, targetId, noShowReportId);
+        governance.insertCase(UUID.randomUUID(), schoolId, targetType, targetId, null);
         return governance.lockOpenCase(schoolId, targetType, targetId);
-    }
-
-    public Map<String, Object> ensureNoShowCase(String schoolId, UUID reportId) {
-        return ensure(schoolId, "NO_SHOW", reportId, reportId);
     }
 
     public Map<String, Object> lockOpenFor(String targetType, UUID targetId, String schoolId) {
@@ -41,10 +37,5 @@ public class ModerationCases {
             if (status.equals("OPEN") || status.equals("UNDER_REVIEW") || status.equals("APPEALED")) return c;
         }
         return null;
-    }
-
-    /** 对方承认爽约时，已请求复核的案件以「已确认」结案（没有工作人员动作，也就没有动作记录）。 */
-    public void resolveWithoutStaff(UUID caseId, String resolution) {
-        governance.resolveCase(caseId, "RESOLVED", resolution, null);
     }
 }

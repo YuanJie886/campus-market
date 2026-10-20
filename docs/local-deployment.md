@@ -28,6 +28,10 @@
 
 - 真实部署时把这些值写进 `deploy/.env`（已被 `.gitignore` 忽略），模板是 `deploy/.env.example`；绝不要提交真实值，也不要贴进聊天、工单或截图。
 - `WEB_ORIGIN` 是 `https://` 而 `SECURE_COOKIES=false` 时，后端拒绝启动（长期凭据不能在明文连接上发送）。
+- 可选配置：`WECHAT_APP_ID` / `WECHAT_APP_SECRET`（两者都配置才启用微信登录与内容安全）；
+  `ALLOW_EXTERNAL_IMAGES`（默认 `false`：新商品只能用本平台上传的图片，已有商品里的外部图片编辑时可以保留；只在演示环境设为 `true`）。
+- 日志：每个容器的日志按大小轮转（5 × 10 MB）。nginx 访问日志不记录查询参数（图片签名、搜索词），并带 `rid=` 请求编号，
+  与 API 日志里的 `requestId=` 是同一个值，用户反馈时按响应头 `X-Request-ID` 查两边日志。
 - 系统里**没有默认管理员**；首个平台工作人员按 `campus-market-backend/docs/staff-runbook.md` 用受控 SQL 配置，每校至少两名。
 
 ## 3. 启动与停止
@@ -60,11 +64,15 @@ node deploy/drill/local-deploy-drill.mjs <报告输出目录>
 | 缺密钥启动失败 | 分别缺 `JWT_SECRET` / `SECURE_COOKIES` / `POSTGRES_PASSWORD` 时 `config` 失败；直接运行 api 镜像不给 `JWT_SECRET` 时进程退出 |
 | 端口 | 生产编排的两个端口都只绑定 `127.0.0.1`；演练栈的 PostgreSQL 不发布任何端口，Web 只绑定 `127.0.0.1` 临时端口 |
 | 数据库就绪后 API 启动 | 比较 PostgreSQL 健康检查首次通过的时间与 API 容器的启动时间 |
-| Flyway 成功后接受请求 | API 日志里 `Successfully applied 11 migrations` 在 `Tomcat started` 之前；历史表 11 条全部成功 |
+| Flyway 成功后接受请求 | API 日志里 `Successfully applied N migrations` 在 `Tomcat started` 之前；历史表 N 条全部成功（N 取自仓库里的迁移文件数） |
 | 健康检查不泄露配置 | 响应只有 `{"status":"ok"}`，不含 jdbc / password / secret / 版本 |
 | SPA 深链接与 /v1 代理 | 深链接返回 `index.html`；未知的 `/v1/...` 得到 API 的 JSON 404 而不是页面 |
 | Cookie 策略按环境生效 | http 配置不带 `Secure`、https 配置带 `Secure`；https + `SECURE_COOKIES=false` 拒绝启动；刷新接口拒绝其他来源 |
+| 安全响应头 | `/`、`/admin/`、`/v1/health` 都带 CSP、`X-Frame-Options`、`nosniff`，不暴露 nginx 版本 |
+| 日志 | 每个服务都按大小轮转；请求编号由 nginx 生成并与 API 日志一致；访问日志不含查询参数与图片签名 |
+| 图片 | 经 nginx 上传 1.2 MB 图片；生产默认拒绝外部图片链接；哨兵商品引用上传的图片；重启后图片仍可读 |
 | 重启后数据保留 | 写入哨兵后 `down`（不带 `-v`）+ `up`，哨兵数据与读取都在 |
+| 冒烟压测（可选） | `DRILL_LOAD=1`（时长 `DRILL_LOAD_SECONDS`，默认 60）：对演练栈运行 `deploy/loadtest/load-smoke.mjs`，报告写入 `load-smoke.md` |
 | 备份与恢复 | 见 `docs/backup-and-restore.md` |
 
 演练约束：唯一项目名；只绑定 `127.0.0.1`；一次性随机凭据只经环境变量传给 `docker-compose`（不写文件、不打印）；

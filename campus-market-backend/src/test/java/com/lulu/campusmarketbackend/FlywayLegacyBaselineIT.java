@@ -49,7 +49,7 @@ class FlywayLegacyBaselineIT {
     private static final String V1_RESOURCE = "db/migration/V1__initial_schema.sql";
     private static final String BASELINE_DESCRIPTION = "legacy-schema-v1";
     /** 最新迁移版本。新增迁移时只改这里（以及对应的新场景），各起点应执行的条数由它推出。 */
-    private static final int LATEST = 14;
+    private static final int LATEST = 20;
 
     /** 仅一次性容器使用的测试凭据，与项目 .env / 生产配置无关。 */
     private static final String TEST_DB = "campus_market_legacy";
@@ -169,9 +169,12 @@ class FlywayLegacyBaselineIT {
         assertThat(exists(jdbc, "products", legacyProduct)).as("旧商品应保留").isTrue();
         assertThat(exists(jdbc, "orders", legacyOrder)).as("旧订单应保留").isTrue();
 
+        // V16：站内交易停用，未结束的旧订单统一关闭为 EXPIRED，原状态记入收尾审计；V2～V15 都不改写订单
         String orderStatus = jdbc.queryForObject(
                 "SELECT status FROM orders WHERE id = ?", String.class, legacyOrder);
-        assertThat(orderStatus).as("旧订单状态不应被改写").isEqualTo("PENDING_SELLER_CONFIRM");
+        assertThat(orderStatus).as("只有 V16 的统一收尾会改写未结束订单的状态").isEqualTo("EXPIRED");
+        assertThat(jdbc.queryForObject("SELECT from_status FROM legacy_trade_closures WHERE entity_type='ORDER' AND entity_id=?", String.class, legacyOrder))
+                .as("原状态如实留痕").isEqualTo("PENDING_SELLER_CONFIRM");
 
         // ---- 6) 预置数据没有翻倍 ----
         assertThat(countOf(jdbc, "schools")).isEqualTo(schoolsBefore);
@@ -412,9 +415,13 @@ class FlywayLegacyBaselineIT {
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inspection_templates WHERE active", Integer.class)).isEqualTo(5);
 
-        // 旧订单：原样保留，不伪造任何可信面交事实
-        assertThat(jdbc.queryForMap("SELECT status, meeting_point_id, meeting_at, expires_at FROM orders WHERE id=?", order))
-                .isEqualTo(orderBefore);
+        // 旧订单：除 V16 的统一收尾（状态 → EXPIRED、原状态留痕）外原样保留，不伪造任何可信面交事实
+        Map<String, Object> orderAfter = new java.util.HashMap<>(jdbc.queryForMap("SELECT status, meeting_point_id, meeting_at, expires_at FROM orders WHERE id=?", order));
+        assertThat(orderAfter.remove("status")).isEqualTo("EXPIRED");
+        Map<String, Object> expectedAfter = new java.util.HashMap<>(orderBefore);
+        assertThat(jdbc.queryForObject("SELECT from_status FROM legacy_trade_closures WHERE entity_type='ORDER' AND entity_id=?", String.class, order))
+                .isEqualTo(expectedAfter.remove("status"));
+        assertThat(orderAfter).isEqualTo(expectedAfter);
         assertThat(jdbc.queryForObject("SELECT meeting_revision FROM orders WHERE id=?", Integer.class, order)).isZero();
         assertThat(jdbc.queryForObject("SELECT meeting_ends_at FROM orders WHERE id=?", Object.class, order)).isNull();
         for (String table : List.of("order_inspections", "order_inspection_items", "order_presence",
@@ -762,7 +769,8 @@ class FlywayLegacyBaselineIT {
 
     @Test
     @DisplayName("K. 停在 V10 的库执行 V11：旧原始预约不补结束时间、不生成快照且不能再确认爽约；被接受过的改约回填快照；"
-            + "NO_SHOW_RULE 改名 SYSTEM_RULE 并补规则版本与依据；人工限制不变；V1～V10 checksum 不变")
+            + "NO_SHOW_RULE 改名 SYSTEM_RULE 并补规则版本与依据；人工限制不变；V1～V10 checksum 不变。"
+            + "继续执行 V16：未结束的订单统一关闭并留痕、自动限制撤销、爽约案件结案、预约中商品恢复在售、交易表只读；V1～V15 checksum 不变")
     void databaseAtV10AppliesV11() throws SQLException {
         String db = "campus_market_v10_upgrade";
         createDatabase(db);
@@ -814,11 +822,13 @@ class FlywayLegacyBaselineIT {
                 + "VALUES (?,?,'pilot','PUBLISHING','CASE',?,?,'OTHER', now(), now() + interval '2 days')", caseRestriction, seller, caseId, staff);
         Map<String, Object> caseBefore = jdbc.queryForMap("SELECT scope, source, case_id, created_by, starts_at, ends_at FROM user_restrictions WHERE id=?", caseRestriction);
 
-        Flyway toLatest = Flyway.configure()
-                .dataSource(dataSource).locations(MIGRATION_LOCATION).cleanDisabled(true).load();
-        MigrateResult result = toLatest.migrate();
+        Flyway toV11 = Flyway.configure()
+                .dataSource(dataSource).locations(MIGRATION_LOCATION)
+                .target(org.flywaydb.core.api.MigrationVersion.fromVersion("11"))
+                .cleanDisabled(true).load();
+        MigrateResult result = toV11.migrate();
         assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).as("应执行 V11～当前最新版本").isEqualTo(LATEST - 10);
+        assertThat(result.migrationsExecuted).as("先只执行 V11").isEqualTo(1);
 
         // ① 不猜：旧原始预约仍没有结束时间，也没有快照；它上面的报告不能再被承认 / 确认
         assertThat(jdbc.queryForObject("SELECT meeting_ends_at FROM orders WHERE id=?", Object.class, legacy)).isNull();
@@ -854,6 +864,63 @@ class FlywayLegacyBaselineIT {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM messages WHERE moderation_quarantined_at IS NOT NULL", Integer.class)).isZero();
 
         assertThat(checksumsUpTo(jdbc, "10")).as("V11 不得改动 V1～V10 的任何内容").isEqualTo(before);
+
+        // ---------------- 继续升级到 V15，再写入 V16 之前可能存在的状态，然后执行 V16 ----------------
+        Flyway toV15 = Flyway.configure()
+                .dataSource(dataSource).locations(MIGRATION_LOCATION)
+                .target(org.flywaydb.core.api.MigrationVersion.fromVersion("15"))
+                .cleanDisabled(true).load();
+        assertThat(toV15.migrate().migrationsExecuted).isEqualTo(4);
+        UUID openNoShowCase = UUID.randomUUID();
+        jdbc.update("INSERT INTO moderation_cases(id, school_id, target_type, target_id) VALUES (?, 'pilot', 'NO_SHOW', ?)", openNoShowCase, confirmed);
+        UUID reserved = insertProduct(jdbc, seller, "V15 之后仍是预约中的商品");
+        jdbc.update("UPDATE products SET status='预约中' WHERE id=?", reserved);
+        UUID listed = insertProduct(jdbc, seller, "联系申请商品");
+        UUID approved = UUID.randomUUID(), pending = UUID.randomUUID();
+        UUID otherBuyer = insertUser(jdbc, "v15-buyer");
+        jdbc.update("INSERT INTO contact_requests(id, product_id, buyer_id, seller_id, status, updated_at) VALUES (?,?,?,?,'APPROVED', now() - interval '1 hour')",
+                approved, listed, buyer, seller);
+        jdbc.update("INSERT INTO contact_requests(id, product_id, buyer_id, seller_id) VALUES (?,?,?,?)", pending, listed, otherBuyer, seller);
+        Map<String, Object> before15 = checksumsUpTo(jdbc, "15");
+
+        Flyway toLatest = Flyway.configure()
+                .dataSource(dataSource).locations(MIGRATION_LOCATION).cleanDisabled(true).load();
+        assertThat(toLatest.migrate().migrationsExecuted).as("应执行 V16～当前最新版本").isEqualTo(LATEST - 15);
+
+        // V16 ① 未结束的历史订单统一关闭（EXPIRED，没有操作人），写入订单事件与收尾审计
+        for (UUID order : List.of(legacy, agreed)) {
+            assertThat(jdbc.queryForObject("SELECT status FROM orders WHERE id=?", String.class, order)).isEqualTo("EXPIRED");
+            Map<String, Object> event = jdbc.queryForMap("SELECT actor_id, from_status, reason FROM order_events WHERE order_id=? AND to_status='EXPIRED'", order);
+            assertThat(event.get("actor_id")).isNull();
+            assertThat(event.get("from_status")).isEqualTo("PENDING_MEETING");
+            assertThat((String) event.get("reason")).contains("平台已停止站内交易");
+            assertThat(jdbc.queryForObject("SELECT reason FROM legacy_trade_closures WHERE entity_type='ORDER' AND entity_id=?", String.class, order))
+                    .isEqualTo("PLATFORM_TRADE_RETIRED");
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM order_cancellations", Integer.class)).as("系统关闭不是任何一方的取消").isZero();
+        // ② 爽约规则产生、仍在生效的自动限制撤销；人工限制不动
+        Map<String, Object> retired = jdbc.queryForMap("SELECT revoked_at, revoke_reason FROM user_restrictions WHERE id=?", ruleRestriction);
+        assertThat(retired.get("revoked_at")).isNotNull();
+        assertThat(retired.get("revoke_reason")).isEqualTo("RULE_RETIRED");
+        assertThat(jdbc.queryForObject("SELECT revoked_at FROM user_restrictions WHERE id=?", Object.class, caseRestriction)).isNull();
+        // ③ 以爽约为对象的未结案件不采取措施结案；已确认的历史报告保持原状
+        Map<String, Object> dismissed = jdbc.queryForMap("SELECT status, resolution_code, resolved_at FROM moderation_cases WHERE id=?", openNoShowCase);
+        assertThat(dismissed.get("status")).isEqualTo("DISMISSED");
+        assertThat(dismissed.get("resolution_code")).isEqualTo("NO_ACTION");
+        assertThat(dismissed.get("resolved_at")).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT status FROM order_no_show_reports WHERE id=?", String.class, confirmed)).isEqualTo("CONFIRMED");
+        // ④ 残留的「预约中」商品恢复在售
+        assertThat(jdbc.queryForObject("SELECT status FROM products WHERE id=?", String.class, reserved)).isEqualTo("在售");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM legacy_trade_closures", Integer.class)).as("2 张订单 + 1 条限制 + 1 个案件 + 1 件商品").isEqualTo(5);
+        // ⑤ 联系申请：已决定的回填决定时间，待处理的没有；双方都还没读过
+        assertThat(jdbc.queryForObject("SELECT decided_at = updated_at FROM contact_requests WHERE id=?", Boolean.class, approved)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT decided_at FROM contact_requests WHERE id=?", Object.class, pending)).isNull();
+        // ⑥ 历史交易表只读，以订单 / 爽约为对象的新案件被拒绝
+        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET status='CANCELLED' WHERE id=?", legacy)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO moderation_cases(id, school_id, target_type, target_id) VALUES (gen_random_uuid(), 'pilot', 'ORDER', ?)", legacy))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class);
+
+        assertThat(checksumsUpTo(jdbc, "15")).as("V16 不得改动 V1～V15 的任何内容").isEqualTo(before15);
         assertThat(toLatest.migrate().migrationsExecuted).as("第二次启动不得重复迁移").isZero();
         toLatest.validate();
     }
