@@ -39,7 +39,7 @@
     "babel-preset-taro": "4.3.0",
     "react-refresh": "^0.14.2",
     "sass": "^1.89.0",
-    "typescript": "~5.8.3",
+    "typescript": "~7.0.2",
     "vite": "4.5.14",
     "vitest": "3.2.7"
   }
