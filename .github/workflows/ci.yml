@@ -76,7 +76,7 @@ jobs:
                   shown += 1
                   if shown >= 30: raise SystemExit
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: backend-test-reports
@@ -86,7 +86,7 @@ jobs:
           retention-days: 7
       - name: 打包
         run: ./mvnw -B -DskipTests package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: backend-jar
           path: campus-market-backend/target/campus-market-backend-*.jar
@@ -217,7 +217,7 @@ jobs:
         run: npx playwright test e2e/specs/invite.spec.ts
       - name: 失败时上传脱敏截图与 trace
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-failures
           path: campus-market-frontend/test-results
