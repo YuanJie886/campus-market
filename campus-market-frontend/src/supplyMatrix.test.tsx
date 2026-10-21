@@ -90,7 +90,7 @@ describe('5.7C 追踪矩阵补测', () => {
     const e = await api.createProduct({ title: 't', description: 'd', price: 1, category: '其他', condition: '全新', campus: '东校区',
       images: [], contact: '1', listingKind: 'BUNDLE', bundleItems: bundleItems(31) }).catch((x) => x);
     expect((e as ApiError).code).toBe(400);
-  }, 30_000);   // jsdom 里渲染 30 行 MUI 选择框较慢
+  }, 90_000);   // jsdom 里渲染 30 行 MUI 选择框较慢；CI 机器约慢一倍（本机约 25–30 秒）
 
   it('#7 明细不能单独申请联系：详情里明细行没有任何操作按钮；用明细编号申请联系 404，只有整套能申请', async () => {
     await user('seller');

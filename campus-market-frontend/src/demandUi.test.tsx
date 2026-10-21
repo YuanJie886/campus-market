@@ -94,7 +94,7 @@ describe('2.5 搜索空态订阅入口', () => {
     await api.updateProfile({ dormBuildingId: 'east-qinyuan-1' });
     renderApp(searchUrl('本楼没有的东西qqq'));
     fireEvent.click(await screen.findByRole('radio', { name: '本楼' }));
-    fireEvent.click(await screen.findByRole('button', { name: '订阅这个需求' }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('button', { name: '订阅这个需求' }, { timeout: 15_000 }));
     fireEvent.click(await screen.findByRole('button', { name: '确认订阅' }));
     await screen.findByText(/订阅成功/);
     const [sub] = await api.listDemandSubscriptions();
@@ -104,7 +104,7 @@ describe('2.5 搜索空态订阅入口', () => {
 
   it('5. 未登录（6.1A）：搜索页只有落地页与登录入口，不展示任何搜索结果或订阅入口，也不写入任何草稿', async () => {
     renderApp(searchUrl('登录后再订阅的东西'));
-    expect(await screen.findByRole('heading', { name: '登录后查看本校在售好物' }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '登录后查看本校在售好物' }, { timeout: 15_000 })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '订阅这个需求' })).toBeNull();
     expect(screen.queryByText('没有找到？订阅一下，有货第一时间通知你。')).toBeNull();
     expect(window.sessionStorage.getItem(DEMAND_DRAFT_KEY)).toBeNull();
@@ -115,7 +115,7 @@ describe('2.5 搜索空态订阅入口', () => {
     await signIn();
     // 回到登录前的同一个搜索页；此时结果是否为空都不影响恢复
     renderApp('/?resumeSubscribe=1');
-    const keyword = await screen.findByLabelText('关键词', undefined, { timeout: 5000 });
+    const keyword = await screen.findByLabelText('关键词', undefined, { timeout: 15_000 });
     expect((keyword as HTMLInputElement).value).toBe('恢复的草稿');
     expect(window.sessionStorage.getItem(DEMAND_DRAFT_KEY)).toBeNull();
   });
@@ -137,7 +137,7 @@ describe('2.4 收件箱', () => {
   it('7. 展示命中条件、匹配理由、匹配档位；「申请联系卖家」进入商品详情（不再有预约面交入口）', async () => {
     const product = await seedMatch();
     renderApp('/demands');
-    expect(await screen.findByText(/命中订阅：关键词「收件箱台灯」/, undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByText(/命中订阅：关键词「收件箱台灯」/, undefined, { timeout: 15_000 })).toBeTruthy();
     expect(screen.getByText(/匹配理由：标题与关键词完全一致/)).toBeTruthy();
     expect(screen.getByText('一般匹配')).toBeTruthy();
     const contact = screen.getByRole('link', { name: '申请联系卖家' });
@@ -150,7 +150,7 @@ describe('2.4 收件箱', () => {
   it('8. 标记已读后导航栏角标与列表同步更新', async () => {
     await seedMatch();
     renderApp('/demands');
-    expect(await screen.findByRole('button', { name: '需求匹配，1 条未读' }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '需求匹配，1 条未读' }, { timeout: 15_000 })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: '标记已读' }));
     expect(await screen.findByRole('button', { name: '需求匹配' })).toBeTruthy();
     expect(screen.queryByText('未读')).toBeNull();
@@ -159,7 +159,7 @@ describe('2.4 收件箱', () => {
   it('9. 忽略后从列表消失', async () => {
     await seedMatch();
     renderApp('/demands');
-    fireEvent.click(await screen.findByRole('button', { name: '忽略' }, { timeout: 5000 }));
+    fireEvent.click(await screen.findByRole('button', { name: '忽略' }, { timeout: 15_000 }));
     expect(await screen.findByText(/还没有匹配/)).toBeTruthy();
   });
 
@@ -170,7 +170,7 @@ describe('2.4 收件箱', () => {
     (api as unknown as { db: { market: { products: Array<{ id: string; status: string }> } } })
       .db.market.products.find((p) => p.id === product.id)!.status = '已售出';
     renderApp('/demands');
-    expect(await screen.findByText('已售出或下架，暂不可联系', undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByText('已售出或下架，暂不可联系', undefined, { timeout: 15_000 })).toBeTruthy();
     expect(screen.queryByRole('link', { name: '申请联系卖家' })).toBeNull();
     expect(screen.getByRole('link', { name: '查看商品' }).getAttribute('href')).toBe(`/product/${product.id}`);
     expect(matches.items).toHaveLength(1);
@@ -178,13 +178,13 @@ describe('2.4 收件箱', () => {
 
   it('11. 未登录访问 /demands 跳转登录', async () => {
     renderApp('/demands');
-    expect(await screen.findByRole('button', { name: '一键体验账号' }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '一键体验账号' }, { timeout: 15_000 })).toBeTruthy();
   });
 
   it('12. 从匹配进入详情页不会自动发起联系申请，也不弹出任何预约框；必须由用户点击「我想要」', async () => {
     const product = await seedMatch();
     renderApp(`/product/${product.id}`);
-    const want = await screen.findByRole('button', { name: '我想要' }, { timeout: 5000 });
+    const want = await screen.findByRole('button', { name: '我想要' }, { timeout: 15_000 });
     await waitFor(() => expect((want as HTMLButtonElement).disabled).toBe(false));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.queryByText('预约校园面交')).toBeNull();

@@ -12,6 +12,7 @@ export default defineConfig({
     setupFiles: ['src/test-setup.ts'],
     // 渲染整页的用例在全量并行时会互相抢 CPU，单个用例偶尔超过默认的 5 秒；
     // 这里只放宽超时，不改变任何断言（单独运行时这些用例都在 1 秒左右完成）
-    testTimeout: 20_000,
+    // CI 托管机器明显慢于本机：只放宽上限，不影响正常通过的用例耗时
+    testTimeout: process.env.CI ? 60_000 : 20_000,
   },
 });

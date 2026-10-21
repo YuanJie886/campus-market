@@ -61,6 +61,29 @@ jobs:
         run: ./mvnw -B test
       - name: PostgreSQL 16 集成测试（Testcontainers）
         run: ./mvnw -B verify -Ppostgres-it
+      - name: 失败用例写成注解（无需登录即可在 PR 上看到是哪一个用例）
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, html, re
+          shown = 0
+          for path in sorted(glob.glob('target/surefire-reports/TEST-*.xml') + glob.glob('target/failsafe-reports/TEST-*.xml')):
+              text = open(path, encoding='utf-8', errors='replace').read()
+              for m in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)"[^>]*>\s*<(failure|error)([^>]*)>', text):
+                  msg = re.search(r'message="([^"]*)"', m.group(4))
+                  detail = html.unescape(msg.group(1) if msg else m.group(3))[:600].replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+                  print(f"::error title={m.group(2).split('.')[-1]}.{m.group(1)}::{detail}")
+                  shown += 1
+                  if shown >= 30: raise SystemExit
+          PY
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-test-reports
+          path: |
+            campus-market-backend/target/surefire-reports/
+            campus-market-backend/target/failsafe-reports/
+          retention-days: 7
       - name: 打包
         run: ./mvnw -B -DskipTests package
       - uses: actions/upload-artifact@v4
