@@ -6,14 +6,16 @@ import { Empty, ErrorState, LoginGate, PageTitle } from '../../components';
 import { availableActions, badgeText, CONFIRM, CONTACT_PAGE_SIZE, hasMoreContacts, mergeContactPage, STATUS_LABEL, STATUS_TONE, statusNote, type ContactAction } from '../../contacts';
 import type { ContactRequest, ContactRole } from '../../model';
 import { timeAgo } from '../../model';
-import { notify, notifyError, unread, useMarket, useUnread } from '../../state';
+import { notify, notifyError, unread, useDemandUnread, useMarket, useMessageUnread, useUnread } from '../../state';
+import { DEMAND_PAGES, PAGES } from '../../menu';
+import { Avatar } from '../../widgets/Avatar';
 
 const CARD: Record<ContactRequest['status'], string> = { PENDING: '', APPROVED: 'done', REJECTED: 'dead', WITHDRAWN: 'dead', REVOKED: 'dead' };
 const CONFIRM_TEXT: Record<ContactAction, string> = { approve: '同意', reject: '拒绝', revoke: '撤回同意', withdraw: '撤回申请' };
 
 export default function NotificationsPage() {
   const { user } = useMarket();
-  const count = useUnread();
+  const count = useUnread(), messageCount = useMessageUnread(), demandCount = useDemandUnread();
   const [role, setRole] = useState<ContactRole>('received');
   const [items, setItems] = useState<ContactRequest[]>([]), [total, setTotal] = useState(0), [page, setPage] = useState(0);
   const [error, setError] = useState(''), [loading, setLoading] = useState(false), [busy, setBusy] = useState('');
@@ -63,6 +65,12 @@ export default function NotificationsPage() {
   return <View className='page'>
     <PageTitle title='联系申请' subtitle={received ? '同意后对方才能看到这件商品的联系方式；同意后也可以撤回。' : '卖家同意后，到商品详情查看联系方式；待处理的申请可以撤回。'} />
     <LoginGate returnTo='/pages/notifications/index'>
+      <View className='menu-panel inbox-entry' onClick={() => void Taro.navigateTo({ url: PAGES.messages })}>
+        <View className='menu-row'><Text className='menu-text'>私信{badgeText(messageCount) ? <Text className='seg-count'>{badgeText(messageCount)}</Text> : null}</Text><Text className='menu-value'>{messageCount ? '有新消息' : '查看会话'}<View className='i-chevron-r' /></Text></View>
+      </View>
+      <View className='menu-panel inbox-entry' onClick={() => void Taro.navigateTo({ url: DEMAND_PAGES.inbox })}>
+        <View className='menu-row'><Text className='menu-text'>需求匹配{badgeText(demandCount) ? <Text className='seg-count'>{badgeText(demandCount)}</Text> : null}</Text><Text className='menu-value'>{demandCount ? '有新匹配' : '订阅与匹配'}<View className='i-chevron-r' /></Text></View>
+      </View>
       <View className='segmented'>
         {tab('received', '收到的', count.received)}
         {tab('sent', '发出的', count.updates)}
@@ -73,7 +81,7 @@ export default function NotificationsPage() {
         const actions = availableActions(role, r.status);
         return <View className={`req-card ${CARD[r.status]} ${r.unread ? 'unread' : ''}`} key={r.id}>
           <View className='req-head'>
-            <View className={`req-avatar ${r.status === 'PENDING' ? '' : 'mute'}`}>{name.slice(0, 1)}</View>
+            <Avatar userId={received ? r.buyerId : r.sellerId} nickname={name} size='small' />
             <View><Text className='req-name'>{name}{r.unread ? <Text className='req-new'>新</Text> : null}</Text><Text className='req-sub'>{received ? '想联系你' : '我向卖家申请联系方式'}</Text></View>
             <Text className={`status-pill ${STATUS_TONE[r.status]}`}>{STATUS_LABEL[r.status]}</Text>
           </View>

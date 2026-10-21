@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import InputBase from "@mui/material/InputBase";
 import IconButton from "@mui/material/IconButton";
 import Badge from "@mui/material/Badge";
-import Avatar from "@mui/material/Avatar";
+import Avatar from "./Avatar";
 import Button from "@mui/material/Button";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -47,6 +47,8 @@ export default function Navbar() {
   const { counts: contactUnread } = useContactUnreadCounts();
 
   const [keyword, setKeyword] = useState("");
+  // 首页自带醒目的搜索框（与小程序集市页一致），导航栏不再重复一份
+  const showSearch = useLocation().pathname !== "/";
   // 模块 7：只有服务端确认的本校平台工作人员才显示工作台入口（权限以后端为准，这里只是体验）
   const [isStaff, setIsStaff] = useState(false);
   const [isAuditor, setIsAuditor] = useState(false);
@@ -135,6 +137,7 @@ export default function Navbar() {
         </Link>
 
         {/* 桌面端搜索框 */}
+        {showSearch ? (
         <form
           onSubmit={handleSearch}
           className="hidden flex-1 items-center sm:flex"
@@ -159,6 +162,9 @@ export default function Navbar() {
             </Button>
           </div>
         </form>
+        ) : (
+          <div className="hidden flex-1 sm:block" />
+        )}
 
         <div className="flex-1 sm:hidden" />
 
@@ -279,17 +285,15 @@ export default function Navbar() {
                   aria-label="用户菜单"
                 >
                   <Avatar
-                    src={currentUser.avatar}
-                    alt={currentUser.nickname}
-                    sx={{
-                      width: 36,
-                      height: 36,
+                    avatar={currentUser.avatar}
+                    nickname={currentUser.nickname}
+                    userId={currentUser.id}
+                    size={36}
+                    style={{
                       border: "2px solid #fff",
                       boxShadow: "0 3px 12px rgba(15,23,42,0.12)",
                     }}
-                  >
-                    {currentUser.nickname.slice(0, 1)}
-                  </Avatar>
+                  />
                 </IconButton>
               </Tooltip>
               <Menu
@@ -355,6 +359,7 @@ export default function Navbar() {
       </Toolbar>
 
       {/* 移动端搜索行 */}
+      {showSearch && (
       <form onSubmit={handleSearch} className="flex px-3 pb-2 sm:hidden">
         <div className="flex w-full items-center gap-1 rounded-[16px] border border-transparent bg-white px-3 py-1.5 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
           <SearchIcon fontSize="small" className="text-slate-400" />
@@ -375,6 +380,7 @@ export default function Navbar() {
           </Button>
         </div>
       </form>
+      )}
     </AppBar>
   );
 }

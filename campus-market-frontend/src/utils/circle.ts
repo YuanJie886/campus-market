@@ -20,7 +20,5 @@ export const LEAVE_CONSEQUENCES = [
   '联系申请随之失效：你在这个圈子仅圈子可见的商品上的联系申请会从列表中消失，已获同意的联系方式也不再向你展示。',
 ];
 
-/** 圈子邀请链接：邀请码放在 # 之后，不会发送给服务器，也不会出现在访问日志里 */
-export function circleInviteLink(origin: string, token: string): string {
-  return `${origin}/circles/join#code=${encodeURIComponent(token)}`;
-}
+/** 每个圈子邀请码只能用一次、只显示一次（与小程序 INVITE_ONCE_TEXT 相同） */
+export const INVITE_ONCE_TEXT = '每个邀请码只能使用一次。邀请码只在生成后显示这一次，平台不保存原文，丢失后请重新生成。';

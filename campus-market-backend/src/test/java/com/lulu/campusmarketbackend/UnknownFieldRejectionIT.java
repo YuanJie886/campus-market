@@ -188,7 +188,7 @@ class UnknownFieldRejectionIT {
     }
 
     @Test
-    @DisplayName("7. 消息发送携带 senderId → 400，不创建消息")
+    @DisplayName("7. 消息发送携带 senderId → 400，不创建消息（REWRITTEN：合法部分改为快捷消息 templateCode）")
     void messageRejectsUnknownFields() throws Exception {
         Actor seller = registerActor("msg-s");
         Actor buyer = registerActor("msg-b");
@@ -200,7 +200,7 @@ class UnknownFieldRejectionIT {
                 authorized(post("/v1/conversations/" + conversationId + "/messages"), buyer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                Map.of("content", "你好", "senderId", UUID.randomUUID().toString()))))
+                                Map.of("templateCode", "BUYER_STILL_AVAILABLE", "senderId", UUID.randomUUID().toString()))))
                 .andReturn();
 
         assertBadRequest(result, "senderId");
@@ -278,7 +278,7 @@ class UnknownFieldRejectionIT {
         String conversationId = createConversation(buyer, productId);
         assertThat(mockMvc.perform(authorized(post("/v1/conversations/" + conversationId + "/messages"), buyer)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(Map.of("content", "在吗"))))
+                .content(objectMapper.writeValueAsString(Map.of("templateCode", "BUYER_STILL_AVAILABLE"))))
                 .andReturn().getResponse().getStatus()).isEqualTo(200);
 
         assertThat(mockMvc.perform(authorized(post("/v1/products/" + productId + "/comments"), buyer)

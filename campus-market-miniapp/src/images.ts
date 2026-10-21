@@ -79,21 +79,24 @@ let sequence = 0;
 const nextKey = () => `photo-${Date.now().toString(36)}-${++sequence}`;
 
 /** 编辑已发布的商品：响应里的签名地址换回引用，预览仍用响应地址。 */
-export function slotsFromImages(images: string[], toRef: (url: string) => string = (url) => imageRefFromUrl(url)): PhotoSlot[] {
-  return images.filter(Boolean).slice(0, MAX_IMAGES).map((url) => ({ key: nextKey(), preview: url, ref: toRef(url), status: 'done', progress: 100, error: '', filePath: '' }));
+export function slotsFromImages(images: string[], toRef: (url: string) => string = (url) => imageRefFromUrl(url), max = MAX_IMAGES): PhotoSlot[] {
+  return images.filter(Boolean).slice(0, max).map((url) => ({ key: nextKey(), preview: url, ref: toRef(url), status: 'done', progress: 100, error: '', filePath: '' }));
 }
 
 /** 已有的示意图 / 外部图片直接加入（不需要上传）。 */
-export function addReadySlot(slots: PhotoSlot[], ref: string, preview = ref): PhotoSlot[] {
-  if (slots.length >= MAX_IMAGES || slots.some((slot) => slot.ref === ref)) return slots;
+export function addReadySlot(slots: PhotoSlot[], ref: string, preview = ref, max = MAX_IMAGES): PhotoSlot[] {
+  if (slots.length >= max || slots.some((slot) => slot.ref === ref)) return slots;
   return [...slots, { key: nextKey(), preview, ref, status: 'done', progress: 100, error: '', filePath: '' }];
 }
 
-/** 新选的照片：超过 5 MB 的直接标记失败（不上传），其余进入「上传中」。返回新的列表和需要上传的那几张。 */
-export function addPickedFiles(slots: PhotoSlot[], files: { path: string; size?: number }[]): { slots: PhotoSlot[]; queued: PhotoSlot[] } {
-  const room = Math.max(0, MAX_IMAGES - slots.length);
+/**
+ * 新选的照片：超过上限（默认 5 MB，以 /v1/config 为准）的直接标记失败（不上传），其余进入「上传中」。
+ * 返回新的列表和需要上传的那几张；张数上限同样以 /v1/config 的 images.maxCount 为准。
+ */
+export function addPickedFiles(slots: PhotoSlot[], files: { path: string; size?: number }[], max = MAX_IMAGES, maxBytes = MAX_IMAGE_BYTES): { slots: PhotoSlot[]; queued: PhotoSlot[] } {
+  const room = Math.max(0, max - slots.length);
   const added = files.slice(0, room).map((file): PhotoSlot => {
-    const tooLarge = typeof file.size === 'number' && file.size > MAX_IMAGE_BYTES;
+    const tooLarge = typeof file.size === 'number' && file.size > maxBytes;
     return { key: nextKey(), preview: file.path, ref: '', status: tooLarge ? 'failed' : 'uploading', progress: 0, error: tooLarge ? IMAGE_TOO_LARGE : '', filePath: file.path };
   });
   return { slots: [...slots, ...added], queued: added.filter((slot) => slot.status === 'uploading') };
@@ -125,3 +128,8 @@ export function photosError(slots: PhotoSlot[]): string | null {
 
 /** 提交时放进商品 images 的值：按当前顺序，只取上传完成的引用。 */
 export const imagesForSubmit = (slots: PhotoSlot[]) => slots.filter((slot) => slot.status === 'done' && slot.ref).map((slot) => slot.ref);
+
+/** 照片张数与大小上限：以 GET /v1/config 为准，读取前（或旧后端）用默认 9 张、5 MB。 */
+export function photoLimits(config: { images: { maxCount: number; maxBytes: number } } | null | undefined) {
+  return { max: config?.images.maxCount ?? MAX_IMAGES, maxBytes: config?.images.maxBytes ?? MAX_IMAGE_BYTES };
+}

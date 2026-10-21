@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
-import Avatar from "@mui/material/Avatar";
+import Avatar from "../components/Avatar";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
@@ -447,7 +447,7 @@ export default function ProductDetailPage() {
                 onClick={handleContact}
                 sx={{ py: 1.2 }}
               >
-                站内留言
+                私信卖家
               </Button>
             </div>
           </div>
@@ -456,9 +456,12 @@ export default function ProductDetailPage() {
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-card">
             <h2 className="mb-3 text-sm font-bold text-slate-700">卖家信息</h2>
             <div className="flex items-center gap-3">
-              <Avatar src={seller?.avatar} alt={seller?.nickname ?? "卖家"}>
-                {seller?.nickname?.slice(0, 1)}
-              </Avatar>
+              <Avatar
+                avatar={seller?.avatar}
+                nickname={seller?.nickname}
+                userId={seller?.id ?? product.sellerId}
+                alt={`${seller?.nickname ?? "卖家"}的头像`}
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
                   {seller?.nickname ?? "未知用户"}
@@ -604,7 +607,7 @@ export default function ProductDetailPage() {
               startIcon={<SendIcon />}
               sx={{ flex: 1, minWidth: 96 }}
             >
-              留言
+              {replyTo ? "回复" : "留言"}
             </Button>
             {replyTo && (
               <Button
@@ -632,9 +635,12 @@ export default function ProductDetailPage() {
             return (
               <div key={comment.id} className="rounded-xl bg-slate-50 p-3">
                 <div className="flex items-start gap-2.5">
-                  <Avatar src={author?.avatar} sx={{ width: 32, height: 32 }}>
-                    {author?.nickname?.slice(0, 1)}
-                  </Avatar>
+                  <Avatar
+                    avatar={author?.avatar}
+                    nickname={author?.nickname}
+                    userId={author?.id ?? comment.userId}
+                    size={32}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-slate-700">
@@ -681,11 +687,11 @@ export default function ProductDetailPage() {
                       return (
                         <div key={reply.id} className="flex items-start gap-2">
                           <Avatar
-                            src={replyAuthor?.avatar}
-                            sx={{ width: 26, height: 26 }}
-                          >
-                            {replyAuthor?.nickname?.slice(0, 1)}
-                          </Avatar>
+                            avatar={replyAuthor?.avatar}
+                            nickname={replyAuthor?.nickname}
+                            userId={replyAuthor?.id ?? reply.userId}
+                            size={26}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-semibold text-slate-700">
@@ -703,6 +709,13 @@ export default function ProductDetailPage() {
                               <p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                                 {reply.content}
                               </p>
+                            )}
+                            {/* 与小程序一致：别人的、没有被隐藏的回复也可以举报 */}
+                            {reply.userId !== currentUser?.id && !reply.moderationHidden && (
+                              <button type="button" className="mt-0.5 text-xs font-medium text-slate-600"
+                                onClick={() => { if (requireLogin()) return; setReporting({ type: 'COMMENT', id: reply.id, label: `${replyAuthor?.nickname ?? '同学'}的回复` }) }}>
+                                举报回复
+                              </button>
                             )}
                           </div>
                         </div>

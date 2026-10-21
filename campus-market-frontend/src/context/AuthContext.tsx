@@ -18,7 +18,7 @@ import {
   type RecoveryOutcome,
 } from "../utils/sessionRecovery";
 import { useNotify } from "./NotificationContext";
-import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../data/seed";
+import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../data/demoAccount";
 import { toUserMessage } from '../api/errors';
 import { clearPendingInvite } from '../utils/pendingInvite';
 function useAuthState() {

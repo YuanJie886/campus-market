@@ -84,8 +84,12 @@ public class AdminService {
             Map.of("id", "a.id", "createdAt", "a.created_at"))
     );
 
+    /** 交易列表 / 详情里的买卖双方头像：上传图片换成签名地址（失效时为空串） */
+    private final com.lulu.campusmarketbackend.image.AvatarService avatars;
+
     public AdminService(JdbcTemplate jdbc, AdminPermissions access, DomainMapper mapper, StaffModerationService moderation,
-                        ConflictGuard conflicts, RateLimitService rateLimit) {
+                        ConflictGuard conflicts, RateLimitService rateLimit, com.lulu.campusmarketbackend.image.AvatarService avatars) {
+        this.avatars = avatars;
         this.jdbc = jdbc; this.access = access; this.mapper = mapper; this.moderation = moderation;
         this.conflicts = conflicts; this.rateLimit = rateLimit;
     }
@@ -153,6 +157,7 @@ public class AdminService {
                 + " ORDER BY " + sortSql + " LIMIT ? OFFSET ?", args.toArray());
         if (AUDITED_READS.contains(resource)) auditRead(member, resource, null, rows.size(), keyword, requestId);
         List<Map<String, Object>> items = rows.stream().map(AdminService::normalize).map(this::signImages).toList();
+        signAvatars(items);
         return Map.of("items", items, "total", total == null ? 0L : total);
     }
 
@@ -198,6 +203,7 @@ public class AdminService {
                 + " WHERE " + definition.scope + "=? AND " + definition.sorts.get("id") + "=?", member.schoolId(), uuid(id));
         if (rows.isEmpty()) throw ApiException.notFound("记录不存在");
         Map<String, Object> result = signImages(normalize(rows.get(0)));
+        signAvatars(List.of(result));
         if ("orders".equals(resource)) addOrderDetails(result);
         if ("products".equals(resource)) {
             result.put("images", mapper.imageUrls(result.get("images")));
@@ -429,6 +435,12 @@ public class AdminService {
     private Map<String, Object> signImages(Map<String, Object> row) {
         for (String key : List.of("image", "productImage")) if (row.get(key) != null) row.put(key, mapper.imageUrl(row.get(key)));
         return row;
+    }
+
+    /** 交易记录里的买卖双方头像，与前台同一套展示规则；整页只查一次 */
+    private void signAvatars(List<Map<String, Object>> rows) {
+        avatars.displayAll(rows, "buyerAvatar", "buyerId");
+        avatars.displayAll(rows, "sellerAvatar", "sellerId");
     }
 
     private static Resource definition(String resource) {

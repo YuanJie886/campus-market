@@ -264,7 +264,8 @@ describe('6.5 / 6.6 圈子商品的可见性', () => {
     await as('fan');
     await api.setFavorite(p.id, true);
     const conversation = await api.getOrCreateConversation(p.id);
-    await api.sendMessage(conversation.id, '还在吗');
+    // REWRITTEN（私信只能发送快捷消息）
+    await api.sendMessage(conversation.id, { templateCode: 'BUYER_STILL_AVAILABLE' });
     await as('seller');
     expect((await api.updateProduct(p.id, { visibility: 'CIRCLE_ONLY', circleIds: [id] })).visibility).toBe('CIRCLE_ONLY');
     await as('fan');

@@ -56,10 +56,14 @@ public class CircleService {
     private final com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions;
     /** 圈子名称与简介对本校用户可见（DISCOVERABLE 可被搜索），与商品文本同一套内容安全检查 */
     private final com.lulu.campusmarketbackend.security.ContentSafetyService safety;
+    /** 成员名单里的头像：上传图片换成签名地址，一次查询 */
+    private final com.lulu.campusmarketbackend.image.AvatarService avatars;
 
     public CircleService(CircleMapper circles, RateLimitService rateLimit, BuildingFeedService feeds,
                          com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions,
-                         com.lulu.campusmarketbackend.security.ContentSafetyService safety) {
+                         com.lulu.campusmarketbackend.security.ContentSafetyService safety,
+                         com.lulu.campusmarketbackend.image.AvatarService avatars) {
+        this.avatars = avatars;
         this.restrictions = restrictions;
         this.safety = safety;
         this.circles = circles;
@@ -311,6 +315,7 @@ public class CircleService {
             m.put("joinedAt", DomainMapper.epoch(row.get("joined_at")));
             return m;
         }).toList();
+        avatars.displayAll(items, "avatar", "userId");
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("items", items);
         result.put("total", circles.countActiveMembers(circleId));

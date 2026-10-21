@@ -17,8 +17,11 @@ import { compareBuildings, publicBuilding, seedBuildings } from '../data/buildin
 import { allowsFallback, fallbackChain, haversineMeters, SCOPE_FALLBACK_ORDER, SCOPE_LABEL, walkMinutes, type BuildingScope } from '../utils/geo';
 import { safeUuid, uid } from '../utils/id';
 import { requireSafeText } from './mock/contentSafety';
+import { FREE_TEXT_DISABLED, MOCK_MESSAGE_TEMPLATES, TEMPLATE_NOT_FOUND, TEMPLATE_OR_TEXT, TEMPLATE_REQUIRED, TEMPLATE_WRONG_ROLE } from './mock/messageTemplates';
 import { bytesToDataUrl, imageSize, readBytes, sniffImage } from './mock/imageRules';
-import { ACCOUNT_DELETION_CONFIRMATION, DEFAULT_CLIENT_CONFIG, normalizeClientConfig, type ClientConfig, IMAGE_MAX_BYTES, IMAGE_TOO_LARGE, PASSWORD_MAX, PASSWORD_MIN, PASSWORD_RESET_FAILURE, UPLOAD_REF_PREFIX, type AccountDeletionResult, type PasswordChangeResult, type PasswordResetInput, type UploadedImage } from './contracts';
+import { AVATAR_EXTERNAL_NOT_ALLOWED, AVATAR_INVALID, isPresetAvatar } from '../utils/avatar';
+import { IMAGE_PRESETS } from '../utils/externalDemoImages';
+import { ACCOUNT_DELETION_CONFIRMATION, DEFAULT_CLIENT_CONFIG, normalizeClientConfig, type ClientConfig, type MessageTemplateList, type SendMessageInput, IMAGE_MAX_BYTES, IMAGE_TOO_LARGE, PASSWORD_MAX, PASSWORD_MIN, PASSWORD_RESET_FAILURE, UPLOAD_REF_PREFIX, type AccountDeletionResult, type PasswordChangeResult, type PasswordResetInput, type UploadedImage } from './contracts';
 
 /** 与后端 RestrictionGuard 的到期时间格式相同：「M 月 d 日 HH:mm」（Asia/Shanghai） */
 function formatRestrictionEnd(epochMs: number): string {
@@ -99,7 +102,21 @@ export class MockCampusMarketApi implements CampusMarketApi {
   /** 读到更高 schema 版本时为 false：不拿旧代码覆盖新版应用写下的数据。 */
   private readonly persistEnabled: boolean;
 
-  constructor() {
+  /**
+   * 私信是否开放文字（后端的部署开关 campus-market.messages.free-text-enabled，默认关闭）。
+   * 离线演示与后端默认一致：只能发送快捷消息；测试可以显式打开以覆盖开放文字时的行为。不写入演示数据。
+   */
+  private readonly messageFreeTextEnabled: boolean;
+
+  /**
+   * 是否允许外部 http(s) 图片 / 头像（后端 GET /v1/config 的 images.externalAllowed）。离线演示需要示例图，默认允许；
+   * 测试可以显式关闭以覆盖「不支持外部头像链接」。不写入演示数据。
+   */
+  private readonly externalImagesAllowed: boolean;
+
+  constructor(options: { messageFreeTextEnabled?: boolean; externalImagesAllowed?: boolean } = {}) {
+    this.messageFreeTextEnabled = options.messageFreeTextEnabled === true;
+    this.externalImagesAllowed = options.externalImagesAllowed !== false;
     // loadState 已经吃掉 JSON 解析异常；migrate 再负责形状与版本
     const raw = loadState<unknown>(DB_KEY, null);
     const result = migrateMockDatabase(raw, buildSeedDatabase);
@@ -142,7 +159,29 @@ export class MockCampusMarketApi implements CampusMarketApi {
     this.db.currentUserId = currentUserId;
   }
   private currentUser(): User { const id = this.db.currentUserId; const user = this.db.users.find((item) => item.id === id); if (!user) throw ApiError.mock({ code: 401, message: '请先登录' }); return user }
-  private session(user: User): AuthSession { const expires = new Date(Date.now() + 7 * 86400000).toISOString(); this.db.currentUserId = user.id; this.persist(); return { accessToken: user.id, expiresAtIso: expires, user: { ...user } } }
+  private session(user: User): AuthSession { const expires = new Date(Date.now() + 7 * 86400000).toISOString(); this.db.currentUserId = user.id; this.persist(); return { accessToken: user.id, expiresAtIso: expires, user: this.userOut(user) } }
+  /** 响应里的用户：头像若是上传引用，换成显示地址（与后端返回签名地址相同；图片已失效时为空串） */
+  private userOut(user: User): User { return { ...user, avatar: this.avatarOut(user.avatar) } }
+  private avatarOut(stored: string | null | undefined): string { return stored ? this.imageUrlOf(stored) : '' }
+  /**
+   * PATCH /v1/auth/me 的 avatar，与后端相同：「""」、preset:1..12、本人上传且仍有效的 upload:<id>（编辑时带回的显示地址先还原成引用）、
+   * 只在允许外部图片时的 http(s)。其余一律 400「头像无效」；外部链接在不允许时 400「不支持外部头像链接，请选择预设头像或上传图片」。
+   */
+  private avatarIn(raw: unknown, owner: User): string {
+    if (typeof raw !== 'string') throw ApiError.mock({ code: 400, message: AVATAR_INVALID });
+    const value = this.imageRefOf(raw);
+    if (value === '' || isPresetAvatar(value)) return value;
+    if (value.startsWith(UPLOAD_REF_PREFIX)) {
+      const image = this.images[value.slice(UPLOAD_REF_PREFIX.length)];
+      if (!image || image.status !== 'ACTIVE' || image.ownerId !== owner.id) throw ApiError.mock({ code: 400, message: AVATAR_INVALID });
+      return value;
+    }
+    if (/^https?:\/\/[^\s/?#]+/i.test(value)) {
+      if (!this.externalImagesAllowed) throw ApiError.mock({ code: 400, message: AVATAR_EXTERNAL_NOT_ALLOWED });
+      return value;
+    }
+    throw ApiError.mock({ code: 400, message: AVATAR_INVALID });
+  }
   /**
    * 公共用户投影，字段与后端 DomainMapper.user(row, false) 逐一对应。
    *
@@ -155,7 +194,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
     const me = this.currentUser();
     const u = this.db.users.find((item) => item.id === id);
     if (!u || this.schoolOf(u.campus) !== this.schoolOf(me.campus)) throw ApiError.mock({ code: 404, message: '用户不存在' });
-    return { id: u.id, nickname: u.nickname, avatar: u.avatar, campus: u.campus, createdAt: u.createdAt };
+    return { id: u.id, nickname: u.nickname, avatar: this.avatarOut(u.avatar), campus: u.campus, createdAt: u.createdAt };
   }
   /** 楼栋参考数据。公共信息，未登录也可读，不含任何住户信息。 */
   async listBuildings(campus: User['campus'], zone?: string) {
@@ -183,7 +222,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
   async markConversationRead(_id: string) {}
   async login(input: LoginInput): Promise<AuthSession> { const account = input.account.trim(); const user = this.db.users.find((item) => item.account === account || item.contact === account); if (!user) throw ApiError.mock({ code: 404, message: '账号不存在，请先注册' }); if (user.password !== input.password) throw ApiError.mock({ code: 401, message: '密码错误，请重新输入' }); return this.session(user) }
-  async register(input: RegisterInput): Promise<AuthSession> { const account = input.account.trim(); if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' }); requireSafeText(input.nickname); if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' }); if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' }); const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: `https://picsum.photos/seed/${encodeURIComponent(account)}/200/200`, campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() }; this.db.users.push(user); this.persist(); return this.session(user) }
+  async register(input: RegisterInput): Promise<AuthSession> { const account = input.account.trim(); if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' }); requireSafeText(input.nickname); if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' }); if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' }); const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: '', campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() }; this.db.users.push(user); this.persist(); return this.session(user) }
   /** Mock 的登录态持久在 MockDatabase（演示数据），无需真实刷新，直接回报当前会话。 */
   async refreshSession(): Promise<AuthSession | null> {
     const id = this.db.currentUserId;
@@ -191,15 +230,18 @@ export class MockCampusMarketApi implements CampusMarketApi {
     if (!user) throw ApiError.mock({ code: 401, message: '请先登录' });
     return this.session(user);
   }
-  async getCurrentUser(): Promise<User | null> { const id = this.db.currentUserId; return this.db.users.find((user) => user.id === id) ?? null }
+  async getCurrentUser(): Promise<User | null> { const id = this.db.currentUserId; const user = this.db.users.find((item) => item.id === id); return user ? this.userOut(user) : null }
   async updateProfile(patch: ProfilePatch): Promise<User> {
     const current = this.currentUser();
     // 阶段 4：昵称经过内容安全检查（与后端 MarketService.profile 相同）
     if (patch.nickname !== undefined) requireSafeText(patch.nickname);
     // 6.1A：只能在本校校区之间切换
     if (patch.campus !== undefined) this.requireCampusInSchool(patch.campus, this.schoolOf(current.campus));
-    const { dormBuildingId, ...rest } = patch;
+    const { dormBuildingId, avatar, ...rest } = patch;
+    // 头像先校验再写入：失败时什么都不改
+    const nextAvatar = 'avatar' in patch ? this.avatarIn(avatar, current) : undefined;
     Object.assign(current, rest);
+    if (nextAvatar !== undefined) current.avatar = nextAvatar;
     if ('dormBuildingId' in patch) {
       if (dormBuildingId === null || dormBuildingId === undefined || dormBuildingId === '') {
         // 显式清空：用户有权收回宿舍楼这条信息
@@ -210,7 +252,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
       }
     }
     this.persist();
-    return { ...current };
+    return this.userOut(current);
   }
   async logout(): Promise<void> { this.db.currentUserId = null; this.persist() }
   // ======================================================================
@@ -370,7 +412,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
   /** GET /v1/config 的离线版本：演示需要示例图，因此允许外部图片；张数、大小与类型与后端默认值相同 */
   async getClientConfig(): Promise<ClientConfig> {
-    return normalizeClientConfig({ images: { ...DEFAULT_CLIENT_CONFIG.images, externalAllowed: true } });
+    return normalizeClientConfig({ images: { ...DEFAULT_CLIENT_CONFIG.images, externalAllowed: this.externalImagesAllowed }, messages: { freeTextEnabled: this.messageFreeTextEnabled } });
   }
 
   /** 商品里保存的引用 → 可显示的地址；外部示例图原样返回，已删除 / 不存在的上传图片为空串（界面显示占位图） */
@@ -631,7 +673,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
       // 与 REST 一致：声明在写入商品之前校验，失败时什么都不落库
       disclosure = this.parseDisclosure(fields.category, inspection);
     }
-    const product: Product = { ...fields, buildingId, listingKind, visibility: choice.visibility, id: uid('p'), sellerId: user.id, status: '在售', views: 0, createdAt: Date.now(), images: fields.images.length ? fields.images : [`https://picsum.photos/seed/${uid('image')}/600/600`], contact: fields.contact ?? user.contact };
+    const product: Product = { ...fields, buildingId, listingKind, visibility: choice.visibility, id: uid('p'), sellerId: user.id, status: '在售', views: 0, createdAt: Date.now(), images: fields.images.length ? fields.images : [IMAGE_PRESETS[this.db.market.products.length % IMAGE_PRESETS.length]], contact: fields.contact ?? user.contact };
     if (disclosure) this.db.productDisclosures[product.id] = disclosure;
     this.db.market.products.unshift(product);
     if (items) this.db.bundleItems[product.id] = items;
@@ -858,6 +900,16 @@ export class MockCampusMarketApi implements CampusMarketApi {
       // 与 REST 一致：宿舍楼停用时要求重新选择，不静默退回校区
       throw ApiError.mock({ code: 409, message: '你选择的宿舍楼已停用，请在个人资料中重新选择' });
     }
+    // 「本校区」与 REST（BuildingFeedService.resolveOrigin）一致：填了宿舍楼就取宿舍楼所在校区（停用 → 409），
+    // 没填就是本人资料里的校区——「本校区」不需要宿舍楼，也不会因此 409
+    let campusDorm: ReturnType<MockCampusMarketApi['buildingById']> = null;
+    if (query.scope === 'CAMPUS' && !needsOrigin && viewer?.dormBuildingId) {
+      campusDorm = this.buildingById(viewer.dormBuildingId);
+      if (!campusDorm || !campusDorm.active) {
+        throw ApiError.mock({ code: 409, message: '你选择的宿舍楼已停用，请在个人资料中重新选择' });
+      }
+    }
+    const scopeCampus = origin?.campusId ?? campusDorm?.campusId ?? viewer?.campus ?? null;
 
     const keyword = query.keyword?.trim().toLowerCase() ?? '';
     const matchesFilters = (product: Product): boolean =>
@@ -872,8 +924,8 @@ export class MockCampusMarketApi implements CampusMarketApi {
 
     const inScope = (product: Product, scope: BuildingScope): boolean => {
       if (scope === 'SCHOOL') return true;
+      if (scope === 'CAMPUS') return scopeCampus !== null && product.campus === scopeCampus;
       if (!origin) return false;
-      if (scope === 'CAMPUS') return product.campus === origin.campusId;
       const building = this.buildingById(product.buildingId);
       if (!building) return false;
       if (scope === 'BUILDING') return building.id === origin.id;
@@ -1627,7 +1679,7 @@ export class MockCampusMarketApi implements CampusMarketApi {
       .sort((a, b) => order[a.role] - order[b.role] || a.joinedAt - b.joinedAt || (a.userId < b.userId ? -1 : 1));
     const items = all.slice((page - 1) * size, page * size).map((m) => {
       const u = this.db.users.find((x) => x.id === m.userId);
-      return { userId: m.userId, nickname: u?.nickname ?? '', avatar: u?.avatar ?? '', role: m.role, joinedAt: m.joinedAt };
+      return { userId: m.userId, nickname: u?.nickname ?? '', avatar: this.avatarOut(u?.avatar), role: m.role, joinedAt: m.joinedAt };
     });
     return { items, total: all.length, page, size };
   }
@@ -2501,9 +2553,49 @@ export class MockCampusMarketApi implements CampusMarketApi {
   /** 7.1E：被隔离的单条私信对双方都只返回占位；会话与其他消息照常 */
   private messageView(m: ChatMessage): ChatMessage {
     const { moderationQuarantinedAt, moderationQuarantineActionId: _a, ...rest } = m;
-    return { ...rest, content: moderationQuarantinedAt ? '' : m.content, quarantined: !!moderationQuarantinedAt };
+    // 历史的文字私信没有 templateCode：统一返回 null（照常显示原文）
+    return { ...rest, templateCode: rest.templateCode ?? null, content: moderationQuarantinedAt ? '' : m.content, quarantined: !!moderationQuarantinedAt };
   }
-  async sendMessage(conversationId: string, content: string): Promise<ChatMessage> { const user = this.currentUser(); await this.listMessages(conversationId); requireSafeText(content); const message: ChatMessage = { id: uid('m'), conversationId, senderId: user.id, content: content.trim(), createdAt: Date.now(), moderationQuarantinedAt: null }; this.db.market.messages.push(message); const c = this.db.market.conversations.find((item) => item.id === conversationId); if (c) c.updatedAt = message.createdAt; this.persist(); return this.messageView(message) }
+  /** GET /v1/message-templates 的离线版本（需登录）：全部模板按固定顺序返回，前端按会话里的身份过滤 */
+  async listMessageTemplates(): Promise<MessageTemplateList> {
+    this.currentUser();
+    return { freeTextEnabled: this.messageFreeTextEnabled, templates: MOCK_MESSAGE_TEMPLATES.map((t) => ({ ...t })) };
+  }
+  /**
+   * 与后端 MessagingPolicy.resolve 相同的顺序：先看请求体（文字关闭时带 content 一律拒绝；开放时两个字段只能二选一），
+   * 再确认会话成员，最后核对模板身份（BUYER_* 只给买家、SELLER_* 只给卖家、ANY_* 双方）。文字消息照旧做内容安全检查。
+   */
+  async sendMessage(conversationId: string, input: SendMessageInput): Promise<ChatMessage> {
+    const user = this.currentUser();
+    const body = (input ?? {}) as { templateCode?: unknown; content?: unknown };
+    const hasContent = 'content' in body;
+    const hasTemplate = 'templateCode' in body;
+    if (!this.messageFreeTextEnabled) {
+      if (hasContent) throw ApiError.mock({ code: 400, message: FREE_TEXT_DISABLED });
+      if (!hasTemplate) throw ApiError.mock({ code: 400, message: TEMPLATE_REQUIRED });
+    } else if (hasContent && hasTemplate) {
+      throw ApiError.mock({ code: 400, message: TEMPLATE_OR_TEXT });
+    }
+    const template = hasTemplate ? MOCK_MESSAGE_TEMPLATES.find((t) => typeof body.templateCode === 'string' && t.code === body.templateCode) : undefined;
+    if (hasTemplate && !template) throw ApiError.mock({ code: 400, message: TEMPLATE_NOT_FOUND });
+    await this.listMessages(conversationId);
+    const c = this.db.market.conversations.find((item) => item.id === conversationId)!;
+    let content: string;
+    if (template) {
+      const role = c.buyerId === user.id ? 'BUYER' : 'SELLER';
+      if (template.role !== 'ANY' && template.role !== role) throw ApiError.mock({ code: 400, message: TEMPLATE_WRONG_ROLE });
+      content = template.text;
+    } else {
+      const text = typeof body.content === 'string' ? body.content : '';
+      requireSafeText(text);
+      content = text.trim();
+    }
+    const message: ChatMessage = { id: uid('m'), conversationId, senderId: user.id, content, templateCode: template ? template.code : null, createdAt: Date.now(), moderationQuarantinedAt: null };
+    this.db.market.messages.push(message);
+    c.updatedAt = message.createdAt;
+    this.persist();
+    return this.messageView(message);
+  }
   async getUnreadCount(): Promise<number> { const user = this.currentUser(); const convs = await this.listConversations(); return convs.filter((c) => { const messages = this.db.market.messages.filter((m) => m.conversationId === c.id); const last = messages[messages.length - 1]; return Boolean(last && last.senderId !== user.id) }).length }
 
   // ======================================================================

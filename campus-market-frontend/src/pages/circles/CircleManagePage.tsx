@@ -15,7 +15,8 @@ import { CIRCLE_MEMBER_LIMIT, type Circle, type CircleInvite, type CircleMember,
 
 const MEMBER_PAGE_SIZE = 20;
 import { useAuth } from '../../context/AuthContext';
-import { CIRCLE_ROLE_LABEL, CIRCLE_VISIBILITY_LABEL, circleInviteLink } from '../../utils/circle';
+import { CIRCLE_ROLE_LABEL, CIRCLE_VISIBILITY_LABEL, INVITE_ONCE_TEXT } from '../../utils/circle';
+import InviteCodeBox from '../../components/InviteCodeBox';
 
 const INVITE_STATUS: Record<CircleInvite['status'], string> = { PENDING: '待使用', REDEEMED: '已使用', REVOKED: '已撤销', EXPIRED: '已过期' };
 const HOURS = [1, 24, 72, 168];
@@ -167,7 +168,7 @@ export default function CircleManagePage() {
 
       <section aria-labelledby="invite-title" className="space-y-2">
         <h2 id="invite-title" className="text-base font-bold text-slate-800">邀请成员</h2>
-        <p className="text-xs text-slate-700">每个邀请码只能使用一次。邀请码只在生成后显示这一次，平台不保存原文，丢失后请重新生成。</p>
+        <p className="text-xs text-slate-700">{INVITE_ONCE_TEXT}</p>
         <div className="flex flex-wrap items-start gap-2">
           <TextField select size="small" label="有效期" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
             {HOURS.map((h) => <MenuItem key={h} value={h}>{h === 168 ? '7 天' : h === 72 ? '3 天' : `${h} 小时`}</MenuItem>)}
@@ -175,13 +176,9 @@ export default function CircleManagePage() {
           <Button variant="contained" onClick={() => void createInvite()} disabled={busy}>生成邀请码</Button>
         </div>
         {created && (
-          <div ref={tokenRef} tabIndex={-1} aria-labelledby="created-token-title" className="rounded-xl border-2 border-indigo-300 bg-indigo-50 p-3 outline-none">
-            <p id="created-token-title" className="text-sm font-bold text-indigo-900">新邀请码（只显示这一次）</p>
-            <p className="mt-1 break-all font-mono text-sm" data-testid="circle-invite-token">{created.token}</p>
-            <p className="mt-1 break-all text-xs text-slate-700">邀请链接：{circleInviteLink(window.location.origin, created.token)}</p>
-            <p className="mt-1 text-xs text-slate-700">有效期至 {new Date(created.expiresAt).toLocaleString()}</p>
-            <Button size="small" onClick={() => setCreated(null)}>我已保存，隐藏邀请码</Button>
-          </div>
+          <InviteCodeBox ref={tokenRef} title="新邀请码（只显示这一次）" token={created.token}
+            note={`有效期至 ${new Date(created.expiresAt).toLocaleString()}。对方登录后在「我的圈子 → 用邀请码加入」里输入或粘贴。`}
+            onHide={() => setCreated(null)} />
         )}
         {invites.length > 0 && (
           <ul className="space-y-1 text-sm" aria-label="邀请码记录">

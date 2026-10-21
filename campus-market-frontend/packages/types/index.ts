@@ -245,6 +245,8 @@ export interface ChatMessage {
   conversationId: string;
   senderId: string;
   content: string;
+  /** 快捷消息的模板代码；历史的文字私信为 null（旧数据可能没有这个字段），照常显示 content */
+  templateCode?: string | null;
   createdAt: number;
   /** 7.1E：这一条被平台隔离（正文不返回，只显示占位）；会话与其他消息照常 */
   quarantined?: boolean;

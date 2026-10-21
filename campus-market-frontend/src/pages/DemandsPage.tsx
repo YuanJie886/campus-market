@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDemandUnreadCount } from '../context/DemandUnreadContext';
 import { useNotify } from '../context/NotificationContext';
 import DemandSubscribeDialog from '../components/demand/DemandSubscribeDialog';
-import { describeConditions, reasonLabel, tierLabel } from '../utils/demand';
+import { describeConditions, reasonLabel, subscribeResultText, tierLabel } from '../utils/demand';
 import { formatPrice, formatRelativeTime } from '../utils/format';
 
 /**
@@ -23,6 +23,9 @@ import { formatPrice, formatRelativeTime } from '../utils/format';
  * 在售检查、不能申请自己的商品、卖家同意后才展示联系方式，一项都不绕过。
  */
 type TabKey = 'matches' | 'subscriptions';
+
+/** 新建订阅从空白表单开始（稳定引用：表单只在打开时按它重置） */
+const EMPTY_CONDITIONS: DemandConditions = {};
 
 const INVALID_LABEL = { NO_LONGER_MATCHES: '已不再符合你的条件', NOT_ON_SALE: '已售出或下架，暂不可联系' } as const;
 
@@ -167,8 +170,11 @@ function SubscriptionManager() {
   const { refresh: refreshUnread } = useDemandUnreadCount();
   const { error, success } = useNotify();
   const [items, setItems] = useState<DemandSubscription[] | null>(null);
-  const [editing, setEditing] = useState<DemandSubscription | null>(null);
+  // 'new'：新建订阅（与小程序「新建订阅」相同的表单）；否则是正在修改的那一条
+  const [editing, setEditing] = useState<DemandSubscription | 'new' | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const createButton = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -202,51 +208,77 @@ function SubscriptionManager() {
     }
   };
 
+  const startCreate = () => { setEditError(null); setEditing('new') };
+  /** 关闭表单；新建的表单关闭后焦点回到「新建订阅」 */
+  const closeForm = () => {
+    const wasNew = editing === 'new';
+    setEditing(null);
+    if (wasNew) window.setTimeout(() => createButton.current?.focus(), 0);
+  };
+
   const saveEdit = async (conditions: DemandConditions) => {
-    if (!editing) return;
+    if (!editing || saving) return;
+    setSaving(true);
+    setEditError(null);
     try {
-      await getApiClient().updateDemandSubscription(editing.id, conditions);
-      setEditing(null);
+      if (editing === 'new') {
+        // 服务端去重：EXISTING 不重复创建；REACTIVATED 重新启用同条件的已停用订阅
+        const result = await getApiClient().createDemandSubscription(conditions);
+        success(subscribeResultText(result.outcome));
+        refreshUnread();
+      } else {
+        await getApiClient().updateDemandSubscription(editing.id, conditions);
+      }
+      closeForm();
       await load();
     } catch (e) {
+      // 服务端的原话（例如启用订阅数已达上限）显示在表单里，表单内容保留
       setEditError(toUserMessage(e));
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (items === null) return <p className="text-sm text-slate-500" role="status">加载中…</p>;
-  if (items.length === 0) return <p className="rounded-2xl bg-white p-8 text-center text-slate-500">还没有订阅。</p>;
 
   return (
     <>
-      <ul className="space-y-3" aria-label="我的订阅">
-        {items.map((s) => (
-          <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800">{describeConditions(s)}</p>
-              <p className="text-xs text-slate-500">已匹配 {s.matchCount} 件{s.active ? '' : ' · 已停用'}</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Switch
-                checked={s.active}
-                onChange={() => void toggle(s)}
-                inputProps={{ 'aria-label': `${s.active ? '停用' : '启用'}订阅：${describeConditions(s)}` }}
-              />
-              <Button size="small" onClick={() => { setEditError(null); setEditing(s) }}>修改</Button>
-              <Button size="small" color="inherit" onClick={() => void remove(s)}>删除</Button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <div className="mb-3">
+        <Button variant="contained" size="small" ref={createButton} onClick={startCreate}>新建订阅</Button>
+      </div>
+      {items === null ? <p className="text-sm text-slate-500" role="status">加载中…</p>
+        : items.length === 0 ? <p className="rounded-2xl bg-white p-8 text-center text-slate-500">还没有订阅。</p>
+          : (
+            <ul className="space-y-3" aria-label="我的订阅">
+              {items.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800">{describeConditions(s)}</p>
+                    <p className="text-xs text-slate-500">已匹配 {s.matchCount} 件{s.active ? '' : ' · 已停用'}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Switch
+                      checked={s.active}
+                      onChange={() => void toggle(s)}
+                      inputProps={{ 'aria-label': `${s.active ? '停用' : '启用'}订阅：${describeConditions(s)}` }}
+                    />
+                    <Button size="small" onClick={() => { setEditError(null); setEditing(s) }}>修改</Button>
+                    <Button size="small" color="inherit" onClick={() => void remove(s)}>删除</Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
       <DemandSubscribeDialog
         open={!!editing}
-        title="修改订阅条件"
-        submitLabel="保存"
-        initial={editing ?? {}}
+        title={editing === 'new' ? '订阅一个需求' : '修改订阅条件'}
+        submitLabel={editing === 'new' ? '确认订阅' : '保存'}
+        initial={editing && editing !== 'new' ? editing : EMPTY_CONDITIONS}
         userCampus={currentUser?.campus ?? '东校区'}
+        busy={saving}
         errorMessage={editError}
-        onCancel={() => setEditing(null)}
+        onCancel={closeForm}
         onSubmit={(c) => void saveEdit(c)}
-        circleScope={editing?.circle ? { name: editing.circle.name } : null}
+        circleScope={editing && editing !== 'new' && editing.circle ? { name: editing.circle.name } : null}
       />
     </>
   );

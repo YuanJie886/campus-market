@@ -89,6 +89,8 @@ class ContentSafetyIT {
         registry.add("campus-market.wechat.app-id", () -> "wx-safety-test");
         registry.add("campus-market.wechat.app-secret", () -> "safety-secret-for-tests");
         registry.add("campus-market.wechat.api-base", () -> "http://127.0.0.1:" + WECHAT.getAddress().getPort());
+        // REWRITTEN：私信默认只能发快捷消息（不做内容安全）；这里打开自由文字开关，继续验证私信自由文字的内容安全检查
+        registry.add("campus-market.messages.free-text-enabled", () -> "true");
     }
 
     @Autowired MockMvc mvc;

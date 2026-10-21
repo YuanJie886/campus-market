@@ -17,10 +17,14 @@ public class DomainMapper {
     private final ObjectMapper objectMapper;
     /** 阶段 4：商品里存的 upload:<id> 在响应里换成短时签名地址；外部示例图原样返回 */
     private final com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls;
+    /** 头像：预设 / 外部地址原样返回，上传图片换成签名地址（失效时为空串） */
+    private final com.lulu.campusmarketbackend.image.AvatarService avatars;
 
-    public DomainMapper(ObjectMapper objectMapper, com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls) {
+    public DomainMapper(ObjectMapper objectMapper, com.lulu.campusmarketbackend.image.ImageUrlSigner imageUrls,
+                        com.lulu.campusmarketbackend.image.AvatarService avatars) {
         this.objectMapper = objectMapper;
         this.imageUrls = imageUrls;
+        this.avatars = avatars;
     }
 
     /** 把存储的图片引用列表转成可直接显示的地址。只在已经确认查看者能看到这件商品之后调用。 */
@@ -36,7 +40,7 @@ public class DomainMapper {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", text(row.get("id")));
         result.put("nickname", text(row.get("nickname")));
-        result.put("avatar", text(row.get("avatar")));
+        result.put("avatar", avatars.display(row.get("avatar"), row.get("id")));
         result.put("campus", text(row.get("campus")));
         result.put("createdAt", epoch(row.get("created_at")));
         if (privateFields) {
@@ -170,6 +174,8 @@ public class DomainMapper {
         Map<String, Object> m = map("id", text(row.get("id")), "conversationId", text(row.get("conversation_id")),
                 "senderId", text(row.get("sender_id")), "content", quarantined ? "" : text(row.get("content")),
                 "createdAt", epoch(row.get("created_at")));
+        // V21：快捷消息的 code；自由文字（含历史消息）为 null。被隔离时同样不返回，避免暴露被隔离消息的内容
+        m.put("templateCode", quarantined || row.get("template_code") == null ? null : text(row.get("template_code")));
         m.put("quarantined", quarantined);
         return m;
     }

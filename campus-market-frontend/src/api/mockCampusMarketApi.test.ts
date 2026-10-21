@@ -45,13 +45,14 @@ describe("MockCampusMarketApi product conversations", () => {
     const existing = await api.getOrCreateConversation(product.id);
     await api.requestContact(product.id);
     const retried = await api.getOrCreateConversation(product.id);
-    await api.sendMessage(existing.id, "还在吗？");
+    // REWRITTEN（私信只能发送快捷消息）
+    await api.sendMessage(existing.id, { templateCode: "BUYER_STILL_AVAILABLE" });
 
     expect(retried.id).toBe(existing.id);
     expect(await api.listConversations()).toHaveLength(1);
     await api.login({ account: "seller-001", password: "secret1" });
     const sellerView = await api.listConversations();
     expect(sellerView.map((c) => c.id)).toEqual([existing.id]);
-    expect((await api.listMessages(existing.id)).map((m) => m.content)).toEqual(["还在吗？"]);
+    expect((await api.listMessages(existing.id)).map((m) => m.content)).toEqual(["你好，这件还在吗？"]);
   });
 });

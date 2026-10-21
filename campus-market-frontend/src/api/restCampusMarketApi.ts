@@ -44,7 +44,11 @@ export class RestCampusMarketApi implements CampusMarketApi {
     });
   }
   getCurrentUser(): Promise<User | null> { return this.transport.get<User>('/v1/auth/me').catch((e) => { if ((e as { code?: number }).code === 401) return null; throw e }) }
-  updateProfile(patch: ProfilePatch): Promise<User> { return this.transport.patch<User>('/v1/auth/me', patch) }
+  /** 头像若是响应里的签名地址（/v1/images/…），还原成 upload:<id> 引用再提交；其余字段与值原样 */
+  updateProfile(patch: ProfilePatch): Promise<User> {
+    const body = typeof patch.avatar === 'string' ? { ...patch, avatar: imageRefOf(patch.avatar) } : patch;
+    return this.transport.patch<User>('/v1/auth/me', body);
+  }
   // ---------------- 阶段 3：账号生命周期（请求体只带后端读取的字段） ----------------
   changePassword(input: { currentPassword: string; newPassword: string }) {
     return this.transport.post<import('./contracts').PasswordChangeResult>('/v1/auth/password',
@@ -232,7 +236,16 @@ export class RestCampusMarketApi implements CampusMarketApi {
   listConversations(): Promise<Conversation[]> { return this.transport.get<Conversation[]>('/v1/conversations') }
   getOrCreateConversation(productId: string): Promise<Conversation> { return this.transport.post<Conversation>('/v1/conversations', { productId }) }
   listMessages(conversationId: string): Promise<ChatMessage[]> { return this.transport.get<ChatMessage[]>(`/v1/conversations/${encodeURIComponent(conversationId)}/messages`) }
-  sendMessage(conversationId: string, content: string): Promise<ChatMessage> { return this.transport.post<ChatMessage>(`/v1/conversations/${encodeURIComponent(conversationId)}/messages`, { content }) }
+  /** 快捷消息列表（需登录）；旧后端没有 freeTextEnabled 时按 false 处理 */
+  async listMessageTemplates(): Promise<import('./contracts').MessageTemplateList> {
+    const raw = await this.transport.get<Partial<import('./contracts').MessageTemplateList> | null>('/v1/message-templates');
+    return { freeTextEnabled: raw?.freeTextEnabled === true, templates: Array.isArray(raw?.templates) ? raw!.templates : [] };
+  }
+  /** 请求体只带一个字段：{ templateCode } 或 { content }，不会同时提交 */
+  sendMessage(conversationId: string, input: import('./contracts').SendMessageInput): Promise<ChatMessage> {
+    const body = 'templateCode' in input ? { templateCode: input.templateCode } : { content: input.content };
+    return this.transport.post<ChatMessage>(`/v1/conversations/${encodeURIComponent(conversationId)}/messages`, body);
+  }
   getUnreadCount(): Promise<number> { return this.transport.get<{ count: number }>('/v1/messages/unread').then((r) => r.count) }
   // ---- 模块 7：可信治理 ----
   createModerationReport(input: import('./contracts').ModerationReportInput) {

@@ -240,7 +240,8 @@ class UploadedImagesIT {
         assertThat(body.path("message").asText()).isEqualTo("ok");
         assertThat(body.path("requestId").asText()).isNotBlank();
         assertThat(body.path("data").toString())
-                .isEqualTo("{\"images\":{\"maxCount\":9,\"maxBytes\":5242880,\"accept\":[\"image/jpeg\",\"image/png\"],\"externalAllowed\":true}}");
+                .as("REWRITTEN：新增 messages 部分，images 不变")
+                .isEqualTo("{\"images\":{\"maxCount\":9,\"maxBytes\":5242880,\"accept\":[\"image/jpeg\",\"image/png\"],\"externalAllowed\":true},\"messages\":{\"freeTextEnabled\":false}}");
 
         User seller = api.register();
         JsonNode images = body.path("data").path("images");

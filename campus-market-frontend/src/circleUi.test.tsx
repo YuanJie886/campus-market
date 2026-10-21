@@ -195,25 +195,44 @@ describe('6 圈子页面', () => {
 });
 
 describe('6 圈子管理', () => {
-  it('邀请码只显示一次：生成后显示并获得焦点，链接放在 # 之后；离开再回来不再显示；存储里没有原文；axe 通过', async () => {
+  // REWRITTEN（与小程序对齐：以邀请码为主）：不再显示、生成邀请链接；邀请码醒目显示并可「复制邀请码」
+  it('邀请码只显示一次：生成后醒目显示并获得焦点；「复制邀请码」只写剪贴板；不再显示邀请链接；离开再回来不再显示；存储里没有原文；axe 通过', async () => {
     await user('owner');
     const id = await circleWith('owner', [], '邀请测试圈');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const readText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText, readText }, configurable: true });
     const first = renderApp(`/circles/${id}/manage`);
     fireEvent.click(await screen.findByRole('button', { name: '生成邀请码' }, { timeout: 5000 }));
-    const token = (await screen.findByTestId('circle-invite-token')).textContent!;
-    expect(token.length).toBeGreaterThanOrEqual(20);
-    await waitFor(() => expect(document.activeElement?.getAttribute('aria-labelledby')).toBe('created-token-title'));
-    expect(first.container.textContent).toContain(`/circles/join#code=${token}`);
+    const box = await screen.findByRole('group', { name: '新邀请码（只显示这一次）' });
+    const token = within(box).getByTestId('invite-code').textContent!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.textContent).toContain('用邀请码加入');
+    expect(first.container.textContent).not.toContain('#code=');
+    expect(first.container.textContent).not.toContain('邀请链接');
     expect(first.container.textContent).not.toContain(`?code=${token}`);
+    fireEvent.click(within(box).getByRole('button', { name: '复制邀请码' }));
+    expect(await within(box).findByText('邀请码已复制')).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(token);
+    expect(readText).not.toHaveBeenCalled();
     expect(await axeViolations(first.container)).toEqual([]);
     expect(allStorage()).not.toContain(token);
+    // 剪贴板不可用：提示手动复制，邀请码仍然显示
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    fireEvent.click(within(box).getByRole('button', { name: '复制邀请码' }));
+    expect(await within(box).findByText('无法自动复制，请手动选中复制')).toBeTruthy();
+    fireEvent.click(within(box).getByRole('button', { name: '我已保存，隐藏邀请码' }));
+    await waitFor(() => expect(screen.queryByRole('group', { name: '新邀请码（只显示这一次）' })).toBeNull());
+    expect(first.container.textContent).not.toContain(token);
     first.unmount();
     const second = renderApp(`/circles/${id}/manage`);
     await screen.findByRole('list', { name: '邀请码记录' }, { timeout: 5000 });
     expect(second.container.textContent).not.toContain(token);
-    expect(screen.queryByTestId('circle-invite-token')).toBeNull();
+    expect(screen.queryByTestId('invite-code')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /撤销 .* 生成的邀请码/ }));
     expect(await screen.findByText(/已撤销/)).toBeTruthy();
+    Reflect.deleteProperty(navigator, 'clipboard');
   });
 
   it('成员操作菜单可用键盘：打开后方向键移动、回车执行；焦点回到原来的「操作」按钮；移出后焦点到成员列表标题', async () => {
@@ -281,6 +300,34 @@ describe('6 邀请兑换', () => {
     expect(redeem).toHaveBeenCalledWith(token);
     expect(lastPath).toBe(`/circles/${id}`);
     expect(allStorage()).not.toContain(token);
+  });
+
+  // NEW（与小程序对齐）：输入框可以直接粘贴邀请码，也可以粘贴旧版邀请链接，只把邀请码放进请求体
+  it('输入或粘贴邀请码：粘贴旧版邀请链接也只取出邀请码兑换；手动输入邀请码同样可以加入；axe 通过', async () => {
+    await user('owner'); await user('joiner'); await user('typer');
+    const id = await circleWith('owner', [], '粘贴加入的圈子');
+    await as('owner');
+    const pasted = await api.createCircleInvite(id);
+    const typed = await api.createCircleInvite(id);
+    await as('joiner');
+    const redeem = vi.spyOn(api, 'redeemCircleInvite');
+    const first = renderApp('/circles/join');
+    const input = await screen.findByRole('textbox', { name: '邀请码' }, { timeout: 5000 }) as HTMLInputElement;
+    expect(input.placeholder).toBe('邀请码或邀请链接');
+    expect(await axeViolations(first.container)).toEqual([]);
+    fireEvent.change(input, { target: { value: `  https://market.example/circles/join#code=${pasted.token}  ` } });
+    fireEvent.click(screen.getByRole('button', { name: '加入' }));
+    expect(await screen.findByRole('heading', { name: '粘贴加入的圈子' })).toBeTruthy();
+    expect(redeem).toHaveBeenLastCalledWith(pasted.token);
+    first.unmount();
+    await as('typer');
+    renderApp('/circles/join');
+    fireEvent.change(await screen.findByRole('textbox', { name: '邀请码' }, { timeout: 5000 }), { target: { value: typed.token } });
+    fireEvent.click(screen.getByRole('button', { name: '加入' }));
+    expect(await screen.findByRole('heading', { name: '粘贴加入的圈子' })).toBeTruthy();
+    expect(redeem).toHaveBeenLastCalledWith(typed.token);
+    await as('owner');
+    expect((await api.listCircleMembers(id)).total).toBe(3);
   });
 
   it('无效邀请码：统一提示，不透露圈子是否存在', async () => {

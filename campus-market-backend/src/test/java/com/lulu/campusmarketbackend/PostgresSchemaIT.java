@@ -418,13 +418,13 @@ class PostgresSchemaIT {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("6. flyway_schema_history 将 V1～V20 记录为成功执行的 SQL 迁移（非 BASELINE）")
+    @DisplayName("6. flyway_schema_history 将 V1～V21 记录为成功执行的 SQL 迁移（非 BASELINE）")
     void flywayHistoryRecordsInitialMigration() {
         List<Map<String, Object>> history = jdbc.queryForList(
                 "SELECT installed_rank, version, description, type, checksum, installed_on, success "
                         + "FROM " + FLYWAY_HISTORY_TABLE + " ORDER BY installed_rank");
 
-        assertThat(history).as("空库场景下应有 V1～V20 二十条迁移记录").hasSize(20);
+        assertThat(history).as("空库场景下应有 V1～V21 二十一条迁移记录").hasSize(21);
 
         Map<String, Object> v1 = history.get(0);
         assertThat(v1.get("version")).as("首条版本应为 1").isEqualTo("1");
@@ -505,7 +505,7 @@ class PostgresSchemaIT {
         assertThat((String) v11.get("description")).isEqualTo("slots corrections and content moderation");
         assertThat((String) v11.get("type")).isEqualTo("SQL");
         assertThat((Boolean) v11.get("success")).isTrue();
-        for (int version = 12; version <= 20; version++) {
+        for (int version = 12; version <= 21; version++) {
             Map<String, Object> migration = history.get(version - 1);
             assertThat(migration.get("version")).isEqualTo(String.valueOf(version));
             assertThat(migration.get("type")).isEqualTo("SQL");

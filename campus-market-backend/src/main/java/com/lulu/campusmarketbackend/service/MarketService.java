@@ -26,8 +26,8 @@ public class MarketService {
     public static final List<String> CATEGORIES = List.of("数码电子", "教材书籍", "生活用品", "服饰鞋包", "运动户外", "其他");
     /** 留言允许的字段。userId / createdAt / productId 等一律拒绝。 */
     private static final java.util.Set<String> COMMENT_FIELDS = java.util.Set.of("content", "parentId");
-    /** 发消息允许的字段。senderId / conversationId / createdAt 等一律拒绝。 */
-    private static final java.util.Set<String> MESSAGE_FIELDS = java.util.Set.of("content");
+    /** 发消息允许的字段。senderId / conversationId / createdAt 等一律拒绝。content 只在自由文字开关打开时可用（见 MessagingPolicy）。 */
+    private static final java.util.Set<String> MESSAGE_FIELDS = java.util.Set.of("content", "templateCode");
     /** 创建会话允许的字段。buyerId / sellerId 等一律拒绝。 */
     public static final java.util.Set<String> CONVERSATION_FIELDS = java.util.Set.of("productId");
     /** 商品状态流转允许的字段。sellerId / soldAt 等一律拒绝。 */
@@ -78,6 +78,10 @@ public class MarketService {
     private final com.lulu.campusmarketbackend.security.ContentSafetyService safety;
     /** 图片数量 / 格式 / 外部地址开关与签名地址还原（与 GET /v1/config 同源） */
     private final com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy;
+    /** 私信：默认只能发快捷消息，自由文字由开关控制 */
+    private final com.lulu.campusmarketbackend.messaging.MessagingPolicy messaging;
+    /** 头像的存储规则（预设 / 本人上传 / 外部地址开关） */
+    private final com.lulu.campusmarketbackend.image.AvatarService avatars;
 
     public MarketService(UserMapper users, ProductMapper products, FavoriteMapper favorites, ReferenceMapper references,
                          CommentMapper comments, ConversationMapper conversations, MessageMapper messages,
@@ -94,8 +98,12 @@ public class MarketService {
                          com.lulu.campusmarketbackend.governance.RestrictionGuard restrictions,
                          com.lulu.campusmarketbackend.image.ImageService uploadedImages,
                          com.lulu.campusmarketbackend.security.ContentSafetyService safety,
-                         com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy) {
+                         com.lulu.campusmarketbackend.image.ImagePolicy imagePolicy,
+                         com.lulu.campusmarketbackend.messaging.MessagingPolicy messaging,
+                         com.lulu.campusmarketbackend.image.AvatarService avatars) {
+        this.avatars = avatars;
         this.imagePolicy = imagePolicy;
+        this.messaging = messaging;
         this.schools = schools;
         this.restrictions = restrictions;
         this.uploadedImages = uploadedImages;
@@ -173,7 +181,8 @@ public class MarketService {
             safety.check(uid, com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.PROFILE, nickname);
             update.set("nickname", nickname);
         }
-        if (body.containsKey("avatar")) { String avatar = AuthService.optional(body, "avatar", 2048); if (!avatar.isEmpty() && !avatar.matches("^https?://.*")) throw ApiException.badRequest("头像必须使用 HTTP(S) 地址"); update.set("avatar", avatar); }
+        // 头像：空串 / preset:1..12 / 本人上传的图片（签名地址还原成 upload:<id>）/ 外部地址（仅在开关打开时），见 AvatarService
+        if (body.containsKey("avatar")) update.set("avatar", avatars.validate(uid, AuthService.optional(body, "avatar", 2048)));
         // 6.1A：只能在本校校区之间切换；换到他校校区等于绕过学校隔离，与不存在的校区同为 400
         String ownSchool = body.containsKey("campus") ? schools.schoolOf(id) : null;
         if (body.containsKey("campus")) update.set("campus", schools.requireCampusInSchool(body.get("campus"), ownSchool));
@@ -483,17 +492,35 @@ public class MarketService {
 
     public List<Map<String, Object>> messages(String uid, String id) { member(uid, id); return messages.selectRowsByConversation(uuid(id)).stream().map(mapper::message).toList(); }
 
+    /**
+     * 发私信。默认只能发快捷消息 {"templateCode"}：正文取预设文案，不做内容安全检查，买家 / 卖家只能发各自角色的模板；
+     * 自由文字开关打开时也可以发 {"content"}（与原来一样做内容安全检查），两者不能同时出现。
+     * 顺序：字段白名单 → 请求体校验（400）→ 参与者检查（404，与原来一致）→ 角色（400）→ 写入。
+     */
     @Transactional
     public Map<String, Object> message(String uid, String id, Map<String, Object> body) {
-        JsonFieldPolicy.rejectUnknown(body, MESSAGE_FIELDS); String content = AuthService.string(body, "content", 1, 2000); member(uid, id);
-        safety.check(uuid(uid), com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.MESSAGE, content); MessageEntity entity = new MessageEntity(); entity.setId(UUID.randomUUID()); entity.setConversationId(uuid(id)); entity.setSenderId(uuid(uid)); entity.setContent(content); messages.insert(entity); conversations.touch(uuid(id)); return mapper.message(messageRow(entity.getId()));
+        JsonFieldPolicy.rejectUnknown(body, MESSAGE_FIELDS);
+        com.lulu.campusmarketbackend.messaging.MessageTemplates.Template template = messaging.resolve(body);
+        String content = template == null ? AuthService.string(body, "content", 1, 2000) : template.text();
+        member(uid, id);
+        if (template != null) {
+            ConversationEntity conversation = conversations.selectByConversationId(uuid(id));
+            com.lulu.campusmarketbackend.messaging.MessageTemplates.Role sender = uuid(uid).equals(conversation.getBuyerId())
+                    ? com.lulu.campusmarketbackend.messaging.MessageTemplates.Role.BUYER : com.lulu.campusmarketbackend.messaging.MessageTemplates.Role.SELLER;
+            if (!template.allowedFor(sender)) throw ApiException.badRequest(com.lulu.campusmarketbackend.messaging.MessagingPolicy.TEMPLATE_WRONG_ROLE);
+        } else {
+            safety.check(uuid(uid), com.lulu.campusmarketbackend.security.ContentSafetyService.Scene.MESSAGE, content);
+        }
+        MessageEntity entity = new MessageEntity(); entity.setId(UUID.randomUUID()); entity.setConversationId(uuid(id)); entity.setSenderId(uuid(uid)); entity.setContent(content);
+        entity.setTemplateCode(template == null ? null : template.code());
+        messages.insert(entity); conversations.touch(uuid(id)); return mapper.message(messageRow(entity.getId()));
     }
 
     @Transactional public void read(String uid, String id) { member(uid, id); reads.markRead(uuid(id), uuid(uid)); }
     public Map<String, Object> unread(String uid) { return map("count", messages.countUnread(uuid(uid))); }
 
     private Map<String, Object> commentRow(UUID id) { return comments.selectById(id) == null ? null : map("id", id, "product_id", comments.selectById(id).getProductId(), "user_id", comments.selectById(id).getUserId(), "content", comments.selectById(id).getContent(), "parent_id", comments.selectById(id).getParentId(), "created_at", comments.selectById(id).getCreatedAt()); }
-    private Map<String, Object> messageRow(UUID id) { MessageEntity e = messages.selectById(id); return map("id", id, "conversation_id", e.getConversationId(), "sender_id", e.getSenderId(), "content", e.getContent(), "created_at", e.getCreatedAt()); }
+    private Map<String, Object> messageRow(UUID id) { MessageEntity e = messages.selectById(id); return map("id", id, "conversation_id", e.getConversationId(), "sender_id", e.getSenderId(), "content", e.getContent(), "template_code", e.getTemplateCode(), "created_at", e.getCreatedAt()); }
     // 模块 6：无权访问（包括商品已不可读）与会话不存在一样返回 404，不形成侧信道
     private void member(String uid, String cid) { if (conversations.countMember(uuid(cid), uuid(uid)) == 0) throw ApiException.notFound("会话不存在"); }
     private ProductInput productInput(Map<String, Object> body, String sellerSchool) {

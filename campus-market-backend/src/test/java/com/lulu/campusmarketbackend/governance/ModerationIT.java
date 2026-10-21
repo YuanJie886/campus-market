@@ -214,9 +214,11 @@ class ModerationIT {
             String p = product(seller, "私信骚扰测试");
             api.approvedContact(seller, buyer, p);
             String conversation = api.ok(api.post(buyer, "/v1/conversations", Map.of("productId", p))).path("id").asText();
-            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "第一条正常消息")));
-            String bad = api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "这是一条骚扰消息"))).path("id").asText();
-            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "之后的另一条消息")));
+            // REWRITTEN（快捷消息）：私信默认只能发预设快捷消息；三条文案互不包含
+            final String firstText = "还在的，可以在商品页申请联系方式。", badText = "价格不议，谢谢理解。", laterText = "照片已补充，刷新商品页就能看到。";
+            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "SELLER_AVAILABLE")));
+            String bad = api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "SELLER_PRICE_FIRM"))).path("id").asText();
+            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "SELLER_PHOTOS_ADDED")));
             report(buyer, "MESSAGE", bad, "HARASSMENT");
             report(reporter, "PRODUCT", p, "MISLEADING");
             assertThat(status(api.post(reporter, "/v1/moderation-reports", Map.of("targetType", "MESSAGE", "targetId", bad, "reasonCode", "HARASSMENT"))))
@@ -226,7 +228,7 @@ class ModerationIT {
             String messageCase = caseFor("MESSAGE", bad);
             JsonNode detail = api.ok(api.get(s, "/v1/moderation/cases/" + messageCase));
             String raw = detail.toString();
-            assertThat(raw).contains("这是一条骚扰消息").doesNotContain("第一条正常消息").doesNotContain("之后的另一条消息");
+            assertThat(raw).contains(badText).doesNotContain(firstText).doesNotContain(laterText);
             assertThat(raw).doesNotContain(buyer.id()).doesNotContain(reporter.id()).doesNotContain("13800000000")
                     .doesNotContain("password").doesNotContain("token").doesNotContain("account");
             api.ok(decide(s, messageCase, "RESTRICT_CONTACT", "HARASSMENT", 24));
@@ -277,7 +279,7 @@ class ModerationIT {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM contact_requests WHERE product_id=?::uuid", Long.class, another)).isZero();
             assertThat(status(api.post(target, "/v1/contact-requests/" + earlier + "/withdraw", Map.of()))).as("已有申请照常撤回").isEqualTo(200);
             String conversation = api.ok(api.post(target, "/v1/conversations", Map.of("productId", theirs))).path("id").asText();
-            assertThat(status(api.post(target, "/v1/conversations/" + conversation + "/messages", Map.of("content", "受限期间仍能沟通")))).isEqualTo(200);
+            assertThat(status(api.post(target, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "BUYER_STILL_AVAILABLE")))).as("REWRITTEN：受限期间仍能发快捷消息").isEqualTo(200);
 
             assertThat(status(api.post(target, "/v1/products", SupplyApi.single("其他", "受限发布", 10)))).isEqualTo(403);
             assertThat(status(api.post(target, "/v1/products", SupplyApi.bundle("受限打包", 30, 2)))).isEqualTo(403);

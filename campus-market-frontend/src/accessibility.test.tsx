@@ -40,7 +40,7 @@ function shell(node: JSX.Element, path = '/') {
 }
 
 const readyFeed = (overrides: Partial<BuildingFeedState> = {}): BuildingFeedState => ({
-  status: 'ready', errorMessage: null, action: null, reload: () => {},
+  status: 'ready', errorMessage: null, action: null, reload: () => {}, items: [], hasMore: false, loadingMore: false, loadMore: () => {},
   page: {
     requestedScope: 'BUILDING', effectiveScope: 'ZONE', effectiveScopeLabel: '本园区', fallbackApplied: true,
     fallbackReason: 'NO_RESULTS_IN_REQUESTED_SCOPE', items: [], page: 1, pageSize: 20, total: 3,
@@ -51,6 +51,7 @@ const readyFeed = (overrides: Partial<BuildingFeedState> = {}): BuildingFeedStat
 
 beforeEach(async () => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   // 6.1A 起首页的商品区需要登录：以一位试点学校的同学登录
   const api = new MockCampusMarketApi();
   await api.register({ account: `a11y-${Math.random().toString(36).slice(2, 8)}`, password: 'test-password', nickname: '同学', campus: '东校区', contact: '1' });
@@ -76,30 +77,37 @@ describe('axe-core：关键页面与组件没有严重违规', () => {
     const api = new MockCampusMarketApi();
     setApiClient(api);
     const { container } = shell(<App />);
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: '只看本楼' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('radiogroup', { name: '商品范围' })).toBeTruthy());
     console.log('AXE home (all impacts):', JSON.stringify(await axeAllViolations(container)));
   });
 
-  it('1. 首页（含「只看本楼」开关与筛选区）', async () => {
+  // REWRITTEN：「只看本楼」开关已改为 本楼 / 本校区 / 全校 单选组；同时检查展开的「筛选与排序」面板
+  it('1. 首页（含范围切换、分类与展开的筛选区）', async () => {
     const { container } = shell(<App />);
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: '只看本楼' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('radiogroup', { name: '商品范围' })).toBeTruthy());
+    await screen.findAllByRole('link', { name: /^查看闲置：/ }, { timeout: 5000 });
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: /筛选与排序/ }));
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  // REWRITTEN：落地页改为说明产品、三步与协议链接的完整页面，仍以「登录后查看本校在售好物」为登录入口标题
   it('1b. 未登录的首页落地页（6.1A）', async () => {
     const api = new MockCampusMarketApi();
     await api.logout();
     setApiClient(api);
     const { container } = shell(<App />);
     await screen.findByRole('heading', { name: '登录后查看本校在售好物' }, { timeout: 5000 });
+    expect(screen.getByRole('heading', { level: 1 })).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  // REWRITTEN：组件改为范围单选组 + 提示（value / onChange），检查的两种提示不变
   it('2. 降级提示与引导提示', async () => {
-    const { container, rerender } = shell(<BuildingScopeBar enabled onToggle={() => {}} feed={readyFeed()} />);
+    const { container, rerender } = shell(<BuildingScopeBar value="BUILDING" onChange={() => {}} feed={readyFeed()} />);
     expect(await axeViolations(container)).toEqual([]);
     rerender(
-      <MemoryRouter><BuildingScopeBar enabled onToggle={() => {}} feed={readyFeed({ status: 'error', action: 'set-dorm-building', page: null })} /></MemoryRouter>,
+      <MemoryRouter><BuildingScopeBar value="BUILDING" onChange={() => {}} feed={readyFeed({ status: 'error', action: 'set-dorm-building', page: null })} /></MemoryRouter>,
     );
     expect(await axeViolations(container)).toEqual([]);
   });
@@ -130,17 +138,28 @@ describe('axe-core：关键页面与组件没有严重违规', () => {
 });
 
 describe('键盘与读屏语义', () => {
-  it('7. 「只看本楼」有可访问名称，可用键盘（空格）切换', async () => {
+  // REWRITTEN：开关改为单选组——每一项是有名称、可聚焦的原生单选框，同组同名（方向键在组内移动），Home / End 跳到首尾
+  it('7. 范围单选组：可访问名称、可聚焦、键盘可切换', async () => {
     shell(<App />);
-    const toggle = await screen.findByRole('checkbox', { name: '只看本楼' });
-    toggle.focus();
-    expect(document.activeElement).toBe(toggle);
-    fireEvent.click(toggle);   // 原生 checkbox：空格键触发的正是 click
-    expect((toggle as HTMLInputElement).checked).toBe(true);
+    const group = await screen.findByRole('radiogroup', { name: '商品范围' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('aria-label') ?? r.parentElement!.textContent)).toEqual(['本楼', '本校区', '全校']);
+    expect(new Set(radios.map((r) => (r as HTMLInputElement).name)).size).toBe(1);
+    const campus = within(group).getByRole('radio', { name: '本校区' });
+    campus.focus();
+    expect(document.activeElement).toBe(campus);
+    fireEvent.click(campus);   // 原生单选框：空格 / 方向键触发的正是 click + change
+    expect((campus as HTMLInputElement).checked).toBe(true);
+    fireEvent.keyDown(campus, { key: 'End' });
+    const school = within(group).getByRole('radio', { name: '全校' }) as HTMLInputElement;
+    expect(school.checked).toBe(true);
+    expect(document.activeElement).toBe(school);
+    fireEvent.keyDown(school, { key: 'Home' });
+    expect((within(group).getByRole('radio', { name: '本楼' }) as HTMLInputElement).checked).toBe(true);
   });
 
   it('8. 降级提示使用 polite 的 status，而不是打断式的 alert', () => {
-    render(<MemoryRouter><BuildingScopeBar enabled onToggle={() => {}} feed={readyFeed()} /></MemoryRouter>);
+    render(<MemoryRouter><BuildingScopeBar value="BUILDING" onChange={() => {}} feed={readyFeed()} /></MemoryRouter>);
     const notice = screen.getByText(/已为你展示本园区的商品/).closest('[role]')!;
     expect(notice.getAttribute('role')).toBe('status');
     expect(notice.getAttribute('aria-live')).toBe('polite');

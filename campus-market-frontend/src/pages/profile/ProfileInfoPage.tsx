@@ -1,6 +1,5 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Avatar from "@mui/material/Avatar";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -18,12 +17,20 @@ import { CAMPUSES } from "../../types";
 import type { Campus } from "../../types";
 import { formatDate, isValidPhone, isValidStudentId } from "../../utils/format";
 import BuildingSelect from "../../components/BuildingSelect";
-import { toUserMessage } from '../../api/errors';
+import { ApiError, toUserMessage } from '../../api/errors';
+import { getApiClient } from "../../api/client";
+import Avatar from "../../components/Avatar";
+import { useClientConfig } from "../../hooks/useClientConfig";
+import { AVATAR_PRESET_COUNT, isPresetAvatar, normalizeAvatarValue, presetAvatarValue } from "../../utils/avatar";
+import { displaySrcOf, imageBytesText, imageFileProblem, imageTooLargeText, imageTypesText, rememberUploadedImage } from "../../utils/images";
 
-const AVATAR_PRESETS = Array.from(
-  { length: 8 },
-  (_, i) => `https://picsum.photos/seed/cm-face-${i + 1}/200/200`,
-);
+/** 保存的头像若是上传图片或外部链接（不是预设、不是空、不是旧演示数据），返回它；否则 "" */
+function customOf(stored: string | null | undefined): string {
+  const value = normalizeAvatarValue(stored);
+  return value && !isPresetAvatar(value) ? value : "";
+}
+
+const PRESET_VALUES = Array.from({ length: AVATAR_PRESET_COUNT }, (_, i) => presetAvatarValue(i + 1));
 
 /** 个人资料编辑页 */
 export default function ProfileInfoPage() {
@@ -38,7 +45,17 @@ export default function ProfileInfoPage() {
   const [nickname, setNickname] = useState(currentUser?.nickname ?? "");
   const [campus, setCampus] = useState<Campus>(currentUser?.campus ?? "东校区");
   const [contact, setContact] = useState(currentUser?.contact ?? "");
-  const [avatar, setAvatar] = useState(currentUser?.avatar ?? "");
+  // 头像：旧演示数据里的外部头像按「不使用头像」处理；只有与当前保存的值不同时才提交
+  const [avatar, setAvatar] = useState(normalizeAvatarValue(currentUser?.avatar));
+  // 「自定义头像」选项：刚上传的图片，或当前保存的上传 / 外部头像（改选预设后仍可改回）
+  const [customValue, setCustomValue] = useState(() => customOf(currentUser?.avatar));
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarStatus, setAvatarStatus] = useState("");
+  const avatarInput = useRef<HTMLInputElement>(null);
+  const avatarHelpId = useId();
+  const { config } = useClientConfig();
+  const imageRules = config.images;
   const [dormBuildingId, setDormBuildingId] = useState<string | null>(
     currentUser?.dormBuildingId ?? null,
   );
@@ -48,7 +65,8 @@ export default function ProfileInfoPage() {
       setNickname(currentUser.nickname);
       setCampus(currentUser.campus);
       setContact(currentUser.contact);
-      setAvatar(currentUser.avatar);
+      setAvatar(normalizeAvatarValue(currentUser.avatar));
+      setCustomValue(customOf(currentUser.avatar));
       setDormBuildingId(currentUser.dormBuildingId ?? null);
     }
   }, [currentUser]);
@@ -57,8 +75,42 @@ export default function ProfileInfoPage() {
     return null;
   }
 
+  const storedAvatar = currentUser.avatar ?? "";
+
+  const handleAvatarFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    // 允许再次选择同一个文件（例如失败后重试）
+    if (avatarInput.current) avatarInput.current.value = "";
+    if (!file) return;
+    const problem = imageFileProblem(file, imageRules);
+    if (problem) {
+      setAvatarError(problem);
+      setAvatarStatus("");
+      return;
+    }
+    setAvatarError(null);
+    setAvatarUploading(true);
+    setAvatarStatus("头像上传中…");
+    try {
+      const result = await getApiClient().uploadImage(file);
+      rememberUploadedImage(result.ref, result.url);
+      // 提交服务端返回的上传引用 upload:<id>；签名地址只用于预览
+      setAvatar(result.ref);
+      setCustomValue(result.ref);
+      setAvatarStatus("头像已上传，保存修改后生效");
+    } catch (e) {
+      const message = e instanceof ApiError && (e.httpStatus === 413 || e.code === 413)
+        ? imageTooLargeText(imageRules.maxBytes)
+        : toUserMessage(e, "上传失败，请重试");
+      setAvatarError(message);
+      setAvatarStatus("");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const handleSave = async () => {
-    if (busy) return;
+    if (busy || avatarUploading) return;
     setBusy(true);
     setSaveError(null);
     try {
@@ -84,7 +136,8 @@ export default function ProfileInfoPage() {
         nickname: name,
         campus,
         contact: contactValue || currentUser.account,
-        avatar,
+        // 头像只在改动时提交：未改动的旧外部头像不会因为保存其他字段而被拒绝
+        ...(avatar !== storedAvatar ? { avatar } : {}),
         // 显式传 null 表示清空：不填宿舍楼是完全正当的选择
         dormBuildingId,
       });
@@ -122,27 +175,73 @@ export default function ProfileInfoPage() {
 
         <Divider sx={{ my: 3 }} />
 
-        {/* 头像选择 */}
-        <div className="mb-4">
-          <p className="mb-2 text-sm font-semibold text-slate-600">选择头像</p>
-          <div className="flex flex-wrap gap-3">
-            {AVATAR_PRESETS.map((url) => (
-              <button
-                key={url}
-                type="button"
-                onClick={() => setAvatar(url)}
-                className={`overflow-hidden rounded-full border-2 transition ${
-                  avatar === url
-                    ? "border-brand-500 ring-2 ring-brand-200"
-                    : "border-transparent opacity-75 hover:opacity-100"
-                }`}
-                aria-label="选择头像"
-              >
-                <Avatar src={url} sx={{ width: 52, height: 52 }} />
-              </button>
+        {/* 头像：12 个本地绘制的预设、上传图片、不使用头像 */}
+        <fieldset className="mb-4" aria-describedby={avatarHelpId}>
+          <legend className="mb-2 text-sm font-semibold text-slate-600">选择头像</legend>
+          <p id={avatarHelpId} className="mb-2 text-xs text-slate-500">
+            预设头像在本地绘制，不向任何第三方请求；也可以上传 {imageTypesText(imageRules.accept)} 图片（不超过 {imageBytesText(imageRules.maxBytes)}）。
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {PRESET_VALUES.map((value, i) => (
+              <label key={value} className="relative cursor-pointer">
+                <input
+                  type="radio"
+                  name="avatar-choice"
+                  value={value}
+                  checked={avatar === value}
+                  onChange={() => setAvatar(value)}
+                  aria-label={`预设头像 ${i + 1}`}
+                  className="peer sr-only"
+                />
+                <Avatar
+                  avatar={value}
+                  nickname={nickname}
+                  size={48}
+                  className="border-2 border-transparent opacity-80 transition hover:opacity-100 peer-checked:border-brand-500 peer-checked:opacity-100 peer-checked:ring-2 peer-checked:ring-brand-200 peer-focus-visible:ring-2 peer-focus-visible:ring-slate-500"
+                />
+              </label>
             ))}
+            {customValue && (
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="radio"
+                  name="avatar-choice"
+                  value={customValue}
+                  checked={avatar === customValue}
+                  onChange={() => setAvatar(customValue)}
+                />
+                <Avatar avatar={displaySrcOf(customValue) ?? ""} nickname={nickname} userId={currentUser.id} size={48} />
+                自定义头像
+              </label>
+            )}
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="avatar-choice"
+                value=""
+                checked={avatar === ""}
+                onChange={() => setAvatar("")}
+              />
+              <Avatar avatar="" nickname={nickname} userId={currentUser.id} size={32} />
+              不使用头像
+            </label>
           </div>
-        </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label htmlFor="avatar-upload" className="text-sm text-slate-700">上传头像</label>
+            <input
+              id="avatar-upload"
+              ref={avatarInput}
+              type="file"
+              accept={imageRules.accept.join(",")}
+              disabled={avatarUploading}
+              aria-describedby={avatarHelpId}
+              onChange={(e) => void handleAvatarFile(e.target.files)}
+              className="text-sm"
+            />
+          </div>
+          <p className="mt-1 text-xs text-slate-600" aria-live="polite">{avatarStatus}</p>
+          {avatarError && <p role="alert" className="mt-1 text-xs text-red-700">{avatarError}</p>}
+        </fieldset>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <TextField
@@ -207,7 +306,7 @@ export default function ProfileInfoPage() {
             size="large"
             startIcon={<SaveIcon />}
             onClick={handleSave}
-            disabled={busy}
+            disabled={busy || avatarUploading}
           >
             保存修改
           </Button>

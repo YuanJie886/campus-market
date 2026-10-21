@@ -80,7 +80,9 @@ import {
   STORAGE_KEYS,
 } from '../src/utils/storage';
 import { uid, safeUuid } from '../src/utils/id';
-import { CATEGORY_EMOJI, CATEGORY_GRADIENT, IMAGE_PRESETS, ORDER_STATUS_COLOR, CONDITION_COLOR } from '../src/utils/constants';
+import { CATEGORY_COVER, CATEGORY_EMOJI, CATEGORY_GRADIENT, ORDER_STATUS_COLOR, CONDITION_COLOR } from '../src/utils/constants';
+// REWRITTEN：外部示例图移到受 externalAllowed 控制的 externalDemoImages.ts（唯一允许出现演示图床主机名的文件）
+import { IMAGE_PRESETS } from '../src/utils/externalDemoImages';
 import { CATEGORIES, CONDITIONS, CAMPUSES, SORT_OPTIONS, DEFAULT_FILTER } from '../src/types';
 
 /* ================= format.ts ================= */
@@ -199,6 +201,8 @@ eq('6 个分类 emoji', Object.keys(CATEGORY_EMOJI).sort(), [...CATEGORIES].sort
 eq('6 个分类渐变', Object.keys(CATEGORY_GRADIENT).sort(), [...CATEGORIES].sort());
 eq('预置图片 12 张', IMAGE_PRESETS.length, 12);
 ok('预置图片均为 https', IMAGE_PRESETS.every((u) => u.startsWith('https://')));
+// REWRITTEN：分类封面不再指向演示图床，改为本地绘制的内联 SVG
+ok('分类封面均为本地 SVG', CATEGORIES.every((c) => CATEGORY_COVER[c].startsWith('data:image/svg+xml') && !/picsum/i.test(CATEGORY_COVER[c])));
 eq('4 种成色', CONDITIONS.length, 4);
 eq('4 个校区', CAMPUSES.length, 4);
 eq('4 种排序', SORT_OPTIONS.length, 4);

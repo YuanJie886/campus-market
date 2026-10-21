@@ -53,6 +53,10 @@ campus-market:
     # 是否允许商品 / 打包 / 批量 / 草稿使用外部 http(s) 图片地址。默认 true（开发、测试与演示数据不变）；
     # 生产建议设为 false：新提交的外部地址 400，编辑时商品原有的外部地址可以保留。见 docs/images-and-content-safety.md
     allow-external: ${ALLOW_EXTERNAL_IMAGES:true}
+  # 私信：早期需要人工审核，默认只能发送预设的快捷消息（GET /v1/message-templates）。
+  # 设为 true 后才允许自由文字（照常做内容安全检查）。商品留言不受影响。见 docs/messaging.md
+  messages:
+    free-text-enabled: ${MESSAGES_FREE_TEXT_ENABLED:false}
   wechat:
     app-id: ${WECHAT_APP_ID:}
     app-secret: ${WECHAT_APP_SECRET:}

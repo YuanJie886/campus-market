@@ -289,7 +289,10 @@ describe('内容安全：被拦截时在表单旁原样显示「内容可能包�
     expect(await api.listComments(product.id)).toEqual([]);
   });
 
-  it('私信：提示出现在输入框上方，原文保留以便修改', async () => {
+  // REWRITTEN（私信默认只能发送快捷消息）：只有服务端开放文字私信时才有输入框；这里显式打开后检查内容安全的提示
+  it('私信（开放文字时）：提示出现在输入框上方，原文保留以便修改', async () => {
+    api = new MockCampusMarketApi({ messageFreeTextEnabled: true });
+    setApiClient(api);
     await user('seller');
     const product = await api.createProduct(listing('被私信的商品'));
     await user('buyer');

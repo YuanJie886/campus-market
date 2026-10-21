@@ -61,16 +61,23 @@ export function versionConflict(error: unknown): number | null {
 }
 
 /**
- * 协助链接：邀请码放在 URL fragment（# 之后），浏览器不会把 fragment 发给服务器，
- * 也不会出现在 Referer 或服务端访问日志里。兑换时由页面读出并只放进请求体。
+ * 旧版邀请链接（…#code=…）的兼容：邀请码在 URL fragment 里，浏览器不会把 fragment 发给服务器。
+ * 现在与小程序一致以邀请码为主（只显示、复制邀请码，不再生成链接）；打开旧链接时页面读出邀请码并只放进请求体。
  */
-export function assistLink(origin: string, token: string): string {
-  return `${origin}/assist#code=${encodeURIComponent(token)}`;
-}
-
 export function tokenFromFragment(hash: string): string | null {
   const match = /^#code=([A-Za-z0-9_%-]{20,200})$/.exec(hash);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * 输入框里的邀请码（与小程序 tokenFromInput 相同）：可以是邀请码本身，也可以是粘贴进来的旧版邀请链接（…#code=…）。
+ * 只取出邀请码，放进兑换请求的请求体；不保存。
+ */
+export function tokenFromInput(raw: string): string {
+  const text = raw.trim();
+  const match = /[#?&]code=([A-Za-z0-9_%-]{20,200})/.exec(text);
+  if (match) { try { return decodeURIComponent(match[1]) } catch { return match[1] } }
+  return text;
 }
 
 export interface BundleTotals { rows: number; quantity: number; categories: number }

@@ -72,7 +72,8 @@ describe('7.1E 内容处置（界面）', () => {
     const c = await api.addComment({ productId: p.id, content: '需要隐藏的原文' });
     const conv = await api.getOrCreateConversation(p.id);
     await as('shop');
-    const bad = await api.sendMessage(conv.id, '被隔离的原文');
+    // REWRITTEN（私信只能发送快捷消息）：被隔离的是一条卖家的快捷消息；断言限定在聊天记录里（快捷消息按钮本身会显示模板文字）
+    const bad = await api.sendMessage(conv.id, { templateCode: 'SELLER_PRICE_FIRM' });
     await api.createModerationReport({ targetType: 'COMMENT', targetId: c.id, reasonCode: 'HARASSMENT' });
     await as('author');
     await api.createModerationReport({ targetType: 'MESSAGE', targetId: bad.id, reasonCode: 'HARASSMENT' });
@@ -95,7 +96,7 @@ describe('7.1E 内容处置（界面）', () => {
     await as('shop');
     view = renderApp(`/messages/${conv.id}`);
     expect(await screen.findByText(/你发送的这条消息已被平台隔离/, undefined, { timeout: 5000 })).toBeTruthy();
-    expect(view.container.textContent).not.toContain('被隔离的原文');
+    expect(screen.getByRole('log', { name: '聊天记录' }).textContent).not.toContain('价格不议，谢谢理解。');
     expect(await axeViolations(view.container)).toEqual([]);
   });
 });

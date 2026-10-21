@@ -5,14 +5,14 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../api/client';
 import { ApiError, toUserMessage } from '../api/errors';
 import type { ListingDraft } from '../api/contracts';
-import { tokenFromFragment } from '../utils/supply';
+import { tokenFromFragment, tokenFromInput } from '../utils/supply';
 import ListingItemEditor from '../components/supply/ListingItemEditor';
 
 export const ASSISTANT_ROLE_TEXT =
   '你正在协助整理发布：可以修改标题、描述、分类、价格建议、打包明细与取货楼栋建议并保存。最终由商品所有者检查并发布；你看不到所有者的联系方式、联系申请或其他草稿。';
 
 /**
- * 协助人页面。邀请码可以手动输入，也可以来自链接的 # 片段：读取后立刻从地址栏抹掉，
+ * 协助人页面（与小程序一致以邀请码为主）。邀请码可以输入或粘贴（粘贴旧版邀请链接也能识别），也可以来自旧链接的 # 片段：读取后立刻从地址栏抹掉，
  * 只放进兑换请求的请求体，不进入 URL query、不写入任何浏览器存储。这里没有发布按钮。
  */
 export default function AssistPage() {
@@ -45,7 +45,7 @@ export default function AssistPage() {
     setBusy(true);
     setError(null);
     try {
-      const result = await getApiClient().redeemAssistInvite(token.trim());
+      const result = await getApiClient().redeemAssistInvite(tokenFromInput(token));
       setToken('');
       setDrafts(result.drafts);
       setStatus(`已加入协助，可以整理 ${result.drafts.length} 件草稿`);
@@ -78,7 +78,8 @@ export default function AssistPage() {
       <form className="flex flex-wrap items-start gap-2" onSubmit={(e) => { e.preventDefault(); void redeem() }} aria-labelledby={`${inputId}-title`}>
         <h2 id={`${inputId}-title`} className="sr-only">兑换邀请码</h2>
         <TextField size="small" label="邀请码" value={token} onChange={(e) => setToken(e.target.value)}
-          inputProps={{ maxLength: 200, autoComplete: 'off', spellCheck: false }} />
+          placeholder="邀请码或邀请链接"
+          inputProps={{ maxLength: 300, autoComplete: 'off', spellCheck: false }} />
         <Button type="submit" variant="contained" disabled={busy || !token.trim()}>兑换</Button>
       </form>
       <div role="status" aria-live="polite" className="text-sm text-emerald-800">{status}</div>

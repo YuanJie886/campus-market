@@ -6,12 +6,12 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { toUserMessage } from '../../api/errors';
 import { useAuth } from '../../context/AuthContext';
-import { tokenFromFragment } from '../../utils/supply';
+import { tokenFromFragment, tokenFromInput } from '../../utils/supply';
 import { USER_CREATED_NOTE } from '../../utils/circle';
 import { clearPendingInvite, holdPendingInvite, peekPendingInvite } from '../../utils/pendingInvite';
 
 /**
- * 用邀请码加入圈子。邀请码可以手动输入，也可以来自链接的 # 片段：读取后立刻从地址栏抹掉，
+ * 用邀请码加入圈子（与小程序一致以邀请码为主）。邀请码可以输入或粘贴（粘贴旧版邀请链接也能识别），也可以来自旧链接的 # 片段：读取后立刻从地址栏抹掉，
  * 只放进兑换请求的请求体，不进入 URL query、不写入任何浏览器存储。
  * 无效、过期、已用、已撤销的邀请码显示同一句提示，不透露圈子是否存在。
  *
@@ -37,7 +37,7 @@ export default function CircleJoinPage() {
     setBusy(true);
     setError(null);
     try {
-      const circle = await getApiClient().redeemCircleInvite(token.trim());
+      const circle = await getApiClient().redeemCircleInvite(tokenFromInput(token));
       setToken('');
       clearPendingInvite();
       navigate(`/circles/${encodeURIComponent(circle.id)}`);
@@ -77,7 +77,8 @@ export default function CircleJoinPage() {
       {token && <p className="text-xs text-slate-600">邀请码已自动填好，确认后点击「加入」。</p>}
       <form className="flex flex-wrap items-start gap-2" onSubmit={(e) => { e.preventDefault(); void redeem() }} aria-label="兑换圈子邀请码">
         <TextField size="small" label="邀请码" value={token} onChange={(e) => setToken(e.target.value)}
-          inputProps={{ maxLength: 200, autoComplete: 'off', spellCheck: false }} />
+          placeholder="邀请码或邀请链接"
+          inputProps={{ maxLength: 300, autoComplete: 'off', spellCheck: false }} />
         <Button type="submit" variant="contained" disabled={busy || !token.trim()}>加入</Button>
       </form>
       {error && <Alert severity="error">{error}</Alert>}

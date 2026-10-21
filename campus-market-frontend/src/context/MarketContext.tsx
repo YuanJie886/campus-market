@@ -16,6 +16,7 @@ import type {
   ProductInput,
 } from "../types";
 import { getApiClient } from "../api/client";
+import type { SendMessageInput } from "../api/contracts";
 import { useAuth } from "./AuthContext";
 import { useNotify } from "./NotificationContext";
 import { toUserMessage } from '../api/errors';
@@ -218,8 +219,9 @@ function useMarketState() {
     },
     [api],
   );
-  const sendMessage = async (id: string, _uid: string, content: string) => {
-    const m = await api.sendMessage(id, content);
+  /** 默认只能发送快捷消息（{ templateCode }）；只有服务端开放文字时才会提交 { content } */
+  const sendMessage = async (id: string, input: SendMessageInput) => {
+    const m = await api.sendMessage(id, input);
     setState((p) => ({
       ...p,
       messages: [...p.messages.filter((x) => x.id !== m.id), m],

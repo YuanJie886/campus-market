@@ -5,7 +5,8 @@ export interface Response { statusCode: number; data: unknown; header?: Record<s
 export type RequestPort = (input: { url: string; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; data?: unknown; header: Record<string, string>; timeout: number }) => Promise<Response>;
 /** multipart 上传（小程序 Taro.uploadFile）：只带 Authorization，不带 Cookie；响应体是字符串。 */
 export type UploadPort = (input: { url: string; filePath: string; name: string; header: Record<string, string>; timeout: number }, onProgress?: (percent: number) => void) => Promise<{ statusCode: number; data: unknown }>;
-export class ApiError extends Error { constructor(message: string, readonly code: number) { super(message); } }
+/** details：后端错误 envelope 的 data（例如整批发布被拒时的逐项原因 items、版本冲突时的 currentVersion）。 */
+export class ApiError extends Error { constructor(message: string, readonly code: number, readonly details?: unknown) { super(message); } }
 /**
  * 交换凭据的认证接口：401 表示账号、密码或凭证本身无效，不刷新、不结束会话。
  * 其余 /v1/auth/ 接口（资料、修改密码、注销、微信绑定状态与绑定）携带访问令牌，令牌过期时和业务接口一样刷新一次。
@@ -45,9 +46,10 @@ export class Transport {
     }
     return this.refreshPromise;
   }
-  async request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET', data?: unknown, retry = true): Promise<T> {
+  /** extraHeaders：只用于少数接口需要的请求头（例如整批发布的 Idempotency-Key），不能覆盖认证头。 */
+  async request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET', data?: unknown, retry = true, extraHeaders?: Record<string, string>): Promise<T> {
     const generation = this.generation;
-    const header: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+    const header: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json', ...(extraHeaders ?? {}) };
     if (this.token) header.Authorization = `Bearer ${this.token}`;
     if (this.nativeCookies && this.cookie && path.startsWith('/v1/auth/')) header.Cookie = this.cookie;
     let response: Response;
@@ -56,13 +58,14 @@ export class Transport {
     if (generation === this.generation) this.capture(response);
     if (response.statusCode === 401 && retry && sessionBound(path)) {
       if ((header.Authorization ?? '') === this.authorization) await this.refresh();
-      return this.request<T>(path, method, data, false);
+      return this.request<T>(path, method, data, false, extraHeaders);
     }
     const body = response.data as Partial<Envelope<T>> | null;
     if (generation === this.generation && response.statusCode === 401 && sessionBound(path)) { this.clear(); this.onExpired(); }
     if (response.statusCode >= 400 || !body || typeof body.code !== 'number' || body.code !== 0) {
       const message = response.statusCode === 429 ? '操作太频繁，请稍后重试' : body?.message || INVALID;
-      throw new ApiError(message, response.statusCode === 401 ? 401 : body?.code ?? response.statusCode);
+      const details = body && body.data !== null && typeof body.data === 'object' ? body.data : undefined;
+      throw new ApiError(message, response.statusCode === 401 ? 401 : body?.code ?? response.statusCode, details);
     }
     return body.data as T;
   }

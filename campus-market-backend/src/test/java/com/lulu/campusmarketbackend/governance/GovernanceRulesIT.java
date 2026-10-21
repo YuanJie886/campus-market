@@ -166,7 +166,8 @@ class GovernanceRulesIT {
             assertRecused(a, caseFor("COMMENT", comment));
 
             String conversation = api.ok(api.post(other, "/v1/conversations", Map.of("productId", myProduct))).path("id").asText();
-            String msg = api.ok(api.post(a, "/v1/conversations/" + conversation + "/messages", Map.of("content", "工作人员的私信"))).path("id").asText();
+            // REWRITTEN（快捷消息）：私信默认只能发预设快捷消息；工作人员 a 是这件商品的卖家
+            String msg = api.ok(api.post(a, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "SELLER_AVAILABLE"))).path("id").asText();
             fileReport(other, "MESSAGE", msg, "HARASSMENT");
             assertRecused(a, caseFor("MESSAGE", msg));
 
@@ -359,22 +360,24 @@ class GovernanceRulesIT {
 
         @Test
         @DisplayName("E5～E7. 单条私信隔离：只隔离被举报的那一条，双方看到占位、看不到正文；会话与其他消息照常，可以继续沟通；工作人员只在案件举报快照里看到这一条；"
-                + "只限制作者不会被当成已处理内容；发送者申诉后由另一位工作人员解除")
+                + "只限制作者不会被当成已处理内容；发送者申诉后由另一位工作人员解除（REWRITTEN：私信改为快捷消息，隔离时 templateCode 同样不返回）")
         void messages() throws Exception {
+            // 三条快捷消息的文案互不包含，用来区分「被举报的那一条」与其他消息
+            final String first = "你好，这件还在吗？", reported = "价格不议，谢谢理解。", third = "价格还有商量的空间吗？";
             User seller = api.register(), buyer = api.register(), a = staff("MODERATOR"), b = staff("MODERATOR");
             String p = product(seller);
             String conv = api.ok(api.post(buyer, "/v1/conversations", Map.of("productId", p))).path("id").asText();
-            api.ok(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("content", "正常的第一条")));
-            String bad = api.ok(api.post(seller, "/v1/conversations/" + conv + "/messages", Map.of("content", "被举报的那一条"))).path("id").asText();
-            api.ok(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("content", "正常的第三条")));
+            api.ok(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("templateCode", "BUYER_STILL_AVAILABLE")));
+            String bad = api.ok(api.post(seller, "/v1/conversations/" + conv + "/messages", Map.of("templateCode", "SELLER_PRICE_FIRM"))).path("id").asText();
+            api.ok(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("templateCode", "BUYER_ASK_PRICE")));
             fileReport(buyer, "MESSAGE", bad, "HARASSMENT");
             String c = caseFor("MESSAGE", bad);
 
             JsonNode detail = api.ok(api.get(a, "/v1/moderation/cases/" + c));
-            assertThat(detail.toString()).contains("被举报的那一条").doesNotContain("正常的第一条").doesNotContain("正常的第三条");
+            assertThat(detail.toString()).contains(reported).doesNotContain(first).doesNotContain(third);
             // 只限制作者：私信照常显示（限制不是内容处置）
             api.ok(decide(a, c, "RESTRICT_CONTACT", "HARASSMENT", 24));
-            assertThat(api.ok(api.get(buyer, "/v1/conversations/" + conv + "/messages")).toString()).contains("被举报的那一条");
+            assertThat(api.ok(api.get(buyer, "/v1/conversations/" + conv + "/messages")).toString()).contains(reported);
 
             // 第一个案件已结（只限制了作者）；工作人员 b 就同一条私信另立案件做内容处置
             String second = api.ok(api.post(b, "/v1/moderation/cases", Map.of("targetType", "MESSAGE", "targetId", bad))).path("id").asText();
@@ -383,18 +386,24 @@ class GovernanceRulesIT {
             for (User u : List.of(seller, buyer)) {
                 JsonNode list = api.ok(api.get(u, "/v1/conversations/" + conv + "/messages"));
                 assertThat(list).hasSize(3);
-                assertThat(list.toString()).doesNotContain("被举报的那一条").contains("正常的第一条").contains("正常的第三条");
+                assertThat(list.toString()).doesNotContain(reported).doesNotContain("SELLER_PRICE_FIRM").contains(first).contains(third);
                 assertThat(list.get(1).path("quarantined").asBoolean()).isTrue();
+                assertThat(list.get(1).path("templateCode").isNull()).as("被隔离的快捷消息也不返回 code").isTrue();
+                assertThat(list.get(0).path("templateCode").asText()).isEqualTo("BUYER_STILL_AVAILABLE");
             }
-            assertThat(status(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("content", "继续沟通")))).isEqualTo(200);
-            assertThat(jdbc.queryForObject("SELECT content FROM messages WHERE id=?::uuid", String.class, bad)).isEqualTo("被举报的那一条");
+            assertThat(status(api.post(buyer, "/v1/conversations/" + conv + "/messages", Map.of("templateCode", "ANY_THANKS")))).isEqualTo(200);
+            assertThat(jdbc.queryForObject("SELECT content FROM messages WHERE id=?::uuid", String.class, bad)).isEqualTo(reported);
+            assertThatThrownBy(() -> jdbc.update("UPDATE messages SET template_code='ANY_THANKS' WHERE id=?::uuid", bad))
+                    .as("template_code 与正文一样不可修改（V21）").isInstanceOf(DataAccessException.class);
             assertThatThrownBy(() -> jdbc.update("DELETE FROM messages WHERE id=?::uuid", bad)).isInstanceOf(DataAccessException.class);
 
             UUID q = jdbc.queryForObject("SELECT id FROM moderation_actions WHERE action_code='QUARANTINE_MESSAGE' AND target_id=?::uuid", UUID.class, bad);
             String appeal = appealAction(seller, q);
             assertThat(status(decideAppeal(b, appeal, true))).as("原处理人回避").isEqualTo(403);
             api.ok(decideAppeal(a, appeal, true));
-            assertThat(api.ok(api.get(buyer, "/v1/conversations/" + conv + "/messages")).toString()).contains("被举报的那一条");
+            JsonNode released = api.ok(api.get(buyer, "/v1/conversations/" + conv + "/messages"));
+            assertThat(released.toString()).contains(reported);
+            assertThat(released.get(1).path("templateCode").asText()).as("解除后 code 恢复").isEqualTo("SELLER_PRICE_FIRM");
         }
     }
 }

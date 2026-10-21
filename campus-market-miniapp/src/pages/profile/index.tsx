@@ -1,18 +1,20 @@
 import Taro, { useDidShow } from '@tarojs/taro';
-import { Button, Input, Picker, Text, View } from '@tarojs/components';
+import { Button, Text, View } from '@tarojs/components';
 import { useEffect, useRef, useState } from 'react';
 import { api, isDemo } from '../../api';
 import type { WechatStatus } from '../../model';
 import { LoginGate, PageTitle } from '../../components';
 import { PRIVACY_PAGE, TERMS_PAGE } from '../../legal';
-import { CAMPUSES, type Campus } from '../../model';
-import { goLogin, notify, notifyError, useMarket, useUnread } from '../../state';
+import { MORE_ENTRIES, PAGES } from '../../menu';
+import { Avatar } from '../../widgets/Avatar';
+import { badgeText } from '../../contacts';
+import { goLogin, notify, notifyError, useDemandUnread, useMarket, useMessageUnread, useUnread } from '../../state';
 
 export default function ProfilePage() {
   const { user, setUser, favorites } = useMarket();
-  const unreadCount = useUnread().total;
+  const unreadCount = useUnread().total, messageCount = useMessageUnread(), demandCount = useDemandUnread();
   const [wechat, setWechat] = useState<WechatStatus | null>(null), identity = useRef(user?.id); identity.current = user?.id;
-  const [editing, setEditing] = useState(false), [busy, setBusy] = useState(false), [nickname, setNickname] = useState(''), [campus, setCampus] = useState<Campus>('东校区'), [contact, setContact] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const loadWechat = () => {
     const uid = user?.id; if (!uid) { setWechat(null); return; }
@@ -33,42 +35,32 @@ export default function ProfilePage() {
     if (busy) return;
     const result = await Taro.showModal({ title: switchDemo ? '切换演示身份？' : '退出当前账号？', content: switchDemo ? '演示商品和申请会保留，可以换一个身份继续体验。' : '退出后需要重新登录才能浏览本校商品。', confirmColor: '#194e41' });
     if (!result.confirm) return; setBusy(true);
-    try { await api.logout(); setUser(null); setEditing(false); if (switchDemo) goLogin('/pages/profile/index'); }
-    catch (e) { setUser(null); setEditing(false); notifyError(e); } finally { setBusy(false); }
+    try { await api.logout(); setUser(null); if (switchDemo) goLogin('/pages/profile/index'); }
+    catch (e) { setUser(null); notifyError(e); } finally { setBusy(false); }
   };
 
   return <View className='page'>
     <PageTitle title='我的' subtitle='管理你的闲置，也收藏下一件喜欢的好物。' />
     <LoginGate returnTo='/pages/profile/index'>
       <View className='profile-card'>
-        <View className='avatar large-avatar'>{user?.nickname.slice(0, 1)}</View>
+        <Avatar value={user?.avatar} userId={user?.id} nickname={user?.nickname} size='large' />
         <View className='profile-info'>
           <Text className='profile-name'>{user?.nickname}</Text>
           <Text className='subtitle'>{user?.campus} · 同校交易</Text>
         </View>
-        <Text className='text-action' onClick={() => { setNickname(user?.nickname ?? ''); setCampus(user?.campus ?? '东校区'); setContact(user?.contact ?? ''); setEditing(!editing); }}>{editing ? '收起' : '编辑资料'}</Text>
+        <Text className='text-action' onClick={() => void Taro.navigateTo({ url: PAGES.profileEdit })}>编辑资料</Text>
       </View>
-
-      {editing && <View className='form-card'>
-        <Text className='field-label'>昵称</Text>
-        <Input className='field-input' value={nickname} maxlength={40} onInput={(e) => setNickname(e.detail.value)} />
-        <Text className='field-label'>校区</Text>
-        <Picker range={[...CAMPUSES]} value={CAMPUSES.indexOf(campus)} onChange={(e) => setCampus(CAMPUSES[Number(e.detail.value)])}>
-          <View className='picker'><Text className='picker-value'>{campus}</Text><View className='i-chevron' /></View>
-        </Picker>
-        <Text className='field-label'>联系方式</Text>
-        <Input className='field-input' value={contact} maxlength={100} onInput={(e) => setContact(e.detail.value)} />
-        <Button className='primary mt-20' disabled={busy} loading={busy} onClick={async () => {
-          if (busy) return; if (!nickname.trim()) { notify('昵称不能为空'); return; } setBusy(true);
-          try { setUser(await api.updateProfile({ nickname: nickname.trim(), campus, contact: contact.trim() })); setEditing(false); notify('资料已保存'); }
-          catch (e) { notifyError(e); } finally { setBusy(false); }
-        }}>保存资料</Button>
-      </View>}
 
       <View className='menu-panel'>
         <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/listings/index' })}><Text className='menu-text'>我的发布</Text><Text className='menu-value'>管理<View className='i-chevron-r' /></Text></View>
         <View className='menu-row' onClick={() => void Taro.navigateTo({ url: '/pages/listings/index?kind=favorites' })}><Text className='menu-text'>我的收藏</Text><Text className='menu-value'>{favorites.length} 件<View className='i-chevron-r' /></Text></View>
         <View className='menu-row' onClick={() => void Taro.switchTab({ url: '/pages/notifications/index' })}><Text className='menu-text'>联系申请</Text><Text className='menu-value'>{unreadCount ? `${unreadCount} 条未读` : '查看和处理'}<View className='i-chevron-r' /></Text></View>
+        <View className='menu-row' onClick={() => void Taro.navigateTo({ url: PAGES.messages })}><Text className='menu-text'>私信</Text><Text className='menu-value'>{messageCount ? `${badgeText(messageCount)} 条未读` : '快捷消息'}<View className='i-chevron-r' /></Text></View>
+      </View>
+
+      <View className='menu-panel'>
+        <Text className='menu-group'>更多</Text>
+        {MORE_ENTRIES.map((entry) => <View className='menu-row' key={entry.key} onClick={() => void Taro.navigateTo({ url: entry.url })}><Text className='menu-text'>{entry.label}</Text><Text className='menu-value'>{entry.key === 'demand' && demandCount ? `${badgeText(demandCount)} 条未读` : entry.hint}<View className='i-chevron-r' /></Text></View>)}
       </View>
 
       <View className='menu-panel'>

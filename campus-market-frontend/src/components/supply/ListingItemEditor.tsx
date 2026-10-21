@@ -8,7 +8,7 @@ import { getApiClient } from '../../api/client';
 import { toUserMessage } from '../../api/errors';
 import type { DisclosureInput, InspectionTemplate, ListingDraft, ListingPayload, ListingValidation } from '../../api/contracts';
 import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus } from '../../types';
-import { IMAGE_PRESETS } from '../../utils/constants';
+import { IMAGE_PRESETS } from '../../utils/externalDemoImages';
 import { VALIDATION_LABEL, missingText, priceValue, versionConflict } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
 import ImageUploader from '../ImageUploader';
@@ -118,13 +118,21 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
     return base;
   };
 
-  const save = async () => {
+  /**
+   * 保存这件；ready=true 时同时把草稿标记为「可以发布」（与小程序 DraftEditor 相同：status=READY）。
+   * 进入 READY 前服务端按正式商品规则校验，不通过时 400「草稿还不能发布：…」原样显示；只有所有者能标记。
+   * 之后再普通保存会回到 DRAFT（服务端规则），需要时重新标记。
+   */
+  const save = async (ready = false) => {
+    if (saving) return;
     setSaving(true);
     setError(null);
     setStatus('');
     try {
-      const saved = await getApiClient().updateListingDraft(draft.id, { expectedVersion: draft.version, payload: toPayload() });
-      setStatus(`${label}已保存`);
+      const saved = await getApiClient().updateListingDraft(draft.id, {
+        expectedVersion: draft.version, payload: toPayload(), ...(ready ? { status: 'READY' as const } : {}),
+      });
+      setStatus(ready ? `${label}已标记为可以发布` : `${label}已保存`);
       onSaved(saved);
     } catch (e) {
       const current = versionConflict(e);
@@ -209,7 +217,10 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
       )}
       {error && <Alert severity="error">{error}</Alert>}
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="contained" onClick={save} disabled={saving || conflict !== null || uploading > 0}>保存这件</Button>
+        <Button variant="contained" onClick={() => void save()} disabled={saving || conflict !== null || uploading > 0}>保存这件</Button>
+        {!assistant && (
+          <Button variant="outlined" onClick={() => void save(true)} disabled={saving || conflict !== null || uploading > 0}>标记为可以发布</Button>
+        )}
         <span role="status" aria-live="polite" className="text-sm text-emerald-800">{status}</span>
       </div>
     </section>

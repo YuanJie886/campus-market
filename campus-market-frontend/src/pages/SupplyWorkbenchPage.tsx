@@ -189,7 +189,11 @@ export default function SupplyWorkbenchPage() {
           一次整理多件闲置（最多 {BATCH_MAX_ITEMS} 件），逐件保存为草稿，全部检查通过后一次确认发布：要么全部发布，要么一件都不发布。任何时候都可以用。
         </p>
         {error && <Alert severity="error">{error}</Alert>}
-        <Button variant="contained" onClick={newBatch}>新建批次</Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="contained" onClick={newBatch}>新建批次</Button>
+          {/* 协助人入口：收到所有者给的邀请码后在这里输入（与小程序「我的 → 协助整理发布」对应） */}
+          <Button component={Link} to="/assist" variant="outlined">用邀请码协助整理</Button>
+        </div>
         <section aria-labelledby="open-batches" className="space-y-2">
           <h2 id="open-batches" className="text-base font-bold text-slate-800">未发布的批次</h2>
           {batches === null ? <p role="status" className="text-sm text-slate-600">正在读取…</p>

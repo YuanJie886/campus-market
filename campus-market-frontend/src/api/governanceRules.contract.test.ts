@@ -136,9 +136,10 @@ describe('7.1E 内容处置（Mock）', () => {
     await as('j-author');
     const comment = await api.addComment({ productId: pid, content: '需要隐藏的原文' });
     const conv = await api.getOrCreateConversation(pid);
-    await api.sendMessage(conv.id, '正常的第一条');
+    // REWRITTEN（私信只能发送快捷消息）：原来发送的是两条自由文字
+    await api.sendMessage(conv.id, { templateCode: 'BUYER_STILL_AVAILABLE' });
     await as('j-seller');
-    const bad = await api.sendMessage(conv.id, '被举报的那一条');
+    const bad = await api.sendMessage(conv.id, { templateCode: 'SELLER_PRICE_FIRM' });
     await api.createModerationReport({ targetType: 'COMMENT', targetId: comment.id, reasonCode: 'HARASSMENT' });
     await as('j-author');
     await api.createModerationReport({ targetType: 'MESSAGE', targetId: bad.id, reasonCode: 'HARASSMENT' });
@@ -153,20 +154,20 @@ describe('7.1E 内容处置（Mock）', () => {
     expect((await api.getModerationCase(cc.id)).allowedActions).toContain('HIDE_COMMENT');
     await api.decideModerationCase(cc.id, { action: 'HIDE_COMMENT', reasonCode: 'HARASSMENT' });
     const mcDetail = await api.getModerationCase(mc.id);
-    expect(JSON.stringify(mcDetail)).toContain('被举报的那一条');
-    expect(JSON.stringify(mcDetail)).not.toContain('正常的第一条');
+    expect(JSON.stringify(mcDetail)).toContain('价格不议，谢谢理解。');
+    expect(JSON.stringify(mcDetail)).not.toContain('你好，这件还在吗？');
     await api.decideModerationCase(mc.id, { action: 'QUARANTINE_MESSAGE', reasonCode: 'HARASSMENT' });
     for (const who of ['j-seller', 'j-author']) {
       await as(who);
       const list = await api.listComments(pid);
       expect(list[0]).toMatchObject({ content: '', moderationHidden: true, hiddenForAuthor: who === 'j-author' });
       const msgs = await api.listMessages(conv.id);
-      expect(msgs.map((m) => m.content)).toEqual(['正常的第一条', '']);
+      expect(msgs.map((m) => m.content)).toEqual(['你好，这件还在吗？', '']);
       expect(msgs[1].quarantined).toBe(true);
     }
     expect(JSON.parse(window.localStorage.getItem(DB)!).market.comments.find((c: { id: string }) => c.id === comment.id).content).toBe('需要隐藏的原文');
     await as('j-author');
-    expect((await api.sendMessage(conv.id, '继续沟通')).content).toBe('继续沟通');
+    expect((await api.sendMessage(conv.id, { templateCode: 'ANY_THANKS' })).content).toBe('好的，谢谢！');
     const notice = (await api.getMyGovernance()).notices.find((n) => n.actionCode === 'HIDE_COMMENT')!;
     expect(notice).toMatchObject({ active: true, canAppeal: true });
     const appeal = await api.submitAppeal({ actionId: notice.actionId, reason: '不是骚扰' });

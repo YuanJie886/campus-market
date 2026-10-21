@@ -1,18 +1,23 @@
 import { Component } from 'react'
 import Taro from '@tarojs/taro'
 import { CoverView, CoverImage } from '@tarojs/components'
-import { unread } from '../state'
+import { demandUnread, messageUnread, unread } from '../state'
 import { badgeText } from '../contacts'
+import { notificationTotal } from '../unread'
+import { NO_UNREAD } from '../unread'
 import './index.scss'
 
 const NOTIFICATIONS = '/pages/notifications/index'
 
 export default class CustomTabBar extends Component {
   private unsubscribe: (() => void) | null = null
+  private contacts = NO_UNREAD
+  private messageTotal = 0
+  private demandTotal = 0
 
   state = {
     selected: 0,
-    // 联系申请未读数（卖家未读的新申请 + 买家未读的结果）；自定义 tabBar 下 setTabBarBadge 不生效，角标在这里渲染
+    // 联系申请未读数（卖家未读的新申请 + 买家未读的结果）加私信未读数与需求匹配未读数；自定义 tabBar 下 setTabBarBadge 不生效，角标在这里渲染
     badge: '',
     list: [
       {
@@ -62,7 +67,11 @@ export default class CustomTabBar extends Component {
     if (selected !== -1) {
       this.setState({ selected })
     }
-    this.unsubscribe = unread.subscribe((count) => this.setState({ badge: badgeText(count.total) }))
+    const update = () => this.setState({ badge: badgeText(notificationTotal(this.contacts, this.messageTotal, this.demandTotal)) })
+    const stopContacts = unread.subscribe((count) => { this.contacts = count; update() })
+    const stopMessages = messageUnread.subscribe((count) => { this.messageTotal = count; update() })
+    const stopDemand = demandUnread.subscribe((count) => { this.demandTotal = count; update() })
+    this.unsubscribe = () => { stopContacts(); stopMessages(); stopDemand() }
   }
 
   componentWillUnmount() {

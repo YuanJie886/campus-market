@@ -88,11 +88,12 @@ describe('2.5 搜索空态订阅入口', () => {
     expect((await api.listDemandSubscriptions())[0].active).toBe(false);
   });
 
-  it('4. 开启「只看本楼」时预填 canonical 的 BUILDING 范围，而不是展示文案', async () => {
+  // REWRITTEN：「只看本楼」开关已改为 本楼 / 本校区 / 全校 单选组，这里选择「本楼」；断言不变
+  it('4. 选择「本楼」时预填 canonical 的 BUILDING 范围，而不是展示文案', async () => {
     await signIn();
     await api.updateProfile({ dormBuildingId: 'east-qinyuan-1' });
     renderApp(searchUrl('本楼没有的东西qqq'));
-    fireEvent.click(await screen.findByRole('checkbox', { name: '只看本楼' }));
+    fireEvent.click(await screen.findByRole('radio', { name: '本楼' }));
     fireEvent.click(await screen.findByRole('button', { name: '订阅这个需求' }, { timeout: 5000 }));
     fireEvent.click(await screen.findByRole('button', { name: '确认订阅' }));
     await screen.findByText(/订阅成功/);

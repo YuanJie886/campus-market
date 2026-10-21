@@ -262,9 +262,12 @@ describe('5.4 整套打包', () => {
 });
 
 describe('5.5 协助整理发布', () => {
-  it('邀请弹窗：邀请码只显示一次并获得焦点；链接把邀请码放在 # 之后；不写入任何浏览器存储；关闭后无法再看到；axe 通过', async () => {
+  // REWRITTEN（与小程序对齐：以邀请码为主）：弹窗里只显示邀请码与「复制邀请码」，不再生成或显示协助链接
+  it('邀请弹窗：邀请码只显示一次、醒目显示并获得焦点；「复制邀请码」只写剪贴板；没有邀请链接；不写入任何浏览器存储；关闭后无法再看到；axe 通过', async () => {
     await user('owner');
     const batch = await readyBatch(1, '邀请');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const { baseElement } = renderApp(`/publish/batch?batch=${batch}`);
     const trigger = await screen.findByRole('button', { name: '邀请协助整理' }, { timeout: 5000 });
     trigger.focus();
@@ -273,12 +276,18 @@ describe('5.5 协助整理发布', () => {
     expect(dialog.textContent).toContain('不能发布');
     expect(dialog.textContent).not.toMatch(/代卖|平台代理/);
     fireEvent.click(within(dialog).getByRole('button', { name: '生成一次性邀请' }));
-    const tokenInput = await within(dialog).findByLabelText('邀请码（只显示这一次）') as HTMLInputElement;
-    await waitFor(() => expect(document.activeElement).toBe(tokenInput));
-    const token = tokenInput.value;
+    const box = await within(dialog).findByRole('group', { name: '邀请码（只显示这一次）' });
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    const token = within(box).getByTestId('invite-code').textContent!;
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(dialog.textContent).toContain(`/assist#code=${token}`);
-    expect(dialog.textContent).not.toContain(`?code=${token}`);
+    expect(box.textContent).toContain('邀请码只显示这一次，关闭后无法再次查看；只能使用一次。');
+    expect(box.textContent).toContain('用邀请码协助整理');
+    expect(dialog.textContent).not.toContain('#code=');
+    expect(dialog.textContent).not.toContain('邀请链接');
+    expect(within(dialog).queryByRole('button', { name: '复制邀请链接' })).toBeNull();
+    fireEvent.click(within(box).getByRole('button', { name: '复制邀请码' }));
+    expect(await within(box).findByText('邀请码已复制')).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(token);
     const storage = [...Object.keys(localStorage).map((k) => localStorage.getItem(k)), ...Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k))].join('\n');
     expect(storage).not.toContain(token);
     expect(await axeViolations(baseElement)).toEqual([]);
@@ -289,6 +298,26 @@ describe('5.5 协助整理发布', () => {
     expect(await screen.findByText('等待对方兑换')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '撤销邀请' }));
     expect(await screen.findByText('已撤销')).toBeTruthy();
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  // NEW（与小程序对齐）：协助人从「毕业季快速发布」进入协助页，输入或粘贴邀请码（旧链接也只取出邀请码）
+  it('协助页入口与输入：毕业季快速发布页有「用邀请码协助整理」；粘贴旧版协助链接只把邀请码放进请求体；axe 通过', async () => {
+    await user('owner');
+    const draft = await api.createListingDraft({ payload: single('生活用品', '粘贴邀请的草稿', 20) });
+    const { token } = await api.createAssistInvite({ draftId: draft.id });
+    await user('helper');
+    const redeem = vi.spyOn(api, 'redeemAssistInvite');
+    const { container } = renderApp('/publish/batch');
+    fireEvent.click(await screen.findByRole('link', { name: '用邀请码协助整理' }, { timeout: 5000 }));
+    const input = await screen.findByRole('textbox', { name: '邀请码' }) as HTMLInputElement;
+    expect(input.placeholder).toBe('邀请码或邀请链接');
+    fireEvent.change(input, { target: { value: `http://localhost/assist#code=${token}` } });
+    fireEvent.click(screen.getByRole('button', { name: '兑换' }));
+    expect(await screen.findByText('已加入协助，可以整理 1 件草稿')).toBeTruthy();
+    expect(redeem).toHaveBeenCalledWith(token);
+    expect(screen.getByRole('button', { name: /粘贴邀请的草稿/ })).toBeTruthy();
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it('协助页：从 # 读取邀请码后立刻从地址栏抹掉；兑换后只能整理允许的字段，没有联系方式、图片或发布按钮；axe 通过', async () => {

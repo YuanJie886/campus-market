@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import Avatar from '@mui/material/Avatar';
+import Avatar from '../../components/Avatar';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Badge from '@mui/material/Badge';
@@ -57,12 +57,13 @@ export default function ProfileLayout() {
         <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10" />
         <div className="relative flex items-center gap-4">
           <Avatar
-            src={currentUser.avatar}
-            alt={currentUser.nickname}
-            sx={{ width: 64, height: 64, border: '3px solid rgba(255,255,255,0.7)' }}
-          >
-            {currentUser.nickname.slice(0, 1)}
-          </Avatar>
+            avatar={currentUser.avatar}
+            nickname={currentUser.nickname}
+            userId={currentUser.id}
+            alt={`${currentUser.nickname}的头像`}
+            size={64}
+            style={{ border: '3px solid rgba(255,255,255,0.7)' }}
+          />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-extrabold md:text-xl">
               {currentUser.nickname}

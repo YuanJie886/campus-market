@@ -94,3 +94,11 @@ export function describeConditions(c: DescribableConditions): string {
   parts.push(describeScope(c));
   return parts.join(' · ');
 }
+
+/**
+ * 新建订阅的结果提示（与小程序 subscribeResultText 逐字相同）：EXISTING 不重复创建；
+ * CREATED 与 REACTIVATED（重新启用了同条件的已停用订阅）都提示订阅成功。
+ */
+export function subscribeResultText(outcome: 'CREATED' | 'EXISTING' | 'REACTIVATED'): string {
+  return outcome === 'EXISTING' ? '你已经订阅过相同条件，没有重复创建' : '订阅成功，有匹配的新商品时会出现在「需求匹配」里';
+}

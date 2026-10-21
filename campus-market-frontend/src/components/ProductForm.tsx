@@ -8,10 +8,10 @@ import ContactPublicField from "./ContactPublicField";
 import type { Campus, Category, Condition, ProductInput } from "../types";
 import { CAMPUSES, CATEGORIES, CONDITIONS } from "../types";
 import {
-  IMAGE_PRESETS,
   CATEGORY_EMOJI,
   CATEGORY_GRADIENT,
 } from "../utils/constants";
+import { IMAGE_PRESETS } from "../utils/externalDemoImages";
 import { useNotify } from "../context/NotificationContext";
 import ImageUploader from "./ImageUploader";
 import BuildingSelect from "./BuildingSelect";

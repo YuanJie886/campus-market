@@ -352,7 +352,7 @@ describe('Mock：图片上传（ImageService）', () => {
 });
 
 describe('Mock：内容安全（ContentSafetyService 的关键词过滤）', () => {
-  it('商品发布 / 编辑、留言、私信、昵称、注册昵称都检查，统一原话；拆分写法也挡住；正常词不误伤', async () => {
+  it('商品发布 / 编辑、留言、昵称、注册昵称都检查，统一原话；拆分写法也挡住；正常词不误伤；私信默认只收快捷消息', async () => {
     await as('seller');
     const blocked = async (p: Promise<unknown>) => expect(await failure(p)).toMatchObject({ code: 400, message: CONTENT_BLOCKED_MESSAGE });
     await blocked(api.createProduct(listing('出售 代 - 考 服务')));
@@ -363,7 +363,8 @@ describe('Mock：内容安全（ContentSafetyService 的关键词过滤）', () 
     await as('buyer');
     await blocked(api.addComment({ productId: product.id, content: '有没有替考？' }));
     const conversation = await api.getOrCreateConversation(product.id);
-    await blocked(api.sendMessage(conversation.id, '要不要冰毒'));
+    // REWRITTEN（私信只能发送快捷消息）：默认不开放文字，文字私信在内容安全之前就被拒绝；开放文字时的内容安全见 messageTemplates.contract.test.ts
+    expect(await failure(api.sendMessage(conversation.id, { content: '要不要冰毒' }))).toMatchObject({ code: 400, message: '私信目前只能发送预设的快捷消息' });
     await blocked(api.register({ account: `x-${rnd()}`, password: PASSWORD, nickname: '赌博达人', campus: '东校区' }));
     expect((await api.addComment({ productId: product.id, content: '大麻袋还在吗？' })).content).toBe('大麻袋还在吗？');
   });

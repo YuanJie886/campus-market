@@ -196,6 +196,28 @@ describe('1.3 Mock feed 与 REST 行为一致', () => {
     expect(page.total).toBe(0);
   });
 
+  // NEW（首页「本校区」对齐小程序）：本校区 = 本人所在校区，与 REST BuildingFeedService.resolveOrigin 一致
+  it('10b. 本校区（CAMPUS）：没填宿舍楼时取本人资料的校区（不 409、不放宽）；填了宿舍楼取宿舍楼所在校区；宿舍楼停用 409', async () => {
+    await registerAs('seller');
+    const t = tag();
+    const east = await publish(t, '东校区', null);
+    await publish(t, '西校区', 'west-zhuyuan-1');
+    await registerAs('resident');                      // 东校区，未填宿舍楼
+    const page = await api.feedProducts(query({ scope: 'CAMPUS', keyword: t }));
+    expect(page.requestedScope).toBe('CAMPUS');
+    expect(page.effectiveScope).toBe('CAMPUS');
+    expect(page.fallbackApplied).toBe(false);
+    expect(page.items.map((i) => i.id)).toEqual([east.id]);
+
+    await api.updateProfile({ dormBuildingId: 'east-qinyuan-1' });
+    expect((await api.feedProducts(query({ scope: 'CAMPUS', keyword: t }))).items.map((i) => i.id)).toEqual([east.id]);
+
+    const raw = JSON.parse(window.localStorage.getItem(DB_KEY)!) as MockDatabase;
+    raw.buildings = raw.buildings.map((b) => (b.id === 'east-qinyuan-1' ? { ...b, active: false } : b));
+    window.localStorage.setItem(DB_KEY, JSON.stringify(raw));
+    await expectApiError(new MockCampusMarketApi().feedProducts(query({ scope: 'CAMPUS', keyword: t })), 409);
+  });
+
   it('11. 未登录 401、未设宿舍楼 409——不用全校结果冒充本楼', async () => {
     await expectApiError(api.feedProducts(query({ scope: 'BUILDING' })), 401);
     await registerAs('nodorm');

@@ -1,7 +1,7 @@
 import Taro, { useDidShow, usePullDownRefresh, useRouter, useShareAppMessage } from '@tarojs/taro';
-import { Button, Input, Swiper, SwiperItem, Text, View } from '@tarojs/components';
+import { Button, Swiper, SwiperItem, Text, View } from '@tarojs/components';
 import { useEffect, useRef, useState } from 'react';
-import { api, imageSrc, isDemo } from '../../api';
+import { api, imageSrc } from '../../api';
 import { Empty, ErrorState, LoginGate, PrivacyPopup, ProductImage, StatusPill } from '../../components';
 import { isPrivacyDenied, PRIVACY_REQUIRED_MESSAGE } from '../../privacy';
 import { requirePrivacy } from '../../privacyGuard';
@@ -9,6 +9,12 @@ import { money, timeAgo, type ContactRequest, type Product, type User } from '..
 import { CONFIRM, contactCta } from '../../contacts';
 import { editProduct } from '../../navigation';
 import { notify, notifyError, unread, useMarket } from '../../state';
+import { CommentBoard } from '../../widgets/CommentBoard';
+import { ReportSheet } from '../../widgets/ReportSheet';
+import { Avatar } from '../../widgets/Avatar';
+import { CIRCLE_PAGES, TEXTBOOK_PAGES } from '../../menu';
+import { PRODUCT_CIRCLE_NOTE } from '../../circles';
+import { averagePerItem } from '../../supply';
 
 const DECLARATIONS: Record<string, string> = { NORMAL: '正常', DEFECT: '存在问题', NOT_TESTED: '未测试', NOT_APPLICABLE: '不适用' };
 const TONE: Record<string, string> = { NORMAL: 'ok', DEFECT: 'warn', NOT_TESTED: 'mute', NOT_APPLICABLE: 'mute' };
@@ -17,7 +23,7 @@ export default function DetailPage() {
   const { user, favorites, toggleFavorite } = useMarket(), router = useRouter();
   const id = router.params.id ?? '';
   const [product, setProduct] = useState<Product | null>(null), [seller, setSeller] = useState<User | null>(null), [request, setRequest] = useState<ContactRequest | null>(null);
-  const [loading, setLoading] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false), [reporting, setReporting] = useState(false), [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false), [reporting, setReporting] = useState(false), [commentsKey, setCommentsKey] = useState(0);
   const [gallery, setGallery] = useState(0);
   const sequence = useRef(0);
 
@@ -34,7 +40,7 @@ export default function DetailPage() {
   };
   useDidShow(() => { void load(); });
   useEffect(() => { sequence.current++; setProduct(null); setSeller(null); setRequest(null); setGallery(0); void load(); }, [user?.id, id]);
-  usePullDownRefresh(() => { void load().finally(() => Taro.stopPullDownRefresh()); });
+  usePullDownRefresh(() => { setCommentsKey((k) => k + 1); void load().finally(() => Taro.stopPullDownRefresh()); });
   useShareAppMessage(() => ({ title: product?.title ?? '校园闲置好物', path: `/pages/detail/index?id=${encodeURIComponent(id)}` }));
 
   const run = async (action: () => Promise<void>) => { if (busy) return; setBusy(true); try { await action(); } catch (e) { notifyError(e); } finally { setBusy(false); } };
@@ -54,6 +60,11 @@ export default function DetailPage() {
     try { await Taro.setClipboardData({ data: contact }); }
     catch (e) { throw isPrivacyDenied(e) ? new Error(PRIVACY_REQUIRED_MESSAGE) : e instanceof Error ? e : new Error('复制失败，请重试'); }
   };
+  /** 私信卖家：买家对这件商品的会话（已有则复用），进入会话页发送快捷消息。 */
+  const openChat = () => run(async () => {
+    const conversation = await api.openConversation(id);
+    void Taro.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(conversation.id)}` });
+  });
   const defects = product?.inspection?.items?.filter((item) => item.condition === 'DEFECT').length ?? 0;
 
   return <View className='detail-page'><LoginGate returnTo={`/pages/detail/index?id=${encodeURIComponent(id)}`}>
@@ -86,7 +97,7 @@ export default function DetailPage() {
 
       <View className='detail-section'>
         <View className='seller-card'>
-          <View className='avatar'>{seller?.nickname.slice(0, 1) || '同'}</View>
+          <Avatar value={seller?.avatar} userId={product.sellerId} nickname={seller?.nickname} />
           <View><Text className='seller-name'>{seller?.nickname || '本校同学'}</Text><Text className='seller-meta'>{seller?.campus} · 同校商品</Text></View>
           <Button className='text-button' openType='share'>分享</Button>
         </View>
@@ -100,6 +111,35 @@ export default function DetailPage() {
         </View>)}
       </View>}
 
+      {product.textbook && <View className='detail-section'>
+        <View className='section-head'><Text className='section-title'>课程教材版本</Text></View>
+        <Text className='description'>{product.textbook.title} {product.textbook.editionLabel}</Text>
+        <Text className='muted sheet-line'>ISBN {product.textbook.isbn ?? '无 ISBN'} · 出版社 {product.textbook.publisher}</Text>
+        <Text className='muted sheet-line'>关联课程：{product.textbook.courseNames.length ? product.textbook.courseNames.join('、') : '暂无已验证的课程'}</Text>
+        <Text className='field-help'>以上是卖家发布时确认的版本。</Text>
+        <Text className='text-action' onClick={() => void Taro.navigateTo({ url: `${TEXTBOOK_PAGES.textbook}?id=${encodeURIComponent(product.textbook!.editionId)}` })}>查看这个版本的其他在售商品</Text>
+      </View>}
+
+      {product.visibility === 'CIRCLE_ONLY' && <View className='detail-section'>
+        <View className='section-head'><Text className='section-title'>圈子可见</Text></View>
+        <Text className='muted'>{PRODUCT_CIRCLE_NOTE}</Text>
+        {(product.circles ?? []).map((c) => <Text key={c.id} className='text-action sheet-line' onClick={() => void Taro.navigateTo({ url: `${CIRCLE_PAGES.detail}?id=${encodeURIComponent(c.id)}` })}>{c.name}</Text>)}
+      </View>}
+
+      {product.listingKind === 'BUNDLE' && (() => {
+        const items = product.bundleItems ?? [], quantity = items.reduce((n, i) => n + i.quantity, 0), average = averagePerItem(product.price, quantity);
+        return <View className='detail-section'>
+          <View className='section-head'><Text className='section-title'>整套转让明细</Text></View>
+          <Text className='notice sheet-line'>整套出售，不单独出售其中的物品。</Text>
+          <Text className='muted sheet-line'>共 {items.length} 项 · {new Set(items.map((i) => i.category)).size} 类 / {quantity} 件 · 整套总价 ¥{money(product.price)}{average ? ` · 平均每件约 ¥${average}（仅供参考，不能按件购买）` : ''}</Text>
+          {items.map((i) => <View key={i.itemCode} className='declaration-row'>
+            <Text className='declaration-key'>{i.name} × {i.quantity}</Text>
+            <Text className='declaration-value mute'>{i.category} · {i.condition}{i.note ? ` · ${i.note}` : ''}</Text>
+          </View>)}
+          <Text className='field-help'>以上明细由卖家填写，当面查看时请逐项核对；平台不做鉴定或担保。</Text>
+        </View>;
+      })()}
+
       <View className='detail-section'>
         <View className='section-head'><Text className='section-title'>关于这件闲置</Text></View>
         <Text className='description'>{product.description}</Text>
@@ -110,14 +150,15 @@ export default function DetailPage() {
         {product.contact ? <><Text className='contact-value'>{product.contact}</Text><Text className='muted'>{own ? (product.contactPublic ? '你已选择公开：所有能看到这件商品的本校登录同学都能看到。' : '只有你同意（且未撤回）的申请者可以查看。') : cta?.panel}</Text><Button className='secondary small' onClick={() => void copyContact(product.contact).catch(notifyError)}>复制联系方式</Button></> : <Text className='muted'>{cta?.panel}</Text>}
       </View>
 
+      {own && product.moderationHidden ? <Text className='notice detail-note'>这件商品已被平台工作人员隐藏，其他同学暂时看不到。可以在「我的限制」里查看原因并申诉一次。</Text> : null}
+
+      {user && <CommentBoard productId={id} user={user} refreshKey={commentsKey} />}
+
       <Text className='footnote'>约在校内公共地点，当面验货后再付款。学校信息由用户填写，平台不核验学籍或身份。</Text>
 
       {!own && <View className='report-area'>
         <Text className='report-link' onClick={() => setReporting(!reporting)}>{reporting ? '收起' : '举报此商品'}</Text>
-        {reporting && <View className='panel report-panel'>
-          <Input className='field-input' value={reason} placeholder='请描述你发现的问题' maxlength={1000} onInput={(e) => setReason(e.detail.value)} />
-          <Button className='secondary mt-12' disabled={busy} onClick={() => void run(async () => { if (!reason.trim()) { notify('请填写举报原因'); return; } await api.report(id, reason.trim()); setReporting(false); notify(isDemo ? '演示举报已保存' : '举报已提交'); })}>提交举报</Button>
-        </View>}
+        {reporting && <ReportSheet targetType='PRODUCT' targetId={id} targetLabel={product.title} onClose={() => setReporting(false)} />}
       </View>}
 
       <View className='detail-bar'>
@@ -132,6 +173,7 @@ export default function DetailPage() {
               <View className={favorites.includes(id) ? 'i-heart-on' : 'i-heart'} />
               <Text>{favorites.includes(id) ? '已收藏' : '收藏'}</Text>
             </View>
+            <Button className='secondary' disabled={busy} onClick={() => void openChat()}>私信卖家</Button>
             <Button className='primary' loading={busy} disabled={busy || !cta || cta.disabled} onClick={() => void run(async () => {
               if (!cta || cta.disabled) return;
               if (cta.kind === 'copy') { await copyContact(product.contact); return; }

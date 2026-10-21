@@ -14,5 +14,7 @@ public class MessageEntity {
     private UUID conversationId;
     private UUID senderId;
     private String content;
+    /** V21：快捷消息的 code；自由文字消息（含历史消息）为 null */
+    private String templateCode;
     private OffsetDateTime createdAt;
 }

@@ -49,6 +49,8 @@ services:
       WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}
       # 外部图片链接（过渡期的示例图）。生产默认关闭：新发布只能用本平台上传的图片；已有商品里的外部图片编辑时可以保留
       ALLOW_EXTERNAL_IMAGES: ${ALLOW_EXTERNAL_IMAGES:-false}
+      # 私信：默认只能发送预设快捷消息（没有人工审核前不开放文字私信），见 docs/messaging.md
+      MESSAGES_FREE_TEXT_ENABLED: ${MESSAGES_FREE_TEXT_ENABLED:-false}
     volumes:
       - uploaded_images:/data/images
     depends_on:

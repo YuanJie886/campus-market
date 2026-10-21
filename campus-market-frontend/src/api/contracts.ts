@@ -474,18 +474,22 @@ export const CONTENT_BLOCKED_MESSAGE = '内容可能包含违规信息，请修�
 export interface UploadedImage { id: string; ref: string; url: string; width: number; height: number }
 
 /**
- * GET /v1/config（无需登录）：客户端可用的图片规则。旧后端没有这个接口（404）时使用 DEFAULT_CLIENT_CONFIG。
+ * GET /v1/config（无需登录）：客户端可用的图片规则与私信是否开放文字（messages.freeTextEnabled）。旧后端没有这个接口（404）时使用 DEFAULT_CLIENT_CONFIG。
  * externalAllowed=false 时后端拒绝新的外部 http(s) 图片地址（400）；编辑已有商品时原有的外部图片可以保留。
  */
 export interface ImageConfig { maxCount: number; maxBytes: number; accept: string[]; externalAllowed: boolean }
-export interface ClientConfig { images: ImageConfig }
+/** 私信：freeTextEnabled=false 时只能发送预设的快捷消息（旧后端没有这个字段：按 false 处理） */
+export interface MessagesConfig { freeTextEnabled: boolean }
+export interface ClientConfig { images: ImageConfig; messages: MessagesConfig }
 export const DEFAULT_CLIENT_CONFIG: ClientConfig = Object.freeze({
   images: Object.freeze({ maxCount: 9, maxBytes: IMAGE_MAX_BYTES, accept: ['image/jpeg', 'image/png'], externalAllowed: true }),
+  messages: Object.freeze({ freeTextEnabled: false }),
 }) as ClientConfig;
 /** 服务端返回的配置逐项校验：缺失或类型不对的字段回落到默认值（不信任半截响应） */
 export function normalizeClientConfig(raw: unknown): ClientConfig {
   const fallback = DEFAULT_CLIENT_CONFIG.images;
   const images = (raw && typeof raw === 'object' ? (raw as { images?: unknown }).images : undefined) as Partial<Record<keyof ImageConfig, unknown>> | undefined;
+  const messages = (raw && typeof raw === 'object' ? (raw as { messages?: unknown }).messages : undefined) as Partial<Record<keyof MessagesConfig, unknown>> | null | undefined;
   const positiveInt = (v: unknown, d: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : d);
   const accept = Array.isArray(images?.accept) && images!.accept.length > 0 && images!.accept.every((t) => typeof t === 'string' && t.startsWith('image/'))
     ? [...images!.accept as string[]] : [...fallback.accept];
@@ -496,7 +500,23 @@ export function normalizeClientConfig(raw: unknown): ClientConfig {
       accept,
       externalAllowed: typeof images?.externalAllowed === 'boolean' ? images.externalAllowed : fallback.externalAllowed,
     },
+    // 只有明确的 true 才开放文字私信：缺失、null 或类型不对一律按 false（宁可少一个输入框，也不提供一定会被拒绝的输入）
+    messages: { freeTextEnabled: messages != null && typeof messages === 'object' && messages.freeTextEnabled === true },
   };
+}
+
+/* ------------------------------ 私信快捷消息 ------------------------------ */
+
+/** BUYER_* 只能由会话的买家发送，SELLER_* 只能由卖家发送，ANY_* 双方都可以 */
+export type MessageTemplateRole = 'BUYER' | 'SELLER' | 'ANY';
+export interface MessageTemplate { code: string; text: string; role: MessageTemplateRole }
+/** GET /v1/message-templates（需登录）：按服务端给出的顺序展示 */
+export interface MessageTemplateList { freeTextEnabled: boolean; templates: MessageTemplate[] }
+/** POST /v1/conversations/{id}/messages 的请求体：快捷消息与文字只能二选一（文字只在 freeTextEnabled=true 时可用） */
+export type SendMessageInput = { templateCode: string } | { content: string };
+/** 当前用户在这个会话里能发送的快捷消息：买家看 BUYER + ANY，卖家看 SELLER + ANY；顺序不变 */
+export function templatesForRole(templates: readonly MessageTemplate[], role: 'BUYER' | 'SELLER'): MessageTemplate[] {
+  return templates.filter((t) => t.role === role || t.role === 'ANY');
 }
 
 export interface CampusMarketApi {
@@ -619,7 +639,10 @@ export interface CampusMarketApi {
   listConversations(): Promise<Conversation[]>;
   getOrCreateConversation(productId: string): Promise<Conversation>;
   listMessages(conversationId: string): Promise<ChatMessage[]>;
-  sendMessage(conversationId: string, content: string): Promise<ChatMessage>;
+  /** 快捷消息（需登录）：服务端决定是否开放文字私信与可用的模板 */
+  listMessageTemplates(): Promise<MessageTemplateList>;
+  /** 请求体只带 templateCode 或 content 其中一个 */
+  sendMessage(conversationId: string, input: SendMessageInput): Promise<ChatMessage>;
   getUnreadCount(): Promise<number>;
   // ---- 可信治理（模块 7）：均需登录 ----
   createModerationReport(input: ModerationReportInput): Promise<MyModerationReport>;

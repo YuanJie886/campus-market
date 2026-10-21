@@ -6,7 +6,7 @@ import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
 import { BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS } from '../../api/contracts';
 import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus, type Category, type Condition, type ProductInput } from '../../types';
-import { IMAGE_PRESETS } from '../../utils/constants';
+import { IMAGE_PRESETS } from '../../utils/externalDemoImages';
 import { averagePerItem } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
 import ImageUploader from '../ImageUploader';

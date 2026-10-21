@@ -205,7 +205,7 @@ npm run dev
 - `POST /v1/auth/refresh` - 无感刷新访问令牌
 - `POST /v1/auth/logout` - 退出登录并清除 Cookie
 - `GET /v1/auth/me` - 获取当前登录用户的详细身份信息与学子认证状态
-- `PATCH /v1/auth/me` - 更新个人昵称、头像、联系方式、所属校区或宿舍楼（`dormBuildingId`，仅本人可见，传 `null` 清空）
+- `PATCH /v1/auth/me` - 更新个人昵称、头像、联系方式、所属校区或宿舍楼（`dormBuildingId`，仅本人可见，传 `null` 清空）。头像只接受 `""`、`preset:1`…`preset:12`（客户端本地绘制）、本人上传的图片（`upload:<id>` 或平台签名地址）与外部开关打开时的 `http(s)` 地址，见 `../docs/images-and-content-safety.md` §4
 - `GET /v1/users/{id}` - 获取指定用户的公开资料（不含任何信用分）
 - `GET /v1/users/{id}/trade-summary` - 公共交易履历：只有完成次数、加入时间、评价数与平均分（评价少于 3 条不给平均分）
 

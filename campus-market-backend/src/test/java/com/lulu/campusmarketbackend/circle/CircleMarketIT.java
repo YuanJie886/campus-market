@@ -397,7 +397,7 @@ class CircleMarketIT {
             User fan = api.register();
             api.ok(api.put(fan, "/v1/products/" + product + "/favorite", Map.of()));
             String conversation = api.ok(api.post(fan, "/v1/conversations", Map.of("productId", product))).path("id").asText();
-            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("content", "在的")));
+            api.ok(api.post(seller, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "SELLER_AVAILABLE")));
             assertThat(api.ok(api.get(fan, "/v1/messages/unread")).path("count").asInt()).isEqualTo(1);
 
             api.ok(api.patch(seller, "/v1/products/" + product, Map.of("visibility", "CIRCLE_ONLY", "circleIds", List.of(circle))));
@@ -405,7 +405,7 @@ class CircleMarketIT {
             assertThat(status(api.put(fan, "/v1/products/" + product + "/favorite", Map.of()))).isEqualTo(404);
             assertThat(api.ok(api.get(fan, "/v1/conversations"))).isEmpty();
             assertThat(status(api.get(fan, "/v1/conversations/" + conversation + "/messages"))).isEqualTo(404);
-            assertThat(status(api.post(fan, "/v1/conversations/" + conversation + "/messages", Map.of("content", "?")))).isEqualTo(404);
+            assertThat(status(api.post(fan, "/v1/conversations/" + conversation + "/messages", Map.of("templateCode", "BUYER_STILL_AVAILABLE")))).as("REWRITTEN：快捷消息").isEqualTo(404);
             assertThat(api.ok(api.get(fan, "/v1/messages/unread")).path("count").asInt()).as("未读不形成侧信道").isZero();
             assertThat(api.ok(api.get(seller, "/v1/conversations")).toString()).as("卖家仍能看到自己的会话").contains(conversation);
 

@@ -218,7 +218,8 @@ describe('「申请联系方式」限制与限流', () => {
     // 重新申请同样是「新申请」，受限期间被拦下
     expect((await failure(api.requestContact(productId))).code).toBe(403);
     const conversation = await api.getOrCreateConversation(other);
-    expect((await api.sendMessage(conversation.id, '还在吗？')).content).toBe('还在吗？');
+    // REWRITTEN（私信只能发送快捷消息）：联系受限不影响发送快捷消息
+    expect((await api.sendMessage(conversation.id, { templateCode: 'BUYER_STILL_AVAILABLE' })).content).toBe('你好，这件还在吗？');
     expect((await api.getMyGovernance()).restrictions[0]).toMatchObject({ scope: 'CONTACT', source: 'CASE', active: true, canAppeal: true });
   });
 
