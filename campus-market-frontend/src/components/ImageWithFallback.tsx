@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { resolveImageSrc } from '../utils/images';
 
 interface ImageWithFallbackProps {
   /** 图片地址，可能为空 */
@@ -12,6 +14,8 @@ interface ImageWithFallbackProps {
   className?: string;
   /** img 元素附加类名 */
   imgClassName?: string;
+  /** 自定义兜底内容（无图或加载失败时替代默认的 emoji）；参数说明是哪一种情况 */
+  fallback?: (reason: 'missing' | 'failed') => ReactNode;
 }
 
 /**
@@ -19,13 +23,16 @@ interface ImageWithFallbackProps {
  * 图片加载失败时回退为「渐变背景 + emoji」，保证任何情况下 UI 都不破图。
  */
 export default function ImageWithFallback({
-  src,
+  src: rawSrc,
   alt,
   emoji = '🖼️',
   gradient = 'linear-gradient(135deg,#e2e8f0 0%,#cbd5e1 100%)',
   className = '',
   imgClassName = '',
+  fallback,
 }: ImageWithFallbackProps) {
+  // 阶段 4：上传图片的签名地址是相对路径，按 API 基址补全；外部地址与 data: 原样
+  const src = resolveImageSrc(rawSrc);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -62,7 +69,9 @@ export default function ImageWithFallback({
         />
       )}
 
-      {showFallback && (
+      {showFallback && fallback && fallback(src ? 'failed' : 'missing')}
+
+      {showFallback && !fallback && (
         <div className="flex h-full w-full items-center justify-center">
           <span className="select-none text-4xl opacity-80" aria-hidden="true">
             {emoji}

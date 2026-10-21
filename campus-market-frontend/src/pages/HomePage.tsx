@@ -1,649 +1,388 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import Button from '@mui/material/Button';
-import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
-import ArrowOutwardRoundedIcon from '@mui/icons-material/ArrowOutwardRounded';
-import AddRoundedIcon from '@mui/icons-material/AddRounded';
-import NorthEastRoundedIcon from '@mui/icons-material/NorthEastRounded';
-import VerifiedIcon from '@mui/icons-material/Verified';
-import NearMeOutlinedIcon from '@mui/icons-material/NearMeOutlined';
-import RecyclingOutlinedIcon from '@mui/icons-material/RecyclingOutlined';
-import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import SearchIcon from '@mui/icons-material/Search';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ProductGrid from '../components/ProductGrid';
 import FilterBar from '../components/FilterBar';
+import { ScopeNotice, ScopeSwitch } from '../components/BuildingScopeBar';
+import DemandEmptyStateCta from '../components/demand/DemandEmptyStateCta';
+import EmptyState from '../components/EmptyState';
+import { useBuildingFeed } from '../hooks/useBuildingFeed';
+import { useClientConfig } from '../hooks/useClientConfig';
+import { useCampusHasBuildings, useSchools } from '../hooks/useSchools';
+import { getApiClient } from '../api/client';
+import { CONTACT_REQUEST_PAGE_MAX, type ContactRequestStatus } from '../api/contracts';
 import { useMarket } from '../context/MarketContext';
 import { useAuth } from '../context/AuthContext';
-import { DEFAULT_FILTER } from '../types';
+import { DEFAULT_FILTER, SORT_OPTIONS } from '../types';
 import type { FilterState, Product } from '../types';
+import {
+  EMPTY_DESCRIPTION,
+  EMPTY_TITLE,
+  MARKET_SCOPES,
+  availableScopes,
+  demandPrefillFor,
+  effectiveScope,
+  feedQueryFrom,
+  readStoredScope,
+  storeScope,
+  usesFeed,
+  type MarketScope,
+} from '../utils/marketScope';
 
-const HERO_FALLBACK_IMAGES = [
-  'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1200&q=88',
-  'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?auto=format&fit=crop&w=1200&q=88',
-  'https://images.unsplash.com/photo-1485965120184-e220f721d03e?auto=format&fit=crop&w=1200&q=88',
-];
-
-const STORY_STEPS = [
-  {
-    index: '01',
-    eyebrow: 'PROXIMITY · 校园同心圆',
-    title: '好东西，\n不必走远。',
-    copy: '15 分钟步行生活圈。从同学的书桌、衣柜和宿舍里，找到正在等待下一段生活的闲置物品，无需快递包装，校内当面完成验货与交接。',
-    tag: '零包装浪费 · 步行即达',
-  },
-  {
-    index: '02',
-    eyebrow: 'AUTHENTICITY · 真实成色与学子背书',
-    title: '少一点搜索，\n多一点笃定。',
-    copy: '全量通过校园统一身份认证。真实学号与邮箱背书，实物原貌诚实呈现，电池健康度、划痕瑕疵透明披露，告别网络交易的信息不对称。',
-    tag: '实名学子 · 原图实拍',
-  },
-  {
-    index: '03',
-    eyebrow: 'CIRCULATION · 绿色可持续循环',
-    title: '一件闲置，\n重新被需要。',
-    copy: '每一次在校内的循环交接，平均减少 1.8kg 生产与运输碳足迹，累计帮助同学节省 65% 生活预算。让美好物品在不同年级间温暖接力。',
-    tag: '年级接力 · 减碳生活',
-  },
-];
-
+/**
+ * 首页。未登录：说明产品是什么、怎么用的落地页；已登录：与小程序集市页相同的信息结构——
+ * 紧凑标题 → 搜索 → 工具条（范围 / 分类 / 筛选与排序）→ 范围提示 → 结果。
+ */
 export default function HomePage() {
+  const { isAuthenticated, authInitializing } = useAuth();
+  if (isAuthenticated) return <MarketHome />;
+  // 会话恢复期间不闪现落地页：登录用户刷新页面时，不应先看到「请登录」
+  if (authInitializing) {
+    return (
+      <div className="cm-home" aria-busy="true">
+        <p role="status" className="cm-visually-hidden">正在加载…</p>
+      </div>
+    );
+  }
+  return <Landing />;
+}
+
+/* ---------------------------------- 落地页 ---------------------------------- */
+
+const STEPS: readonly { title: string; body: string }[] = [
+  { title: '登录，看看本校在出什么', body: '按本楼、本校区或全校浏览，搜索教材、数码和生活好物。' },
+  { title: '看中了，申请联系方式', body: '在商品页点「我想要」。卖家同意后，你才能看到对方留下的联系方式。' },
+  { title: '自行联系，当面交易', body: '价格、时间和地点由你们自己约定，当面看货再决定。平台不经手任何钱款。' },
+];
+
+/** 邀请制（GET /v1/config 的 registration.inviteRequired=true）时落地页注册入口旁的一句说明 */
+export const LANDING_INVITE_NOTE = '目前为小范围测试，注册需要学校工作人员发放的邀请码。';
+
+function Landing() {
+  const navigate = useNavigate();
+  const { config } = useClientConfig();
+  return (
+    <div className="cm-home cm-landing">
+      <section className="cm-landing-hero" aria-labelledby="landing-title">
+        <div className="cm-landing-copy">
+          <p className="cm-eyebrow">校园集市 · 同校闲置</p>
+          <h1 id="landing-title">同校同学的闲置，在这里展示和找到</h1>
+          <p className="cm-landing-lead">
+            卖家发布闲置，买家看中后申请联系方式，卖家同意后才会展示。之后双方自行沟通、线下当面交易。
+          </p>
+          <ul className="cm-landing-facts">
+            <li>
+              <strong>只展示同校商品</strong>
+              <span>登录后看到的都是你所在学校的闲置。</span>
+            </li>
+            <li>
+              <strong>联系方式默认不公开</strong>
+              <span>卖家同意你的申请后才展示，同意可以撤回。</span>
+            </li>
+            <li>
+              <strong>平台不交易、不支付</strong>
+              <span>不建订单、不收款、不担保交易，价格与交易由双方自行约定。</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="cm-landing-cta">
+          <h2>登录后查看本校在售好物</h2>
+          <p>浏览、搜索、发布和申请联系方式都需要登录。</p>
+          <button
+            type="button"
+            className="cm-button-primary cm-button-block"
+            onClick={() => navigate('/login', { state: { from: '/' } })}
+          >
+            登录 / 注册
+          </button>
+          <p className="cm-landing-cta-note">
+            还没有账号？<Link to="/register" className="cm-link">注册新账号</Link>
+          </p>
+          {config.registration.inviteRequired && <p className="cm-landing-invite-note">{LANDING_INVITE_NOTE}</p>}
+          <p className="cm-landing-legal">
+            使用前请阅读<Link to="/terms" className="cm-link">《用户协议》</Link>和<Link to="/privacy" className="cm-link">《隐私政策》</Link>
+          </p>
+        </div>
+      </section>
+
+      <section className="cm-landing-steps" aria-labelledby="landing-steps-title">
+        <h2 id="landing-steps-title">三步用起来</h2>
+        <ol>
+          {STEPS.map((step, index) => (
+            <li key={step.title}>
+              <span className="cm-step-num" aria-hidden="true">{index + 1}</span>
+              <div>
+                <h3>{step.title}</h3>
+                <p>{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="cm-landing-footnote">学校信息由用户填写，平台目前不核验学籍或身份。</p>
+      </section>
+    </div>
+  );
+}
+
+/* --------------------------------- 已登录集市 --------------------------------- */
+
+function filterLocally(products: Product[], filter: FilterState): Product[] {
+  const kw = filter.keyword.trim().toLowerCase();
+  let list = products.filter((p) => p.status !== '已下架');
+  const matchLevel = new Map<string, number>();
+
+  if (kw) {
+    list = list.filter((p) => {
+      const titleHit = p.title.toLowerCase().includes(kw);
+      const descHit = p.description.toLowerCase().includes(kw);
+      if (!titleHit && !descHit) return false;
+      matchLevel.set(p.id, titleHit ? 2 : 1);
+      return true;
+    });
+  }
+  if (filter.category !== '全部') list = list.filter((p) => p.category === filter.category);
+  if (filter.campus !== '全部') list = list.filter((p) => p.campus === filter.campus);
+  if (filter.condition !== '全部') list = list.filter((p) => p.condition === filter.condition);
+  if (filter.minPrice !== '') list = list.filter((p) => p.price >= Number(filter.minPrice));
+  if (filter.maxPrice !== '') list = list.filter((p) => p.price <= Number(filter.maxPrice));
+
+  const sorted = [...list];
+  switch (filter.sort) {
+    case 'priceAsc':
+      sorted.sort((a, b) => a.price - b.price);
+      break;
+    case 'priceDesc':
+      sorted.sort((a, b) => b.price - a.price);
+      break;
+    case 'views':
+      sorted.sort((a, b) => b.views - a.views);
+      break;
+    default:
+      sorted.sort((a, b) => {
+        if (kw) {
+          const levelDiff = (matchLevel.get(b.id) ?? 0) - (matchLevel.get(a.id) ?? 0);
+          if (levelDiff !== 0) return levelDiff;
+        }
+        return b.createdAt - a.createdAt;
+      });
+  }
+  return sorted;
+}
+
+/** 本人发出的联系申请（最近 50 条）：卡片上标出「已申请联系 / 卖家已同意」。拿不到就不显示，不影响浏览 */
+function useSentContactStatuses(userId: string | undefined): ReadonlyMap<string, ContactRequestStatus> {
+  const [statuses, setStatuses] = useState<ReadonlyMap<string, ContactRequestStatus>>(new Map());
+  useEffect(() => {
+    let active = true;
+    setStatuses(new Map());
+    if (!userId) return;
+    getApiClient()
+      .listContactRequests({ role: 'sent', size: CONTACT_REQUEST_PAGE_MAX })
+      .then((page) => {
+        if (!active) return;
+        const map = new Map<string, ContactRequestStatus>();
+        // 列表按更新时间倒序：同一件商品只取最新的一条
+        for (const request of page.items) if (!map.has(request.productId)) map.set(request.productId, request.status);
+        setStatuses(map);
+      })
+      .catch(() => undefined);
+    return () => { active = false };
+  }, [userId]);
+  return statuses;
+}
+
+function MarketHome() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { products, loading } = useMarket();
-  const { isAuthenticated } = useAuth();
-
-  // 节点引用
-  const heroRef = useRef<HTMLElement | null>(null);
-  const storyRef = useRef<HTMLElement | null>(null);
-  const storyStepRefs = useRef<(HTMLElement | null)[]>([]);
-  const heroWashRef = useRef<HTMLDivElement | null>(null);
-  const heroCopyRef = useRef<HTMLDivElement | null>(null);
-  const heroProductRef = useRef<HTMLDivElement | null>(null);
-  const scrollLineRef = useRef<HTMLElement | null>(null);
-
-  // 动效插值状态
-  const targetProgressRef = useRef(0);
-  const renderedProgressRef = useRef(0);
-  const motionFrameRef = useRef<number | null>(null);
-
-  // 当前叙事步骤与 Hero 展台选中的高光展品
-  const [activeStory, setActiveStory] = useState(0);
-  const [heroSpotlightIndex, setHeroSpotlightIndex] = useState(0);
+  const { currentUser } = useAuth();
+  const { campusLabel, campusChoicesFor } = useSchools();
+  // 本人校区还没有楼栋时不提供「本楼」（本校区 / 全校照常）
+  const buildingsAvailable = useCampusHasBuildings(currentUser?.campus);
+  const scopes = availableScopes(buildingsAvailable);
 
   const keywordParam = searchParams.get('keyword') ?? '';
-  const [filter, setFilter] = useState<FilterState>({
-    ...DEFAULT_FILTER,
-    keyword: keywordParam,
-  });
+  const [filter, setFilter] = useState<FilterState>({ ...DEFAULT_FILTER, keyword: keywordParam });
+  const [draft, setDraft] = useState(keywordParam);
 
   useEffect(() => {
-    setFilter((prev) =>
-      prev.keyword === keywordParam ? prev : { ...prev, keyword: keywordParam },
-    );
+    setFilter((prev) => (prev.keyword === keywordParam ? prev : { ...prev, keyword: keywordParam }));
+    setDraft(keywordParam);
   }, [keywordParam]);
 
-  // 平滑滚动驱动引擎 (Apple-Grade RequestAnimationFrame Smooth Lerp)
-  useEffect(() => {
-    const clamp = (val: number) => Math.min(1, Math.max(0, val));
-
-    const updateTargetProgress = () => {
-      const section = heroRef.current;
-      if (!section) return;
-      const rect = section.getBoundingClientRect();
-      const travel = Math.max(section.offsetHeight - window.innerHeight, 1);
-      targetProgressRef.current = clamp(-rect.top / travel);
-
-      if (motionFrameRef.current === null) {
-        motionFrameRef.current = requestAnimationFrame(renderMotion);
-      }
-    };
-
-    const renderMotion = () => {
-      const target = targetProgressRef.current;
-      const current = renderedProgressRef.current;
-      const next = current + (target - current) * 0.12;
-      const progress = Math.abs(target - next) < 0.001 ? target : next;
-      renderedProgressRef.current = progress;
-
-      // Hero 背景光照漫反射缩放与位移
-      if (heroWashRef.current) {
-        heroWashRef.current.style.setProperty(
-          'transform',
-          `translate3d(0, ${progress * 14}%, 0) scale(${1 + progress * 0.12})`,
-        );
-      }
-
-      // Hero 文字区域：深度向内推进与平滑淡出
-      if (heroCopyRef.current) {
-        heroCopyRef.current.style.setProperty('opacity', `${Math.max(0, 1 - progress * 1.25)}`);
-        heroCopyRef.current.style.setProperty(
-          'transform',
-          `translate3d(0, ${progress * -50}px, ${progress * -80}px) scale(${1 - progress * 0.06})`,
-        );
-      }
-
-      // Hero 展台卡片：带轻微 3D 俯仰与空间退后
-      if (heroProductRef.current) {
-        heroProductRef.current.style.setProperty(
-          'transform',
-          `translate3d(${progress * -30}px, ${progress * -36}px, ${progress * -60}px) scale(${1 - progress * 0.08}) rotateX(${progress * 6}deg) rotateY(${progress * -4}deg)`,
-        );
-      }
-
-      // 滚动指示进度条
-      if (scrollLineRef.current) {
-        scrollLineRef.current.style.setProperty(
-          'transform',
-          `scaleX(${Math.max(0.18, progress)})`,
-        );
-      }
-
-      if (Math.abs(target - progress) >= 0.001) {
-        motionFrameRef.current = requestAnimationFrame(renderMotion);
-      } else {
-        motionFrameRef.current = null;
-      }
-    };
-
-    updateTargetProgress();
-    window.addEventListener('scroll', updateTargetProgress, { passive: true });
-    window.addEventListener('resize', updateTargetProgress);
-
-    return () => {
-      if (motionFrameRef.current !== null) {
-        cancelAnimationFrame(motionFrameRef.current);
-      }
-      window.removeEventListener('scroll', updateTargetProgress);
-      window.removeEventListener('resize', updateTargetProgress);
-    };
-  }, []);
-
-  // 叙事模块观察器：滚动到达步骤时同步激活展示台
-  useEffect(() => {
-    const stepEls = storyStepRefs.current.filter(Boolean);
-    if (!stepEls.length) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const index = Number(entry.target.getAttribute('data-step-index') ?? 0);
-            setActiveStory(index);
-          }
-        });
-      },
-      {
-        root: null,
-        rootMargin: '-30% 0px -40% 0px',
-        threshold: 0.2,
-      },
-    );
-
-    stepEls.forEach((el) => el && observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
-
-  // 筛选与排序
-  const filtered = useMemo(() => {
-    const kw = filter.keyword.trim().toLowerCase();
-    let list = products.filter((p) => p.status !== '已下架');
-    const matchLevel = new Map<string, number>();
-
-    if (kw) {
-      list = list.filter((p) => {
-        const titleHit = p.title.toLowerCase().includes(kw);
-        const descHit = p.description.toLowerCase().includes(kw);
-        if (!titleHit && !descHit) return false;
-        matchLevel.set(p.id, titleHit ? 2 : 1);
-        return true;
-      });
-    }
-    if (filter.category !== '全部') list = list.filter((p) => p.category === filter.category);
-    if (filter.campus !== '全部') list = list.filter((p) => p.campus === filter.campus);
-    if (filter.condition !== '全部') list = list.filter((p) => p.condition === filter.condition);
-    if (filter.minPrice !== '') list = list.filter((p) => p.price >= Number(filter.minPrice));
-    if (filter.maxPrice !== '') list = list.filter((p) => p.price <= Number(filter.maxPrice));
-
-    const sorted = [...list];
-    switch (filter.sort) {
-      case 'priceAsc':
-        sorted.sort((a, b) => a.price - b.price);
-        break;
-      case 'priceDesc':
-        sorted.sort((a, b) => b.price - a.price);
-        break;
-      case 'views':
-        sorted.sort((a, b) => b.views - a.views);
-        break;
-      default:
-        sorted.sort((a, b) => {
-          if (kw) {
-            const levelDiff = (matchLevel.get(b.id) ?? 0) - (matchLevel.get(a.id) ?? 0);
-            if (levelDiff !== 0) return levelDiff;
-          }
-          return b.createdAt - a.createdAt;
-        });
-    }
-    return sorted;
-  }, [products, filter]);
-
-  // 从真实商品中提取 3 件代表性旗舰好物作为 Hero 展台
-  const spotlightItems: Product[] = useMemo(() => {
-    const onSale = products.filter((p) => p.status === '在售');
-    const tech = onSale.find((p) => p.category === '数码电子') ?? onSale[0];
-    const sportsOrLife = onSale.find((p) => p.category === '运动户外' || p.category === '生活用品') ?? onSale[1];
-    const bookOrCloth = onSale.find((p) => p.category === '教材书籍' || p.category === '服饰鞋包') ?? onSale[2];
-    return [tech, sportsOrLife, bookOrCloth].filter(Boolean) as Product[];
-  }, [products]);
-
-  const currentHeroItem = spotlightItems[heroSpotlightIndex] ?? spotlightItems[0] ?? products[0];
-  const heroImages = currentHeroItem?.images?.length ? currentHeroItem.images : HERO_FALLBACK_IMAGES;
-  const onSaleCount = products.filter((p) => p.status === '在售').length;
+  // ---- 范围：本楼 / 本校区 / 全校（默认全校 = 原来的普通浏览） ----
+  const [storedScope, setScopeState] = useState<MarketScope>(readStoredScope);
+  const scope = effectiveScope(storedScope, scopes);
+  const setScope = (next: MarketScope) => {
+    setScopeState(next);
+    storeScope(next);
+  };
+  const scopeFeed = usesFeed(scope);
 
   const priceInvalid =
-    filter.minPrice !== '' &&
-    filter.maxPrice !== '' &&
-    Number(filter.minPrice) > Number(filter.maxPrice);
+    filter.minPrice !== '' && filter.maxPrice !== '' && Number(filter.minPrice) > Number(filter.maxPrice);
 
-  const goToPublish = () => navigate(isAuthenticated ? '/publish' : '/login');
+  // 「全校」完全走原来的本地筛选流；「本楼 / 本校区」才请求 feed 端点
+  const filtered = useMemo(() => filterLocally(products, filter), [products, filter]);
+  const feedQuery = useMemo(
+    () => (scopeFeed && !priceInvalid ? feedQueryFrom(filter, scope, 1) : null),
+    [scopeFeed, priceInvalid, filter, scope],
+  );
+  const feed = useBuildingFeed(feedQuery);
+  const contactStatuses = useSentContactStatuses(currentUser?.id);
+
+  const displayed: Product[] = scopeFeed ? feed.items : filtered;
+  const total = scopeFeed ? (feed.page?.total ?? 0) : filtered.length;
+  const listLoading = scopeFeed ? feed.status === 'loading' || (feed.status === 'idle' && !priceInvalid) : loading;
+  const action = scopeFeed ? feed.action : null;
+  const loadError = scopeFeed && feed.status === 'error' && !feed.action;
+  const isEmpty = !listLoading && !action && !loadError && displayed.length === 0;
+
+  const demandPrefill = useMemo(
+    () => demandPrefillFor(filter, scope, currentUser?.campus ?? ''),
+    [filter, scope, currentUser?.campus],
+  );
+
+  const keyword = filter.keyword.trim();
+  const hasFilter =
+    !!keyword ||
+    filter.category !== '全部' ||
+    (!scopeFeed && filter.campus !== '全部') ||
+    filter.condition !== '全部' ||
+    filter.minPrice !== '' ||
+    filter.maxPrice !== '' ||
+    filter.sort !== DEFAULT_FILTER.sort;
+  const sortLabel = SORT_OPTIONS.find((option) => option.value === filter.sort)?.label;
+  // 「本楼」放宽后，结果条写实际展示的范围（提示里已说明放宽的原因）
+  const scopeLabel = scopeFeed && feed.page?.fallbackApplied
+    ? feed.page.effectiveScopeLabel
+    : MARKET_SCOPES.find((s) => s.key === scope)?.label;
+  const onSaleCount = products.filter((p) => p.status === '在售').length;
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const kw = draft.trim();
+    navigate(kw ? `/?keyword=${encodeURIComponent(kw)}` : '/');
+  };
+  const clearSearch = () => {
+    setDraft('');
+    navigate('/');
+  };
   const handleReset = () => {
     setFilter({ ...DEFAULT_FILTER });
+    setDraft('');
     navigate('/');
   };
 
-  const scrollToStep = (index: number) => {
-    const targetEl = storyStepRefs.current[index];
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  };
-
   return (
-    <div className="cm-apple-home-root">
-      {/* =========================================================================
-          MODULE 1: 沉浸式发布会级 HERO 展台 (Immersive Keynote Stage)
-         ========================================================================= */}
-      <section ref={heroRef} className="cm-apple-hero-stage" aria-labelledby="hero-title">
-        {/* 动态光晕与微米级暗纹经纬网格 */}
-        <div ref={heroWashRef} className="cm-apple-hero-wash" />
-        <div className="cm-apple-hero-lattice" />
+    <div className="cm-home">
+      <header className="cm-home-head">
+        <div className="cm-home-title">
+          <h1>校园集市</h1>
+          <p>
+            {currentUser?.campus ? campusLabel(currentUser.campus) : '本校'}
+            {!loading && <> · 本校在售 {onSaleCount} 件</>}
+          </p>
+        </div>
+        <form role="search" className="cm-search" onSubmit={submitSearch}>
+          <SearchIcon sx={{ fontSize: 20 }} className="cm-search-icon" aria-hidden="true" />
+          <input
+            type="search"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="搜索你想要的闲置好物…"
+            aria-label="搜索商品"
+            enterKeyHint="search"
+            className="cm-search-input"
+          />
+          {draft && (
+            <button type="button" className="cm-search-clear" aria-label="清空搜索" onClick={clearSearch}>
+              <CloseRoundedIcon sx={{ fontSize: 18 }} />
+            </button>
+          )}
+          <button type="submit" className="cm-search-submit">搜索</button>
+        </form>
+      </header>
 
-        <div className="cm-apple-hero-container">
-          {/* 顶部发布会规格状态栏 */}
-          <div className="cm-apple-hero-statusbar">
-            <div className="cm-apple-hero-brand-tag">
-              <span className="cm-apple-pulse-dot" />
-              <span>CAMPUS / MARKET · KEYNOTE 2026</span>
-            </div>
-            <div className="cm-apple-hero-stats-pill">
-              <span>{onSaleCount || '1,400+'} 件好物在线</span>
-              <span className="cm-apple-dot-sep">·</span>
-              <span>4 个校区极速面交</span>
-              <span className="cm-apple-dot-sep">·</span>
-              <span>学子实名认证</span>
-            </div>
+      <FilterBar
+        value={filter}
+        onChange={setFilter}
+        hideCampus={scopeFeed}
+        campusOptions={campusChoicesFor(currentUser?.campus)}
+        leading={<ScopeSwitch value={scope} onChange={setScope} scopes={scopes} />}
+      />
+
+      {scopeFeed && <ScopeNotice feed={feed} />}
+
+      {/* 「去登录 / 去设置宿舍楼」时只给引导，不给结果区、空态或订阅入口（与小程序一致） */}
+      {!action && (
+        <section className="cm-results" aria-labelledby="results-title">
+          <div className="cm-results-bar">
+            <h2 id="results-title" className="cm-results-title">
+              {keyword ? `「${keyword}」的搜索结果` : '商品列表'}
+            </h2>
+            <p className="cm-results-meta">
+              {listLoading ? '加载中' : `共 ${total} 件`}
+              <span aria-hidden="true"> · </span>
+              {scopeLabel}
+              {filter.category !== '全部' && <> · {filter.category}</>}
+              <span aria-hidden="true"> · </span>
+              {sortLabel}
+            </p>
+            {hasFilter && (
+              <button type="button" className="cm-text-button cm-results-reset" onClick={handleReset}>
+                清空筛选
+              </button>
+            )}
           </div>
 
-          {/* 主版面：左侧排版叙事 + 右侧 3D 旗舰产品互动展具 */}
-          <div className="cm-apple-hero-grid">
-            {/* 左侧：巨幕排版 */}
-            <div ref={heroCopyRef} className="cm-apple-hero-content">
-              <p className="cm-apple-eyebrow">A NEW RHYTHM FOR YOUR DORM & DESK</p>
-              <h1 id="hero-title" className="cm-apple-hero-title">
-                把闲置，
-                <span className="cm-apple-silver-text">交给下一段生活。</span>
-              </h1>
-              <p className="cm-apple-hero-subtext">
-                无需跨越城市，好东西就在隔壁宿舍与图书馆。
-                <br className="hidden sm:inline" />
-                当面验货、即刻交接，用纯粹的克制与优雅，重新定义校园二手循环。
-              </p>
+          {loadError ? (
+            <EmptyState
+              title="暂时无法加载"
+              description={feed.errorMessage ?? '加载失败'}
+              action={<button type="button" className="cm-button-secondary" onClick={feed.reload}>重新加载</button>}
+            />
+          ) : priceInvalid ? (
+            <EmptyState
+              title="价格区间设置有误"
+              description="最低价不能高于最高价，请调整后再试。"
+              action={<button type="button" className="cm-button-secondary" onClick={handleReset}>重置筛选</button>}
+            />
+          ) : (
+            <ProductGrid
+              products={displayed}
+              loading={listLoading}
+              contactStatuses={contactStatuses}
+              emptyTitle={EMPTY_TITLE}
+              emptyDescription={EMPTY_DESCRIPTION}
+              emptyAction={hasFilter ? <button type="button" className="cm-button-secondary" onClick={handleReset}>重置筛选</button> : undefined}
+            />
+          )}
 
-              {/* 行为召唤动作组 */}
-              <div className="cm-apple-hero-cta-group">
-                <Button
-                  onClick={() =>
-                    document.getElementById('marketplace')?.scrollIntoView({ behavior: 'smooth' })
-                  }
-                  variant="contained"
-                  className="cm-apple-primary-cta"
-                  endIcon={<ArrowDownwardRoundedIcon />}
-                >
-                  探索校园好物
-                </Button>
-                <button
-                  type="button"
-                  onClick={goToPublish}
-                  className="cm-apple-secondary-cta"
-                >
-                  <span>发布一件闲置</span>
-                  <ArrowOutwardRoundedIcon sx={{ fontSize: 16 }} />
+          {scopeFeed && feed.status === 'ready' && displayed.length > 0 && (
+            <div className="cm-load-more">
+              {feed.errorMessage ? (
+                <>
+                  <span>{feed.errorMessage}</span>
+                  <button type="button" className="cm-button-secondary" onClick={feed.loadMore}>重试加载</button>
+                </>
+              ) : feed.hasMore ? (
+                <button type="button" className="cm-button-secondary" onClick={feed.loadMore} disabled={feed.loadingMore}>
+                  {feed.loadingMore ? '正在加载…' : '加载更多'}
                 </button>
-              </div>
-
-              {/* 旗舰精选好物切换标签 (Keynote Showcase Tabs) */}
-              {spotlightItems.length > 1 && (
-                <div className="cm-apple-hero-spotlight-tabs">
-                  <span className="cm-apple-spotlight-label">精选展台：</span>
-                  {spotlightItems.map((item, idx) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setHeroSpotlightIndex(idx)}
-                      className={`cm-apple-spotlight-pill ${
-                        heroSpotlightIndex === idx ? 'is-active' : ''
-                      }`}
-                    >
-                      {idx === 0 ? '摄影数码' : idx === 1 ? '出行运动' : '学术生活'}
-                    </button>
-                  ))}
-                </div>
+              ) : (
+                <span>已经看到全部好物了</span>
               )}
             </div>
+          )}
+        </section>
+      )}
 
-            {/* 右侧：3D 物理悬浮展台 */}
-            <div ref={heroProductRef} className="cm-apple-hero-showcase">
-              <div
-                className="cm-apple-showcase-card group cursor-pointer"
-                onClick={() => currentHeroItem && navigate(`/product/${currentHeroItem.id}`)}
-              >
-                {/* 展台高光流线 */}
-                <div className="cm-apple-showcase-glare" />
-
-                {/* 主图视口 */}
-                <div className="cm-apple-showcase-image-box">
-                  <img
-                    src={heroImages[0]}
-                    alt={currentHeroItem?.title ?? '校园精选'}
-                    className="cm-apple-showcase-img"
-                  />
-                  {heroImages[1] && (
-                    <img
-                      src={heroImages[1]}
-                      alt=""
-                      aria-hidden="true"
-                      className="cm-apple-showcase-img-alt"
-                    />
-                  )}
-                  <span className="cm-apple-showcase-badge">
-                    <VerifiedIcon sx={{ fontSize: 13, mr: 0.4 }} />
-                    {currentHeroItem?.condition ?? '几乎全新'}
-                  </span>
-                </div>
-
-                {/* 展台底部铭牌 */}
-                <div className="cm-apple-showcase-caption">
-                  <div>
-                    <span className="cm-apple-showcase-meta">
-                      {currentHeroItem?.category} · {currentHeroItem?.campus}
-                    </span>
-                    <h2 className="cm-apple-showcase-title">
-                      {currentHeroItem?.title ?? '今天，也有一件好物在等你'}
-                    </h2>
-                  </div>
-                  <div className="cm-apple-showcase-price-box">
-                    <span className="cm-apple-showcase-price">
-                      {currentHeroItem ? `¥${currentHeroItem.price}` : '—'}
-                    </span>
-                    <span className="cm-apple-showcase-view-btn">
-                      <NorthEastRoundedIcon sx={{ fontSize: 16 }} />
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 展台旁注信用指示 */}
-              <div className="cm-apple-showcase-footnote">
-                <span className="cm-apple-avatar-cluster">
-                  <i /><i /><i />
-                </span>
-                <span>全校 2,300+ 名认证同学已在此完成面对面流转</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 底部滚动引导指示 */}
-          <div className="cm-apple-hero-scroll-cue">
-            <span className="cm-apple-scroll-text">向下滑动，进入产品叙事与校园集市</span>
-            <div className="cm-apple-scroll-track">
-              <span ref={scrollLineRef} className="cm-apple-scroll-thumb" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* =========================================================================
-          MODULE 2: 滚动驱动的页面叙事 (Scrollytelling Split Showcase)
-         ========================================================================= */}
-      <section ref={storyRef} className="cm-apple-story-section" aria-label="校园集市的设计哲学">
-        <div className="cm-apple-story-container">
-          {/* 叙事开篇大标题 */}
-          <div className="cm-apple-story-header">
-            <p className="cm-apple-eyebrow">DESIGNED FOR CAMPUS LIFE</p>
-            <h2 className="cm-apple-story-main-title">
-              每一次转让，
-              <br />
-              <span className="cm-apple-spruce-text">都恰如其分。</span>
-            </h2>
-            <p className="cm-apple-story-header-desc">
-              不追求繁杂冗余，只保留最真实的校园连接。
-            </p>
-          </div>
-
-          {/* 分屏粘性叙事舞台：左侧固定互动展具 + 右侧章节时间轴 */}
-          <div className="cm-apple-story-split">
-            {/* 左侧：粘性交互展示台 (Sticky Interactive Exhibit Canvas) */}
-            <div className="cm-apple-sticky-exhibit-wrap">
-              <div className="cm-apple-sticky-exhibit">
-                {/* SCENE 01: 校园 15 分钟同心圆雷达 */}
-                <div
-                  className={`cm-apple-exhibit-scene cm-scene-radar ${
-                    activeStory === 0 ? 'is-active' : ''
-                  }`}
-                >
-                  <div className="cm-radar-circles" aria-hidden="true">
-                    <span className="cm-circle cm-c1" />
-                    <span className="cm-circle cm-c2" />
-                    <span className="cm-circle cm-c3" />
-                  </div>
-                  <div className="cm-radar-center">
-                    <NearMeOutlinedIcon sx={{ fontSize: 28, color: 'var(--cm-moss)' }} />
-                    <span>你所在的位置</span>
-                  </div>
-                  <div className="cm-radar-pin cm-pin-lib">
-                    <span>📍 图书馆东门</span>
-                    <small>步行 3 分钟</small>
-                  </div>
-                  <div className="cm-radar-pin cm-pin-canteen">
-                    <span>📍 学一食堂</span>
-                    <small>步行 5 分钟</small>
-                  </div>
-                  <div className="cm-radar-pin cm-pin-dorm">
-                    <span>📍 沁园宿舍区</span>
-                    <small>步行 7 分钟</small>
-                  </div>
-                  <div className="cm-radar-pill">
-                    <span>同校当面验货 · 0 快递包装与等待</span>
-                  </div>
-                </div>
-
-                {/* SCENE 02: 真实学号与成色放大镜 */}
-                <div
-                  className={`cm-apple-exhibit-scene cm-scene-inspect ${
-                    activeStory === 1 ? 'is-active' : ''
-                  }`}
-                >
-                  <div className="cm-inspect-card">
-                    <div className="cm-inspect-header">
-                      <div className="cm-inspect-badge">
-                        <VerifiedIcon sx={{ fontSize: 16 }} />
-                        <span>校园可信认证</span>
-                      </div>
-                      <span className="cm-inspect-id">学号 2021**** 认证</span>
-                    </div>
-                    <div className="cm-inspect-loupe">
-                      <div className="cm-loupe-circle">
-                        <span>99%</span>
-                        <small>几乎全新</small>
-                      </div>
-                      <div className="cm-inspect-check-list">
-                        <div>✓ 屏幕无划痕（已贴类纸膜）</div>
-                        <div>✓ 电池健康度 94%</div>
-                        <div>✓ 附带原装包装盒与充电线</div>
-                      </div>
-                    </div>
-                    <p className="cm-inspect-footer">
-                      如实标注划痕与使用记录，绝不美化商品缺陷。
-                    </p>
-                  </div>
-                </div>
-
-                {/* SCENE 03: 绿色循环可持续减碳看板 */}
-                <div
-                  className={`cm-apple-exhibit-scene cm-scene-eco ${
-                    activeStory === 2 ? 'is-active' : ''
-                  }`}
-                >
-                  <div className="cm-eco-card">
-                    <div className="cm-eco-icon-wrap">
-                      <RecyclingOutlinedIcon sx={{ fontSize: 36, color: 'var(--cm-moss)' }} />
-                    </div>
-                    <div className="cm-eco-stat">
-                      <strong>-1.8 kg</strong>
-                      <span>每件闲置流转平均减碳</span>
-                    </div>
-                    <div className="cm-eco-stat">
-                      <strong>65%</strong>
-                      <span>相比新品平均为同学节省</span>
-                    </div>
-                    <div className="cm-eco-meter">
-                      <span className="cm-eco-meter-fill" style={{ width: '82%' }} />
-                    </div>
-                    <p className="cm-eco-tip">
-                      一件好的物品，值得陪伴两届甚至更多同学的大学时光。
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 右侧：章节式滚动轨道 (Narrative Track) */}
-            <div className="cm-apple-story-track">
-              {STORY_STEPS.map((step, idx) => {
-                const isActive = activeStory === idx;
-                return (
-                  <article
-                    key={step.index}
-                    ref={(el) => { storyStepRefs.current[idx] = el; }}
-                    data-step-index={idx}
-                    onClick={() => scrollToStep(idx)}
-                    className={`cm-apple-story-step ${isActive ? 'is-active' : ''}`}
-                  >
-                    <div className="cm-step-indicator">
-                      <span className="cm-step-num">{step.index}</span>
-                      <span className="cm-step-line" />
-                    </div>
-                    <div className="cm-step-body">
-                      <span className="cm-step-eyebrow">{step.eyebrow}</span>
-                      <h3 className="cm-step-title">
-                        {step.title.split('\n').map((l) => (
-                          <span key={l}>
-                            {l}
-                            <br />
-                          </span>
-                        ))}
-                      </h3>
-                      <p className="cm-step-copy">{step.copy}</p>
-                      <span className="cm-step-tag">{step.tag}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* =========================================================================
-          MODULE 3 & 4: 校园集市商品广场与吸顶分类筛选
-         ========================================================================= */}
-      <section id="marketplace" className="cm-apple-market-section" aria-labelledby="market-title">
-        <div className="cm-apple-market-container">
-          {/* 集市顶部巨幅标题与数据指标 */}
-          <div className="cm-apple-market-header">
-            <div>
-              <p className="cm-apple-eyebrow">THE MARKETPLACE · 2026</p>
-              <h2 id="market-title" className="cm-apple-market-title">
-                现在，去遇见。
-              </h2>
-            </div>
-            <div className="cm-apple-market-stats-group">
-              <div className="cm-stat-item">
-                <strong>{onSaleCount || '—'}</strong>
-                <span>件在售好物</span>
-              </div>
-              <div className="cm-stat-item">
-                <strong>4</strong>
-                <span>大校区同校</span>
-              </div>
-              <div className="cm-stat-item">
-                <strong>100%</strong>
-                <span>学子实名</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 吸顶分类导航与精细筛选 */}
-          <FilterBar
-            value={filter}
-            onChange={setFilter}
-            resultCount={filtered.length}
-          />
-
-          {/* 商品网格区 */}
-          <div className="cm-apple-grid-wrapper">
-            <ProductGrid
-              products={filtered}
-              loading={loading}
-              emptyTitle={priceInvalid ? '价格区间设置有误' : '暂时没有找到符合条件的物品'}
-              emptyDescription={
-                priceInvalid
-                  ? '最低价不能高于最高价，请调整后再试。'
-                  : '试着放宽成色或分类要求，或者发布求购告诉大家。'
-              }
-              emptyAction={
-                <div className="flex flex-wrap justify-center gap-3 mt-4">
-                  <Button
-                    variant="outlined"
-                    onClick={handleReset}
-                    sx={{
-                      borderRadius: 999,
-                      px: 3,
-                      borderColor: 'rgba(0,0,0,0.15)',
-                      color: 'var(--cm-ink)',
-                    }}
-                  >
-                    重置全部筛选
-                  </Button>
-                  <Button
-                    variant="contained"
-                    onClick={goToPublish}
-                    startIcon={<AddRoundedIcon />}
-                    sx={{
-                      borderRadius: 999,
-                      px: 3,
-                      bgcolor: 'var(--cm-ink)',
-                      '&:hover': { bgcolor: 'var(--cm-moss)' },
-                    }}
-                  >
-                    我要发布一件
-                  </Button>
-                </div>
-              }
-            />
-          </div>
-        </div>
-      </section>
+      {/* 搜索空态的订阅入口：用户刚表达了一个没被满足的需求，这时问一句最自然（组件常驻，以便登录回来恢复草稿） */}
+      <DemandEmptyStateCta prefill={demandPrefill} showCta={isEmpty && !priceInvalid} />
     </div>
   );
 }

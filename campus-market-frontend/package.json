@@ -6,7 +6,12 @@
   "description": "校园闲置集市 · React + Spring Boot + PostgreSQL",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run build:all",
+    "build:rest": "tsc --noEmit && vite build --mode rest --outDir dist",
+    "build:mock": "tsc --noEmit && vite build --mode mock --outDir dist-mock",
+    "check:bundles": "node scripts/check-bundles.mjs",
+    "build:all": "npm run build:rest && npm run build:mock && npm run check:bundles",
+    "check:deterministic": "node scripts/check-deterministic-build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && npm run test:legacy",
     "preview": "vite preview --port 4173",
@@ -14,7 +19,8 @@
     "api:start": "mvn -f ../campus-market-backend spring-boot:run",
     "db:migrate": "echo 'Spring Boot 启动时会自动初始化数据库结构'",
     "test:api": "mvn -f ../campus-market-backend test",
-    "test:legacy": "vite-node qa-tests/utils.test.ts"
+    "test:legacy": "vite-node qa-tests/utils.test.ts",
+    "e2e": "npm run build:rest && playwright test"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",
@@ -26,15 +32,24 @@
     "react-router-dom": "^6.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "axe-core": "^4.13.0",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.39",
     "prettier": "^3.9.7",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3",
     "vite": "^5.3.3",
     "vitest": "^3.2.7"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "fsevents@2.3.3": true
   }
 }

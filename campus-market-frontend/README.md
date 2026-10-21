@@ -55,8 +55,30 @@ npm install
 # 3. 启动开发服务器（默认 http://localhost:5173）
 npm run dev
 
-# 4. 生产构建（含 TypeScript 类型检查）
-npm run build
+# 4. 生产构建（含 TypeScript 类型检查）。显式模式不读取本机 .env：
+npm run build:rest   # 连接真实后端 → dist/（部署镜像使用这一项）
+npm run build:mock   # 纯前端离线演示 → dist-mock/
+npm run build:all    # 两种构建 + scripts/check-bundles.mjs 产物检查
+npm run build        # 等同于 build:all，不读取 .env：本机 VITE_API_MODE 是什么，产物都逐字节相同
+npm run check:deterministic  # 在未设置 / mock / rest 三种环境下各构建一次并逐字节比较 dist 与 dist-mock
+# 模块 7：离线演示（build:mock）的「个人资料」里有「设为演示工作人员」开关，用来体验治理工作台；
+# 它只在 Mock 构建里懒加载，REST 构建里被常量折叠删掉（check-bundles 以 demo-staff-switch 标记验证）。
+# 真实部署没有默认工作人员，首个工作人员见 ../campus-market-backend/docs/staff-runbook.md。
+# 阶段 3：离线演示的「找回密码」页（登录页 →「忘记密码？」→ /password-reset）下方有「模拟学校工作人员签发重置码」面板：
+# 输入演示账号即可得到一次性重置码（XXXX-XXXX-XXXX，30 分钟、最多 5 次错误，只存在于当前页面内存，刷新即失效）并自动回填。
+# 它同样只在 Mock 构建里懒加载（check-bundles 以 demo-reset-code 标记验证）；真实部署里重置码只能由本校学校管理员
+# 线下核对身份后在管理后台签发（POST /v1/admin/users/{id}/password-reset，见 ../docs/account-lifecycle.md）。
+# 邀请制注册（首个试点）：后端 GET /v1/config 返回 registration.inviteRequired=true 时，注册页显示必填的「邀请码」（XXXX-XXXX-XXXX），
+# 学校工作人员发放的邀请链接形如 /register#invite=CODE（片段不发给服务器，读到后立即从地址栏删掉）。离线演示默认不需要邀请码；
+# 注册页下方的「演示邀请码」面板里点「以邀请制运行离线演示」并刷新即可体验，面板列出演示邀请码 CAMP-US23-4567（100 次）
+# 与 XYZW-2345-6789（1 次，用来体验「邀请码无效或已用完」），点「填入」即可。使用次数只在内存里，刷新即恢复；
+# 面板与演示邀请码只在 Mock 构建里（check-bundles 以 demo-invite-code / mock_invite_required_v1 / CAMP-US23-4567 标记验证）。
+# 阶段 4：离线演示上传的图片以 data: 地址保存在本机（localStorage 的 campus_market_mock_uploaded_images_v1，超出浏览器配额时只留在内存里）。
+# 6.1A：商品浏览与搜索需要登录，只显示本校商品；未登录只看到落地页。
+
+# 模块 8：真实浏览器 E2E（REST 构建 + 后端 jar + 一次性 PostgreSQL 16，默认使用本机 Chrome）
+npm run e2e          # 先 build:rest，再 playwright test；需要 Docker、JDK 17 与 ../campus-market-backend/target 下的 jar
+# 本地部署演练（生产编排 + 唯一项目名 + 精确清理）：node deploy/drill/local-deploy-drill.mjs <报告目录>
 
 # 5. 本地预览构建产物（http://localhost:4173）
 npm run preview

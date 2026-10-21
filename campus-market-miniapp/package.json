@@ -1,0 +1,46 @@
+{
+  "name": "campus-market-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:weapp": "taro build --type weapp --watch",
+    "build:weapp": "taro build --type weapp",
+    "build:weapp:rest": "MINIAPP_API_MODE=rest taro build --type weapp",
+    "dev:h5": "taro build --type h5 --watch",
+    "build:h5": "taro build --type h5",
+    "typecheck": "tsc --noEmit",
+    "check:wxss": "node scripts/check-wxss.mjs",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build:weapp"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.28.0",
+    "@tarojs/components": "4.3.0",
+    "@tarojs/helper": "4.3.0",
+    "@tarojs/plugin-framework-react": "4.3.0",
+    "@tarojs/plugin-platform-h5": "4.3.0",
+    "@tarojs/plugin-platform-weapp": "4.3.0",
+    "@tarojs/react": "4.3.0",
+    "@tarojs/runtime": "4.3.0",
+    "@tarojs/shared": "4.3.0",
+    "@tarojs/taro": "4.3.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-react": "^7.29.7",
+    "@pmmmwh/react-refresh-webpack-plugin": "^0.5.17",
+    "@tarojs/cli": "4.3.0",
+    "@tarojs/webpack5-runner": "4.3.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "babel-preset-taro": "4.3.0",
+    "react-refresh": "^0.14.2",
+    "sass": "^1.89.0",
+    "typescript": "~5.8.3",
+    "vite": "4.5.14",
+    "vitest": "3.2.7"
+  }
+}

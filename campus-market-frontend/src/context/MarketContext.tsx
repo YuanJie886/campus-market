@@ -8,30 +8,40 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type {
-  MarketState,
+  Comment,
+  ChatMessage,
+  Conversation,
+  Favorite,
   Product,
   ProductInput,
-  OrderStatus,
-  Review,
-  CanonicalOrderStatus,
 } from "../types";
-import type { MeetingPoint, CreateOrderInput } from "../api/contracts";
 import { getApiClient } from "../api/client";
+import type { SendMessageInput } from "../api/contracts";
 import { useAuth } from "./AuthContext";
 import { useNotify } from "./NotificationContext";
-const empty: MarketState = {
+import { toUserMessage } from '../api/errors';
+/**
+ * 页面共享的市场数据。平台只展示商品与联系方式（阶段 1）：这里没有订单、预约或评价。
+ * Mock 持久化数据里仍保留历史订单（数据兼容），但界面不再读取它们。
+ */
+interface MarketData {
+  products: Product[];
+  favorites: Favorite[];
+  comments: Comment[];
+  conversations: Conversation[];
+  messages: ChatMessage[];
+}
+const empty: MarketData = {
   products: [],
-  orders: [],
   favorites: [],
   comments: [],
   conversations: [],
   messages: [],
 };
 function useMarketState() {
-  const [state, setState] = useState<MarketState>(empty);
+  const [state, setState] = useState<MarketData>(empty);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [meetingPoints, setMeetingPoints] = useState<MeetingPoint[]>([]);
   const [unread, setUnread] = useState(0);
   const { currentUser, loading: authLoading, loadUsers } = useAuth();
   const { error } = useNotify();
@@ -42,7 +52,8 @@ function useMarketState() {
     const seq = ++refreshSequence.current,
       gen = generation.current;
     let products: Product[] = [];
-    for (let page = 1; ; page++) {
+    // 6.1A：未登录不读取任何商品（后端同样要求登录）；落地页只展示介绍与登录注册入口
+    for (let page = 1; currentUser; page++) {
       const result = await api.listProducts({
         sort: "latest",
         page,
@@ -51,18 +62,15 @@ function useMarketState() {
       products.push(...result.items);
       if (products.length >= result.total || !result.items.length) break;
     }
-    const [orders, favorites, conversations, points, count] = await Promise.all(
+    const [favorites, conversations, count] = await Promise.all(
       [
-        currentUser ? api.listOrders("all") : [],
         currentUser ? api.listFavorites() : [],
         currentUser ? api.listConversations() : [],
-        api.listMeetingPoints(),
         currentUser ? api.getUnreadCount() : 0,
       ],
     );
     const extraIds = [
       ...new Set([
-        ...orders.map((o) => o.productId),
         ...favorites.map((f) => f.productId),
         ...conversations.map((c) => c.productId),
       ]),
@@ -75,16 +83,13 @@ function useMarketState() {
     setState((prev) => ({
       ...prev,
       products,
-      orders,
       favorites,
       conversations,
     }));
-    setMeetingPoints(points);
     setUnread(count);
     setLoadError("");
     void loadUsers([
       ...products.map((p) => p.sellerId),
-      ...orders.flatMap((o) => [o.buyerId, o.sellerId]),
       ...conversations.flatMap((c) => [c.buyerId, c.sellerId]),
     ]);
   }, [currentUser?.id, api, loadUsers]);
@@ -120,76 +125,28 @@ function useMarketState() {
       ...prev,
       products: [product, ...prev.products.filter((p) => p.id !== product.id)],
     }));
-  const afterMutation = () =>
-    void refresh().catch((e) => setLoadError(e.message));
   const addProduct = async (input: ProductInput) => {
     const { sellerId, ...body } = input;
     const p = await api.createProduct(body);
     productSaved(p);
     return p;
   };
-  const updateProduct = async (id: string, patch: Partial<Product>) => {
+  const updateProduct = async (id: string, patch: import("../api/contracts").ProductPatch) => {
     const p = await api.updateProduct(id, patch);
     productSaved(p);
   };
   const setStatus = async (id: string, status: Product["status"]) => {
     productSaved(await api.setProductStatus(id, status));
   };
-  const toggleFavorite = async (_uid: string, id: string) => {
-    const active = await api.toggleFavorite(id);
+  /**
+   * 幂等设置收藏状态。desired 由调用方根据当前 UI 状态显式声明，
+   * 底层走 PUT / DELETE，不再由任何一层自行 toggle——那会让重试把收藏删掉。
+   */
+  const setFavorite = async (_uid: string, id: string, desired: boolean) => {
+    const active = await api.setFavorite(id, desired);
     const favorites = await api.listFavorites();
     setState((p) => ({ ...p, favorites }));
     return active;
-  };
-  const createOrder = async (
-    productId: string,
-    _uid: string,
-    meeting: Omit<CreateOrderInput, "productId">,
-  ) => {
-    const o = await api.createOrder({ ...meeting, productId });
-    setState((p) => ({
-      ...p,
-      orders: [o, ...p.orders.filter((x) => x.id !== o.id)],
-      products: p.products.map((x) =>
-        x.id === productId ? { ...x, status: "预约中" } : x,
-      ),
-    }));
-    return o;
-  };
-  const updateOrderStatus = async (
-    id: string,
-    status: OrderStatus | CanonicalOrderStatus,
-    confirmationCode?: string,
-  ) => {
-    const to =
-      (
-        {
-          交易中: "PENDING_MEETING",
-          已取消: "CANCELLED",
-          已完成: "COMPLETED",
-          待确认: "PENDING_SELLER_CONFIRM",
-        } as Record<string, CanonicalOrderStatus>
-      )[status] ?? (status as CanonicalOrderStatus);
-    const o = await api.transitionOrder(id, { to, confirmationCode });
-    setState((p) => ({
-      ...p,
-      orders: p.orders.map((x) => (x.id === id ? o : x)),
-    }));
-    afterMutation();
-  };
-  const addReview = async (id: string, uid: string, review: Review) => {
-    const saved = await api.addReview(id, review);
-    setState((p) => ({
-      ...p,
-      orders: p.orders.map((o) =>
-        o.id === id
-          ? {
-              ...o,
-              [o.buyerId === uid ? "buyerReview" : "sellerReview"]: saved,
-            }
-          : o,
-      ),
-    }));
   };
   const loadProduct = useCallback(
     async (id: string) => {
@@ -198,7 +155,7 @@ function useMarketState() {
         api.getProduct(id),
         api.listComments(id),
       ]);
-      if (gen !== generation.current) return;
+      if (gen !== generation.current) return p;
       productSaved(p);
       setState((prev) => ({
         ...prev,
@@ -208,6 +165,8 @@ function useMarketState() {
         ],
       }));
       void loadUsers([p.sellerId, ...comments.map((c) => c.userId)]);
+      // 列表接口不含验货声明，调用方需要详情里的声明时直接用这里的返回值
+      return p;
     },
     [api, loadUsers],
   );
@@ -216,7 +175,7 @@ function useMarketState() {
       try {
         await api.incrementProductViews(id);
       } catch (e) {
-        error((e as Error).message);
+        error(toUserMessage(e));
       }
     },
     [api],
@@ -260,8 +219,9 @@ function useMarketState() {
     },
     [api],
   );
-  const sendMessage = async (id: string, _uid: string, content: string) => {
-    const m = await api.sendMessage(id, content);
+  /** 默认只能发送快捷消息（{ templateCode }）；只有服务端开放文字时才会提交 { content } */
+  const sendMessage = async (id: string, input: SendMessageInput) => {
+    const m = await api.sendMessage(id, input);
     setState((p) => ({
       ...p,
       messages: [...p.messages.filter((x) => x.id !== m.id), m],
@@ -275,7 +235,6 @@ function useMarketState() {
     loading,
     loadError,
     refresh,
-    meetingPoints,
     loadProduct,
     loadMessages,
     getProduct: (id: string) => state.products.find((p) => p.id === id),
@@ -290,18 +249,12 @@ function useMarketState() {
       state.products.filter((p) => p.sellerId === id),
     isFavorite: (uid: string | null | undefined, id: string) =>
       state.favorites.some((f) => f.userId === uid && f.productId === id),
-    toggleFavorite,
+    setFavorite,
     getFavoriteProducts: (uid: string) =>
       state.favorites
         .filter((f) => f.userId === uid)
         .map((f) => state.products.find((p) => p.id === f.productId))
         .filter((p): p is Product => !!p),
-    createOrder,
-    updateOrderStatus,
-    addReview,
-    getBuyOrders: (id: string) => state.orders.filter((o) => o.buyerId === id),
-    getSellOrders: (id: string) =>
-      state.orders.filter((o) => o.sellerId === id),
     getProductComments: (id: string) =>
       state.comments.filter((c) => c.productId === id),
     addComment,

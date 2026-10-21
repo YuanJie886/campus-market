@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-h5/
+.swc/
+.taro/
+project.private.config.json
+.env.local
+coverage/

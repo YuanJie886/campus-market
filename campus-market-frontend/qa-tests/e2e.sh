@@ -231,11 +231,10 @@ ev "(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent
 sleep 1.5
 ev "JSON.stringify({path:location.pathname,convs:JSON.parse(localStorage.getItem('campus_market_market_v1')).conversations.length})"
 shot "$SHOT/22-messages.png"
-ev "(()=>{const ta=[...document.querySelectorAll('textarea')].find(e=>e.placeholder&&e.placeholder.includes('输入消息'));if(!ta)return 'no-ta';const p=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;p.call(ta,'你好，这个还在吗？');ta.dispatchEvent(new Event('input',{bubbles:true}));return 'typed'})()"
-sleep 0.3
-ev "(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('发送'));if(!b)return 'no-send';b.click();return 'clicked'})()"
+# 私信默认只能发送快捷消息：点买家的「你好，这件还在吗？」
+ev "(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='你好，这件还在吗？');if(!b)return 'no-template';b.click();return 'clicked'})()"
 sleep 1.0
-ev "JSON.stringify({messages:JSON.parse(localStorage.getItem('campus_market_market_v1')).messages.length,hasMsg:[...document.querySelectorAll('div')].some(d=>d.textContent==='你好，这个还在吗？')})"
+ev "JSON.stringify({messages:JSON.parse(localStorage.getItem('campus_market_market_v1')).messages.length,hasMsg:[...document.querySelectorAll('[role=log] div')].some(d=>d.textContent==='你好，这件还在吗？')})"
 shot "$SHOT/23-message-sent.png"
 
 # ---------- 15. localStorage 损坏自愈 ----------

@@ -24,6 +24,38 @@
   --cm-radius-md: 20px;
   --cm-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --cm-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /*
+   * 设计令牌：与小程序 campus-market-miniapp/src/app.scss（commit 66238cc「重构全局样式系统并引入设计令牌变量」）同名同值。
+   * 首页、商品卡片与空态只用这一组；小程序改色时两边一起改。
+   */
+  --brand: #194e41;
+  --brand-600: #25624e;
+  --brand-800: #14261f;
+  --brand-100: #e1e9dd;
+  --brand-0: #eff4ea;
+  --bg: #f6f5f0;
+  --surface: #ffffff;
+  --line: #e7e6df;
+  --line-soft: #f1f0ea;
+  --ink: #14201b;
+  --ink-2: #3d4a43;
+  --ink-3: #5e6b63;
+  --ink-4: #8a948c;
+  --ok: #2f6b4f;
+  --ok-bg: #e8f0e6;
+  --warn: #a56a12;
+  --warn-bg: #fbf0dc;
+  --danger: #b0453a;
+  --danger-bg: #fbe9e6;
+  --heart: #c4453a;
+  /* 无图商品的分类底色（小程序 .product-image.category-*） */
+  --cm-cat-electronics: #eadbbd;
+  --cm-cat-books: #d3dfd2;
+  --cm-cat-home: #e6decb;
+  --cm-cat-fashion: #e8d1cd;
+  --cm-cat-outdoor: #cee1d7;
+  --cm-cat-other: #edebe2;
 }
 
 html,
@@ -166,1471 +198,716 @@ a:focus-visible,
   transform: translateY(-1px);
 }
 
-/* ==========================================================================
-   MODULE 1: APPLE KEYNOTE HERO STAGE
-   ========================================================================== */
+/* ----------------------------- Marketplace Home ----------------------------
+   首页 / 商品卡片 / 空态。只使用 :root 中与小程序同名的设计令牌（--brand / --bg / --surface / --line / --ink…），
+   结构与尺寸对齐小程序 app.scss 的集市页（.segmented / .chip / .product-card / .notice / .empty）。
+   -------------------------------------------------------------------------- */
 
-.cm-apple-hero-stage {
-  position: relative;
-  min-height: 180vh;
-  background: #08090b;
-  color: #ffffff;
-  overflow: clip;
+.cm-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.cm-apple-hero-wash {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(circle at 75% 35%, rgba(211, 225, 203, 0.18), transparent 32rem),
-    radial-gradient(circle at 20% 90%, rgba(25, 78, 65, 0.65), transparent 42rem),
-    linear-gradient(135deg, #08090b 0%, #111417 50%, #0a0c0e 100%);
-  transform-origin: 65% 45%;
-  will-change: transform;
+.cm-app-shell:has(.cm-route-home),
+.cm-route-home {
+  background: var(--bg);
 }
 
-.cm-apple-hero-lattice {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.14;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at center, #000 35%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 75%);
-}
-
-.cm-apple-hero-container {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 60px);
-  max-width: 1240px;
+/* 与导航栏内容同宽（导航栏 Toolbar 最大 1240px、左右各 24px 内边距） */
+.cm-home {
+  width: min(1192px, calc(100% - 48px));
   margin: 0 auto;
-  padding: clamp(20px, 3.5vw, 40px) 24px;
+  padding: 20px 0 56px;
+  color: var(--ink);
 }
 
-.cm-apple-hero-statusbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--cm-line-dark);
-}
-
-.cm-apple-hero-brand-tag {
+/* 按钮与链接 */
+.cm-button-primary,
+.cm-button-secondary {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.cm-apple-pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cm-moss-soft);
-  box-shadow: 0 0 0 4px rgba(211, 225, 203, 0.16);
-  animation: cm-pulse 2.2s infinite ease-in-out;
-}
-
-@keyframes cm-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
-}
-
-.cm-apple-hero-stats-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.cm-apple-dot-sep {
-  opacity: 0.35;
-}
-
-.cm-apple-hero-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: clamp(32px, 6vw, 80px);
-  flex: 1;
-  padding: clamp(32px, 6vh, 68px) 0;
-  perspective: 1200px;
-}
-
-.cm-apple-hero-content {
-  max-width: 580px;
-  will-change: transform, opacity;
-}
-
-.cm-apple-eyebrow {
-  margin: 0 0 16px;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  font-weight: 700;
-  color: var(--cm-moss-soft);
-  text-transform: uppercase;
-}
-
-.cm-apple-hero-title {
-  margin: 0;
-  font-size: clamp(3.2rem, 6.4vw, 5.8rem);
-  font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 1.02;
-}
-
-.cm-apple-silver-text {
-  display: block;
-  background: linear-gradient(180deg, #ffffff 15%, rgba(255, 255, 255, 0.58) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.cm-apple-hero-subtext {
-  margin: 28px 0 0;
-  font-size: 16px;
-  line-height: 1.85;
-  color: rgba(255, 255, 255, 0.64);
-  max-width: 480px;
-}
-
-.cm-apple-hero-cta-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
-  margin-top: 36px;
-}
-
-.cm-apple-primary-cta.MuiButton-root {
-  background: var(--cm-moss-soft) !important;
-  color: var(--cm-ink) !important;
-  font-weight: 600 !important;
-  font-size: 14px !important;
-  padding: 11px 24px !important;
-  border-radius: 999px !important;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3) !important;
-  transition: all 300ms var(--cm-ease-spring) !important;
-}
-
-.cm-apple-primary-cta.MuiButton-root:hover {
-  background: #e2ecd9 !important;
-  transform: translateY(-2px);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4) !important;
-}
-
-.cm-apple-secondary-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: rgba(255, 255, 255, 0.78);
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
   font-size: 14px;
-  font-weight: 500;
-  transition: all 250ms ease;
-}
-
-.cm-apple-secondary-cta:hover {
-  color: #fff;
-  transform: translateX(4px);
-}
-
-.cm-apple-hero-spotlight-tabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 36px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
-}
-
-.cm-apple-spotlight-label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.cm-apple-spotlight-pill {
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.65);
-  transition: all 250ms var(--cm-ease-spring);
-}
-
-.cm-apple-spotlight-pill:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.cm-apple-spotlight-pill.is-active {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
   font-weight: 600;
+  line-height: 1.2;
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
-
-/* 3D 旗舰产品展台 */
-.cm-apple-hero-showcase {
-  position: relative;
-  justify-self: end;
-  width: min(100%, 520px);
-  will-change: transform;
-}
-
-.cm-apple-showcase-card {
-  position: relative;
-  border-radius: var(--cm-radius-lg);
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(12px);
-  transition: all 500ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.65);
-  transform: translateY(-4px);
-}
-
-.cm-apple-showcase-glare {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, transparent 55%);
-}
-
-.cm-apple-showcase-image-box {
-  position: relative;
-  height: clamp(320px, 44vh, 460px);
-  background: #15181b;
-  overflow: hidden;
-}
-
-.cm-apple-showcase-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 900ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover .cm-apple-showcase-img {
-  transform: scale(1.05);
-}
-
-.cm-apple-showcase-img-alt {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity 700ms var(--cm-ease-smooth), transform 900ms var(--cm-ease-smooth);
-}
-
-.cm-apple-showcase-card:hover .cm-apple-showcase-img-alt {
-  opacity: 1;
-  transform: scale(1.05);
-}
-
-.cm-apple-showcase-badge {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 6;
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
-  color: #fff;
-  font-size: 11px;
+.cm-button-primary { background: var(--brand); color: #fff; }
+.cm-button-primary:hover { background: var(--brand-600); }
+.cm-button-secondary { background: var(--surface); color: var(--brand); border: 1px solid var(--line); }
+.cm-button-secondary:hover { border-color: var(--brand); }
+.cm-button-secondary:disabled { opacity: 0.55; cursor: default; }
+.cm-button-block { width: 100%; min-height: 46px; font-size: 15px; }
+.cm-text-button {
+  padding: 6px 4px;
+  color: var(--brand);
+  font-size: 13px;
   font-weight: 500;
+  border-radius: 8px;
 }
+.cm-text-button:disabled { color: var(--ink-4); cursor: default; }
+.cm-link { color: var(--brand); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.cm-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
 
-.cm-apple-showcase-caption {
+/* ---------- 已登录：紧凑标题 + 搜索 ---------- */
+.cm-home-head {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 18px;
-  padding: 22px 24px;
-  background: rgba(18, 20, 24, 0.85);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 14px;
 }
-
-.cm-apple-showcase-meta {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 6px;
-}
-
-.cm-apple-showcase-title {
+.cm-home-title { flex: none; min-width: 0; }
+.cm-home-title h1 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
   line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+.cm-home-title p {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
-.cm-apple-showcase-price-box {
+.cm-search {
+  flex: 1 1 auto;
+  max-width: 680px;
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
+  height: 46px;
+  padding: 0 4px 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(20, 32, 27, 0.05);
 }
-
-.cm-apple-showcase-price {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--cm-moss-soft);
+.cm-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-100); }
+.cm-search-icon { color: var(--ink-3); flex: none; }
+.cm-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
 }
-
-.cm-apple-showcase-view-btn {
+.cm-search-input::placeholder { color: var(--ink-4); opacity: 1; }
+.cm-search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.cm-search-clear {
+  flex: none;
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink-3);
+}
+.cm-search-clear:hover { background: var(--line-soft); }
+.cm-search-submit {
+  flex: none;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 9px;
+  background: var(--brand);
   color: #fff;
-  transition: all 300ms var(--cm-ease-spring);
+  font-size: 14px;
+  font-weight: 600;
 }
+.cm-search-submit:hover { background: var(--brand-600); }
 
-.cm-apple-showcase-card:hover .cm-apple-showcase-view-btn {
-  background: var(--cm-moss-soft);
-  color: var(--cm-ink);
-  transform: rotate(45deg);
+/* ---------- 工具条：范围 + 分类 + 筛选与排序 ---------- */
+.cm-toolbar {
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
 }
-
-.cm-apple-showcase-footnote {
+.cm-toolbar-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
 }
+.cm-toolbar-leading { flex: none; }
 
-.cm-apple-avatar-cluster {
-  display: inline-flex;
-}
-
-.cm-apple-avatar-cluster i {
-  display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid #08090b;
-  margin-left: -6px;
-  background: #738a79;
-}
-.cm-apple-avatar-cluster i:nth-child(2) { background: #b08d79; }
-.cm-apple-avatar-cluster i:nth-child(3) { background: #798cb0; }
-
-.cm-apple-hero-scroll-cue {
+/* 分段控件（小程序 .segmented） */
+.cm-scope {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--line);
 }
-
-.cm-apple-scroll-text {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.cm-apple-scroll-track {
-  width: 140px;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.cm-apple-scroll-thumb {
-  display: block;
-  height: 100%;
-  width: 100%;
-  transform-origin: left;
-  background: var(--cm-moss-soft);
-  will-change: transform;
-}
-
-/* ==========================================================================
-   MODULE 2: SCROLL-DRIVEN STORYTELLING (SCROLLYTELLING SPLIT STAGE)
-   ========================================================================== */
-
-.cm-apple-story-section {
-  position: relative;
-  background: var(--cm-paper);
-  color: var(--cm-ink);
-  padding: clamp(80px, 12vw, 160px) 0;
-}
-
-.cm-apple-story-container {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.cm-apple-story-header {
-  max-width: 680px;
-  margin-bottom: clamp(60px, 8vw, 100px);
-}
-
-.cm-apple-story-header .cm-apple-eyebrow {
-  color: var(--cm-moss);
-}
-
-.cm-apple-story-main-title {
-  margin: 0;
-  font-size: clamp(2.8rem, 5vw, 4.8rem);
-  font-weight: 600;
-  letter-spacing: -0.05em;
-  line-height: 1.05;
-}
-
-.cm-apple-spruce-text {
-  color: var(--cm-moss);
-}
-
-.cm-apple-story-header-desc {
-  margin: 24px 0 0;
-  font-size: 17px;
-  color: var(--cm-ink-muted);
-  line-height: 1.8;
-}
-
-.cm-apple-story-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(40px, 8vw, 100px);
-  align-items: start;
-}
-
-/* 粘性互动展示台 */
-.cm-apple-sticky-exhibit-wrap {
-  position: sticky;
-  top: 96px;
-  align-self: start;
-}
-
-.cm-apple-sticky-exhibit {
-  position: relative;
-  height: 480px;
-  border-radius: var(--cm-radius-lg);
-  background: #ffffff;
-  border: 1px solid var(--cm-line);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-}
-
-.cm-apple-exhibit-scene {
+.cm-scope-option { position: relative; flex: 1; display: flex; cursor: pointer; }
+/* 原生单选框透明地铺满整个选项：点击区域与可聚焦元素是同一个，读屏与自动化都能直接操作它 */
+.cm-scope-option input {
   position: absolute;
   inset: 0;
-  padding: 36px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  transform: translateY(16px) scale(0.97);
-  pointer-events: none;
-  transition: opacity 600ms var(--cm-ease-smooth), transform 600ms var(--cm-ease-smooth);
+  cursor: pointer;
 }
-
-.cm-apple-exhibit-scene.is-active {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-/* SCENE 01: 校园 15 分钟同心圆雷达 */
-.cm-scene-radar {
-  background: radial-gradient(circle at center, rgba(211, 225, 203, 0.35) 0%, #ffffff 70%);
-}
-
-.cm-radar-circles {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.cm-circle {
-  position: absolute;
-  border-radius: 50%;
-  border: 1px dashed rgba(25, 78, 65, 0.2);
-}
-
-.cm-c1 { width: 140px; height: 140px; }
-.cm-c2 { width: 260px; height: 260px; }
-.cm-c3 { width: 380px; height: 380px; }
-
-.cm-radar-center {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.cm-scope-option span {
+  flex: 1;
+  min-width: 56px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  color: var(--ink-3);
   font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.cm-scope-option:hover span { color: var(--ink); }
+.cm-scope-option input:checked + span {
+  background: var(--surface);
+  color: var(--ink);
   font-weight: 600;
-  color: var(--cm-moss);
+  box-shadow: 0 1px 3px rgba(20, 32, 27, 0.1);
 }
+.cm-scope-option input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
 
-.cm-radar-pin {
-  position: absolute;
-  z-index: 2;
-  padding: 8px 14px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  border: 1px solid var(--cm-line);
-  font-size: 12px;
-  font-weight: 600;
+/* 分类（小程序 .chip）：只在轨道内部横向滚动 */
+.cm-chips {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  padding: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
-
-.cm-radar-pin small {
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--cm-ink-muted);
-}
-
-.cm-pin-lib { top: 48px; left: 40px; }
-.cm-pin-canteen { bottom: 84px; right: 42px; }
-.cm-pin-dorm { top: 64px; right: 48px; }
-
-.cm-radar-pill {
-  position: absolute;
-  bottom: 24px;
-  padding: 8px 18px;
-  border-radius: 999px;
-  background: var(--cm-ink);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-/* SCENE 02: 真实学号与成色放大镜 */
-.cm-scene-inspect {
-  background: #fafaf8;
-  align-items: stretch;
-}
-
-.cm-inspect-card {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  width: 100%;
-}
-
-.cm-inspect-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.cm-inspect-badge {
+.cm-chip {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: #e9f4eb;
-  color: #17633e;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.cm-inspect-id {
-  font-size: 12px;
-  color: var(--cm-ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.cm-inspect-loupe {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 24px;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid var(--cm-line);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
-}
-
-.cm-loupe-circle {
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  background: #f4f3ed;
-  border: 3px solid var(--cm-moss);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.cm-loupe-circle span {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--cm-moss);
-  line-height: 1;
-}
-
-.cm-loupe-circle small {
-  font-size: 11px;
-  color: var(--cm-ink-muted);
-  margin-top: 4px;
-}
-
-.cm-inspect-check-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  background: var(--surface);
+  color: var(--ink-2);
   font-size: 13px;
-  color: var(--cm-ink);
+  white-space: nowrap;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.cm-chip:hover { border-color: var(--ink-4); }
+.cm-chip.is-active { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+.cm-chip-emoji { font-size: 12px; line-height: 1; }
+.cm-chip:focus-visible,
+.cm-filter-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.cm-filter-toggle {
+  flex: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 38px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
 }
-
-.cm-inspect-footer {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--cm-ink-muted);
-}
-
-/* SCENE 03: 减碳看板 */
-.cm-scene-eco {
-  background: #fbfbf9;
-  align-items: stretch;
-}
-
-.cm-eco-card {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
-}
-
-.cm-eco-icon-wrap {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: #eef6ec;
-  display: grid;
-  place-items: center;
-}
-
-.cm-eco-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cm-eco-stat strong {
-  font-size: 34px;
+.cm-filter-toggle.is-active { background: var(--brand-0); border-color: var(--brand-100); color: var(--brand); }
+.cm-filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
   font-weight: 700;
-  color: var(--cm-moss);
-  letter-spacing: -0.04em;
-  line-height: 1.1;
+  line-height: 18px;
+  text-align: center;
 }
 
-.cm-eco-stat span {
-  font-size: 13px;
-  color: var(--cm-ink-muted);
+.cm-filter-panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 12px;
+  margin-top: 8px;
+  padding: 16px 8px 4px;
+  border-top: 1px solid var(--line-soft);
 }
-
-.cm-eco-meter {
-  height: 8px;
-  background: #e8eae5;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.cm-eco-meter-fill {
-  display: block;
-  height: 100%;
-  background: var(--cm-moss);
-  border-radius: 999px;
-  transition: width 800ms var(--cm-ease-smooth);
-}
-
-.cm-eco-tip {
-  margin: 0;
-  font-size: 13px;
-  color: var(--cm-ink-muted);
-  line-height: 1.65;
-}
-
-/* 右侧章节滚动轨道 */
-.cm-apple-story-track {
+.cm-filter-panel[hidden] { display: none; }
+.cm-price-range { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cm-price-sep { color: var(--ink-4); font-size: 12px; }
+.cm-field-error { grid-column: 1 / -1; margin: -6px 0 0; color: var(--danger); font-size: 12px; }
+.cm-filter-panel-actions {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  gap: clamp(60px, 10vh, 120px);
-  padding: 40px 0;
-}
-
-.cm-apple-story-step {
-  display: flex;
-  gap: 28px;
-  cursor: pointer;
-  opacity: 0.38;
-  transform: translateX(0);
-  transition: all 500ms var(--cm-ease-smooth);
-}
-
-.cm-apple-story-step.is-active {
-  opacity: 1;
-  transform: translateX(8px);
-}
-
-.cm-step-indicator {
-  display: flex;
-  flex-direction: column;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
 }
 
-.cm-step-num {
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
-  color: var(--cm-ink);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--cm-line);
-  background: #fff;
-  transition: all 400ms var(--cm-ease-spring);
+/* 范围提示（小程序 .notice） */
+.cm-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--brand-0);
+  color: var(--brand);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.cm-notice-action {
+  flex: none;
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.cm-apple-story-step.is-active .cm-step-num {
-  background: var(--cm-moss);
-  color: #fff;
-  border-color: var(--cm-moss);
-}
-
-.cm-step-line {
-  width: 2px;
-  flex: 1;
-  min-height: 60px;
-  background: var(--cm-line);
-}
-
-.cm-apple-story-step.is-active .cm-step-line {
-  background: linear-gradient(180deg, var(--cm-moss) 0%, rgba(25, 78, 65, 0.15) 100%);
-}
-
-.cm-step-body {
-  max-width: 440px;
-}
-
-.cm-step-eyebrow {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--cm-moss);
+/* ---------- 结果区 ---------- */
+.cm-results { margin-top: 16px; }
+.cm-results-bar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   margin-bottom: 12px;
 }
-
-.cm-step-title {
+.cm-results-title {
   margin: 0;
-  font-size: clamp(1.8rem, 3.2vw, 2.8rem);
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 1.1;
-  color: var(--cm-ink);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-
-.cm-step-copy {
-  margin: 18px 0 0;
-  font-size: 15px;
-  line-height: 1.85;
-  color: var(--cm-ink-muted);
-}
-
-.cm-step-tag {
-  display: inline-block;
-  margin-top: 20px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: #eef3eb;
-  color: var(--cm-moss);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-/* ==========================================================================
-   MODULE 3: DYNAMIC STICKY ISLAND FILTERBAR (SLIDING PILL INDICATOR)
-   ========================================================================== */
-
-.cm-apple-market-section {
-  position: relative;
-  background: var(--cm-paper-subtle);
-  padding: clamp(80px, 10vw, 140px) 0 120px;
-  border-top: 1px solid var(--cm-line);
-}
-
-.cm-apple-market-container {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-.cm-apple-market-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  margin-bottom: 40px;
-}
-
-.cm-apple-market-title {
+.cm-results-meta {
   margin: 0;
-  font-size: clamp(2.6rem, 5.5vw, 4.8rem);
-  font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 1;
-}
-
-.cm-apple-market-stats-group {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-}
-
-.cm-stat-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.cm-stat-item strong {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--cm-ink);
+  color: var(--ink-3);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+.cm-results-reset { margin-left: auto; }
 
-.cm-stat-item span {
-  font-size: 11px;
-  color: var(--cm-ink-muted);
-}
-
-/* 吸顶筛选控制台 */
-.cm-apple-filterbar {
-  position: sticky;
-  top: 72px;
-  z-index: 40;
-  background: rgba(250, 249, 245, 0.88);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border: 1px solid rgba(12, 14, 16, 0.09);
-  border-radius: var(--cm-radius-md);
-  padding: 12px 16px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 300ms ease;
-}
-
-.cm-apple-filter-top {
+.cm-load-more {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 16px;
-}
-
-/* 滑动选项卡轨道 */
-.cm-apple-tabs-track {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  overflow-x: auto;
-  max-width: 100%;
-}
-
-/* 动态滑动的背景药丸 (Glider) */
-.cm-apple-tab-glider {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  border-radius: 999px;
-  background: var(--cm-ink);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
-  pointer-events: none;
-  transition: transform 340ms var(--cm-ease-spring), width 340ms var(--cm-ease-spring), opacity 200ms ease;
-  z-index: 1;
-}
-
-.cm-apple-tab-btn {
-  position: relative;
-  z-index: 2;
-  padding: 7px 18px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--cm-ink-muted);
-  white-space: nowrap;
-  transition: color 220ms ease;
-  user-select: none;
-}
-
-.cm-apple-tab-btn:hover {
-  color: var(--cm-ink);
-}
-
-.cm-apple-tab-btn.is-active {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.cm-apple-filter-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cm-apple-filter-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: var(--cm-moss-soft);
-  color: var(--cm-moss);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.cm-apple-filter-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid var(--cm-line);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--cm-ink);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-  transition: all 250ms var(--cm-ease-spring);
-}
-
-.cm-apple-filter-toggle-btn:hover {
-  border-color: rgba(25, 78, 65, 0.3);
-  background: #fafaf8;
-}
-
-.cm-apple-filter-status {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 10px;
-  margin-top: 10px;
-  border-top: 1px solid rgba(12, 14, 16, 0.05);
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 24px 0 4px;
+  color: var(--ink-4);
   font-size: 12px;
 }
 
-.cm-apple-status-text {
-  margin: 0;
-  color: var(--cm-ink-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cm-apple-keyword-tag {
-  color: var(--cm-moss);
-  font-weight: 600;
-}
-
-.cm-apple-reset-text-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--cm-ink-muted);
-  transition: color 180ms ease;
-}
-
-.cm-apple-reset-text-btn:hover {
-  color: var(--cm-coral);
-}
-
-.cm-apple-filter-drawer {
-  padding-top: 16px;
-  margin-top: 12px;
-  border-top: 1px solid rgba(12, 14, 16, 0.06);
-}
-
-/* ==========================================================================
-   MODULE 4: APPLE KEYNOTE PRODUCT CARDS (3D TILT & PROGRESSIVE DISCLOSURE)
-   ========================================================================== */
-
-.cm-apple-grid-wrapper {
-  margin-top: 36px;
-}
-
-.cm-apple-card-wrapper {
-  perspective: 1000px;
-  animation: cm-card-appear 0.7s var(--cm-ease-spring) both;
-  animation-delay: calc(var(--card-stagger, 0) * 35ms);
-}
-
-@keyframes cm-card-appear {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.cm-apple-card {
-  position: relative;
-  background: #ffffff !important;
-  border-radius: var(--cm-radius-md) !important;
-  border: 1px solid var(--cm-line) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03) !important;
-  overflow: hidden;
-  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
-  transform-style: preserve-3d;
-  transition: transform 380ms var(--cm-ease-spring), box-shadow 380ms var(--cm-ease-spring), border-color 300ms ease;
-}
-
-.cm-apple-card:hover {
-  border-color: rgba(25, 78, 65, 0.22) !important;
-  box-shadow: 0 22px 48px -8px rgba(0, 0, 0, 0.1) !important;
-  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-4px) translateZ(4px);
-}
-
-/* 动态光斑反射层 */
-.cm-apple-card-glare {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle at var(--glare-x, 50%) var(--glare-y, 50%),
-    rgba(255, 255, 255, 0.65) 0%,
-    transparent 55%
-  );
-  opacity: var(--glare-opacity, 0);
-  transition: opacity 300ms ease;
-}
-
-/* 图片视口与多图叠加 */
-.cm-apple-image-viewport {
-  position: relative;
-  aspect-ratio: 1 / 1.05;
-  background: #f1efe9;
-  overflow: hidden;
-}
-
-.cm-apple-image-layer {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity 500ms var(--cm-ease-smooth);
-}
-
-.cm-apple-image-layer.is-active {
-  opacity: 1;
-}
-
-.cm-apple-product-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 800ms var(--cm-ease-smooth);
-}
-
-.cm-apple-card:hover .cm-apple-product-img {
-  transform: scale(1.055);
-}
-
-.cm-apple-sold-badge {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  background: rgba(12, 14, 16, 0.55);
+/* ---------- 商品网格与卡片（小程序 .product-grid / .product-card） ---------- */
+.cm-grid {
   display: grid;
-  place-items: center;
-  backdrop-filter: blur(4px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
+.cm-grid > li { min-width: 0; }
 
-.cm-apple-sold-badge span {
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--cm-ink);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-/* 收藏按钮与弹性微动效 */
-.cm-apple-fav-btn {
-  position: absolute !important;
-  top: 12px;
-  right: 12px;
-  z-index: 9;
-  width: 34px;
-  height: 34px;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.85) !important;
-  backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.8) !important;
-  color: var(--cm-ink) !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
-  transition: all 250ms var(--cm-ease-spring) !important;
-}
-
-.cm-apple-fav-btn:hover {
-  background: #ffffff !important;
-  transform: scale(1.1);
-}
-
-.cm-apple-fav-btn.is-popping {
-  animation: cm-heart-pop 0.45s var(--cm-ease-spring) both;
-}
-
-@keyframes cm-heart-pop {
-  0% { transform: scale(1); }
-  45% { transform: scale(1.35); }
-  75% { transform: scale(0.92); }
-  100% { transform: scale(1); }
-}
-
-/* 成色胶囊 */
-.cm-apple-condition-pill {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  z-index: 7;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--cm-ink);
-}
-
-.cm-apple-condition-pill i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-/* 多图指示条 */
-.cm-apple-image-dots {
-  position: absolute;
-  bottom: 14px;
-  right: 12px;
-  z-index: 7;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
-}
-
-.cm-apple-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-  transition: all 250ms var(--cm-ease-spring);
-}
-
-.cm-apple-dot.is-current {
-  background: #ffffff;
-  transform: scale(1.3);
-}
-
-/* 卡片信息体 */
-.cm-apple-card-info {
-  padding: 16px 16px 18px;
+.cm-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-}
-
-.cm-apple-meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  margin-bottom: 8px;
-}
-
-.cm-apple-category-tag {
-  font-weight: 600;
-  color: var(--cm-moss);
-}
-
-.cm-apple-campus-tag {
-  display: inline-flex;
-  align-items: center;
-  color: var(--cm-ink-muted);
-}
-
-.cm-apple-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--cm-ink);
-  line-height: 1.35;
+  height: 100%;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: -0.02em;
-  transition: color 200ms ease;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20, 32, 27, 0.04), 0 10px 24px -18px rgba(20, 32, 27, 0.3);
+  transition: box-shadow 200ms ease, transform 200ms ease;
 }
+.cm-card:hover { box-shadow: 0 1px 2px rgba(20, 32, 27, 0.06), 0 16px 32px -18px rgba(20, 32, 27, 0.38); transform: translateY(-2px); }
 
-.cm-apple-card:hover .cm-apple-title {
-  color: var(--cm-moss);
+.cm-card-media {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: var(--cm-cat-other);
 }
+.cm-card-media img { transition: transform 300ms ease; }
+.cm-card:hover .cm-card-media img { transform: scale(1.03); }
 
-.cm-apple-price-row {
+/* 本地占位：分类底色 + 分类图标 + 一行说明（无图 / 图片失败） */
+.cm-card-placeholder {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-top: 12px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
 }
-
-.cm-apple-price-wrap {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-.cm-apple-currency {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--cm-ink);
-}
-
-.cm-apple-amount {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--cm-ink);
-  letter-spacing: -0.04em;
-  font-variant-numeric: tabular-nums;
-}
-
-.cm-apple-original-price {
-  font-size: 11px;
-  color: #a0a6a0;
-  text-decoration: line-through;
-  margin-left: 6px;
-}
-
-.cm-apple-inspect-icon {
+.cm-card-placeholder-emoji {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: #f1efe9;
-  color: var(--cm-ink-muted);
-  opacity: 0;
-  transform: translateY(4px);
-  transition: all 300ms var(--cm-ease-spring);
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 32px;
+  line-height: 1;
 }
+.cm-card-placeholder-text { color: var(--ink-3); font-size: 12px; }
 
-.cm-apple-card:hover .cm-apple-inspect-icon {
-  opacity: 1;
-  transform: translateY(0);
-  background: var(--cm-moss);
-  color: #fff;
-}
-
-/* 渐进式浮现脚标信息 */
-.cm-apple-progressive-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 10px;
-  margin-top: 12px;
-  border-top: 1px solid rgba(12, 14, 16, 0.06);
+.cm-card-condition,
+.cm-card-proximity {
+  position: absolute;
+  z-index: 2;
+  max-width: calc(100% - 56px);
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 999px;
   font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
-
-.cm-apple-meetup-cue {
-  display: inline-flex;
+.cm-card-condition { top: 8px; left: 8px; background: rgba(255, 255, 255, 0.94); color: var(--ink-2); }
+.cm-card-proximity { bottom: 8px; left: 8px; background: var(--brand); color: #fff; }
+.cm-card-sold {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--cm-ink-muted);
-  max-width: 140px;
+  justify-content: center;
+  background: rgba(20, 32, 27, 0.46);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.cm-card-fav {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink-2);
+}
+.cm-card-fav.is-active { background: #fff; color: var(--heart); }
+.cm-card-fav:disabled { cursor: progress; }
+.cm-card-fav:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+.cm-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 10px 12px 12px;
+}
+.cm-card-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.cm-card-price {
+  margin: 0;
+  min-width: 0;
+  color: var(--brand);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.cm-card-currency { margin-right: 1px; font-size: 12px; font-weight: 600; }
+.cm-card-original {
+  margin-left: 6px;
+  color: var(--ink-4);
+  font-size: 11px;
+  font-weight: 400;
+  text-decoration: line-through;
+}
+.cm-card-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
   white-space: nowrap;
 }
+.cm-card-badge.is-pending { background: var(--warn-bg); color: var(--warn); }
+.cm-card-badge.is-approved { background: var(--ok-bg); color: var(--ok); }
 
-.cm-apple-meetup-pin {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--cm-moss);
-  flex-shrink: 0;
+.cm-card-title {
+  margin: 4px 0 0;
+  min-height: 2.84em;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.42;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
-
-.cm-apple-stats-cue {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.cm-card-link { color: var(--ink); }
+/* 整卡可点：链接的 ::after 铺满卡片；收藏按钮叠在上面 */
+.cm-card-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 14px;
 }
+.cm-card-link:focus-visible { outline: none; }
+.cm-card-link:focus-visible::after { outline: 2px solid var(--brand); outline-offset: -2px; }
 
-.cm-apple-verified-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: #17633e;
+.cm-card-tag {
+  margin: 3px 0 0;
+  overflow: hidden;
+  font-size: 11.5px;
   font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+.cm-card-tag.is-textbook { color: var(--brand-600); }
+.cm-card-tag.is-bundle { color: var(--warn); }
+.cm-card-tag.is-circle { color: var(--brand-800); }
 
-.cm-apple-view-count {
+.cm-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.cm-card-place {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  color: #9ba09b;
+  gap: 2px;
+  min-width: 0;
+}
+.cm-card-place > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cm-card-time { flex: none; color: var(--ink-4); white-space: nowrap; }
+
+/* 骨架（小程序 .skeleton） */
+.cm-card-skeleton { box-shadow: none; }
+.cm-card-skeleton:hover { transform: none; }
+.cm-skeleton-block,
+.cm-skeleton-line {
+  background: linear-gradient(110deg, var(--line) 30%, var(--line-soft) 50%, var(--line) 70%);
+  background-size: 200% 100%;
+  animation: cm-shimmer 1.4s linear infinite;
+}
+.cm-skeleton-line { height: 12px; margin-top: 8px; border-radius: 6px; }
+@keyframes cm-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
 }
 
-/* ==========================================================================
-   RESPONSIVE ADJUSTMENTS
-   ========================================================================== */
+/* 空态（小程序 .empty） */
+.cm-empty {
+  padding: 40px 24px;
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: center;
+}
+.cm-empty-symbol {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--brand-0);
+  color: var(--brand);
+}
+.cm-empty-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.6; color: var(--ink); }
+.cm-empty-description { max-width: 420px; margin: 6px auto 0; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
+.cm-empty-action { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
 
-@media (max-width: 960px) {
-  .cm-apple-hero-grid {
-    grid-template-columns: 1fr;
-    gap: 40px;
-  }
+/* ---------- 未登录落地页 ---------- */
+.cm-landing { padding-top: 32px; }
+.cm-landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+}
+.cm-eyebrow {
+  margin: 0 0 10px;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cm-landing-copy h1 {
+  margin: 0;
+  font-size: clamp(26px, 3.2vw, 38px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+.cm-landing-lead {
+  max-width: 560px;
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.75;
+}
+.cm-landing-facts {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cm-landing-facts li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding-left: 14px;
+  border-left: 3px solid var(--brand-100);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.cm-landing-facts strong { color: var(--ink); font-weight: 600; }
+.cm-landing-facts span { color: var(--ink-3); }
 
-  .cm-apple-hero-showcase {
-    justify-self: start;
-    width: 100%;
-  }
-
-  .cm-apple-story-split {
-    grid-template-columns: 1fr;
-    gap: 48px;
-  }
-
-  .cm-apple-sticky-exhibit-wrap {
-    position: static;
-  }
-
-  .cm-apple-sticky-exhibit {
-    height: 380px;
-  }
+.cm-landing-cta {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20, 32, 27, 0.04), 0 18px 40px -28px rgba(20, 32, 27, 0.35);
+}
+.cm-landing-cta h2 { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.4; }
+.cm-landing-cta > p { margin: 6px 0 18px; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
+.cm-landing-cta .cm-landing-cta-note { margin: 14px 0 0; color: var(--ink-2); text-align: center; }
+.cm-landing-cta .cm-landing-invite-note { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; text-align: center; }
+.cm-landing-cta .cm-landing-legal {
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink-3);
+  font-size: 12px;
+  text-align: center;
 }
 
-@media (max-width: 640px) {
-  .cm-apple-hero-stage {
-    min-height: 150vh;
-  }
+.cm-landing-steps { margin-top: 48px; }
+.cm-landing-steps h2 { margin: 0 0 14px; font-size: 17px; font-weight: 600; }
+.cm-landing-steps ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cm-landing-steps li {
+  display: flex;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.cm-landing-steps h3 { margin: 2px 0 4px; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.cm-landing-steps li p { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
+.cm-step-num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--brand-0);
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+}
+.cm-landing-footnote { margin: 16px 0 0; color: var(--ink-4); font-size: 12px; }
 
-  .cm-apple-hero-container {
-    padding: 16px;
-  }
+/* ---------- 响应式 ---------- */
+@media (min-width: 768px) {
+  .cm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .cm-card-media { aspect-ratio: 4 / 3; }
+}
 
-  .cm-apple-hero-statusbar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
+@media (min-width: 1280px) {
+  .cm-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 
-  .cm-apple-hero-title {
-    font-size: 3rem;
-  }
+@media (max-width: 1023px) {
+  .cm-filter-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cm-landing-hero { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+}
 
-  .cm-apple-hero-cta-group {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-  }
+@media (max-width: 767px) {
+  .cm-home { width: calc(100% - 32px); padding-top: 12px; }
+  .cm-home-head { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 10px; }
+  .cm-home-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .cm-home-title h1 { font-size: 20px; }
+  .cm-search { max-width: none; margin-left: 0; height: 44px; }
 
-  .cm-apple-primary-cta.MuiButton-root {
-    width: 100%;
-    justify-content: center;
-  }
+  .cm-toolbar { padding: 0; border: 0; background: transparent; }
+  .cm-toolbar-row { flex-wrap: wrap; gap: 8px; }
+  .cm-toolbar-leading { flex: 1 1 auto; order: 1; }
+  .cm-scope-option span { min-width: 0; padding: 8px 6px; }
+  .cm-filter-toggle { order: 2; height: 40px; }
+  .cm-chips { order: 3; flex-basis: 100%; margin: 0 -2px; }
+  .cm-filter-panel { grid-template-columns: minmax(0, 1fr); margin-top: 10px; padding: 16px; border: 0; border-radius: 14px; background: var(--surface); }
 
-  .cm-apple-market-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 18px;
-  }
+  .cm-card-body { padding: 9px 10px 11px; }
+  .cm-card-price { font-size: 17px; }
+  .cm-card-title { font-size: 13.5px; }
+  .cm-card-meta { flex-direction: column; align-items: flex-start; gap: 0; font-size: 11px; }
+  .cm-card-place { max-width: 100%; }
 
-  .cm-apple-market-stats-group {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .cm-apple-filterbar {
-    top: 60px;
-    padding: 10px;
-  }
-
-  .cm-apple-filter-top {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .cm-apple-tabs-track {
-    width: 100%;
-  }
+  .cm-landing { padding-top: 16px; }
+  .cm-landing-cta { padding: 20px; }
+  .cm-landing-steps { margin-top: 28px; }
+  .cm-landing-steps ol { grid-template-columns: minmax(0, 1fr); }
+  .cm-landing-steps li { padding: 14px 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

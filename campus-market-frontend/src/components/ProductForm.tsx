@@ -1,21 +1,34 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Alert from "@mui/material/Alert";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
-import Checkbox from "@mui/material/Checkbox";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import Typography from "@mui/material/Typography";
+import ContactPublicField from "./ContactPublicField";
 import type { Campus, Category, Condition, ProductInput } from "../types";
-import { CAMPUSES, CATEGORIES, CONDITIONS } from "../types";
+import { CATEGORIES, CONDITIONS } from "../types";
+import { useSchools } from "../hooks/useSchools";
 import {
-  IMAGE_PRESETS,
   CATEGORY_EMOJI,
   CATEGORY_GRADIENT,
 } from "../utils/constants";
-import { isValidPhone, isValidStudentId } from "../utils/format";
+import { IMAGE_PRESETS } from "../utils/externalDemoImages";
 import { useNotify } from "../context/NotificationContext";
-import ImageWithFallback from "./ImageWithFallback";
+import ImageUploader from "./ImageUploader";
+import BuildingSelect from "./BuildingSelect";
+import { getApiClient } from "../api/client";
+import { toUserMessage } from "../api/errors";
+import type { DisclosureInput, InspectionTemplate, ProductDisclosure, ProductTextbook } from "../api/contracts";
+import TextbookIsbnField, { describeLinked, type LinkedTextbook } from "./textbook/TextbookIsbnField";
+import InspectionDeclarationFields, {
+  DECLARATION_NOTE_MAX,
+  declarationFieldName,
+  type DeclarationDraft,
+  type DeclarationValue,
+} from "./trust/InspectionDeclarationFields";
+import ErrorSummary, { focusRadioGroup, type ErrorSummaryItem } from "./trust/ErrorSummary";
+import VisibilityPicker from "./circle/VisibilityPicker";
+import type { ProductVisibility } from "../api/contracts";
 
 export interface ProductFormValue {
   title: string;
@@ -25,8 +38,14 @@ export interface ProductFormValue {
   category: Category;
   condition: Condition;
   campus: Campus;
+  /** 取货楼栋。null 表示卖家明确选择了「不指定楼栋」。 */
+  buildingId: string | null;
   contact: string;
+  contactPublic: boolean;
   images: string[];
+  /** 模块 6：可见范围。默认全校公开；圈子可见必须由卖家主动选择圈子 */
+  visibility: ProductVisibility;
+  circleIds: string[];
 }
 
 export const emptyProductForm: ProductFormValue = {
@@ -36,9 +55,14 @@ export const emptyProductForm: ProductFormValue = {
   originalPrice: "",
   category: "数码电子",
   condition: "几乎全新",
-  campus: "东校区",
+  // 没有写死的默认校区：调用方传入本人校区（PublishPage / 编辑时的商品校区）
+  campus: "",
+  buildingId: null,
   contact: "",
+  contactPublic: false,
   images: [],
+  visibility: "PUBLIC",
+  circleIds: [],
 };
 
 interface ProductFormProps {
@@ -49,15 +73,46 @@ interface ProductFormProps {
   onCancel?: () => void;
   /** 紧凑模式：用于弹窗内 */
   compact?: boolean;
+  /** 编辑模式：会提示「商品声明以当前展示内容为准」，旧商品未声明时允许保持未声明 */
+  mode?: "create" | "edit";
+  /** 编辑时商品当前的声明（来自商品详情）；null 表示该商品从未提供声明 */
+  initialInspection?: ProductDisclosure | null;
+  /** 模块 4：编辑时商品当前关联的教材版本；null 表示未关联 */
+  initialTextbook?: ProductTextbook | null;
+  /** 4.8：从教材版本页进入发布时预先打开该版本的确认框（不会自动关联） */
+  presetTextbookEditionId?: string | null;
+  /** 提交失败时服务端的原话（例如内容安全拦截），显示在提交按钮旁 */
+  submitError?: string | null;
 }
 
+const TEXTBOOK_CATEGORY: Category = "教材书籍";
+// 图片张数上限来自 GET /v1/config（默认 9），由 ImageUploader 统一读取；单件、整套、批量三个编辑器一致
+
+/** 从已有声明恢复草稿：只恢复卖家真实填写过的条目，不补任何默认值。 */
+function draftsFrom(disclosure: ProductDisclosure | null | undefined): DeclarationValue {
+  const drafts: DeclarationValue = {};
+  for (const item of disclosure?.items ?? []) {
+    if (item.condition) drafts[item.code] = { condition: item.condition, note: item.note ?? "" };
+  }
+  return drafts;
+}
+
+const FIELD_IDS = {
+  title: "product-form-title",
+  description: "product-form-description",
+  price: "product-form-price",
+  contact: "product-form-contact",
+  images: "product-form-images",
+  circleIds: "product-form-visibility",
+} as const;
+
 type FieldErrors = Partial<
-  Record<"title" | "description" | "price" | "contact" | "images", string>
+  Record<"title" | "description" | "price" | "contact" | "images" | "circleIds", string>
 >;
 
 /**
  * 商品表单：发布页与「编辑商品」弹窗共用。
- * 负责字段校验与图片选择（预置图片，不做真实文件上传）。
+ * 负责字段校验与图片（真实上传，或过渡期保留的示例图）。提交失败时服务端的原话显示在提交按钮旁。
  */
 export default function ProductForm({
   initial,
@@ -65,6 +120,11 @@ export default function ProductForm({
   onSubmit,
   onCancel,
   compact = false,
+  mode = "create",
+  initialInspection,
+  initialTextbook,
+  presetTextbookEditionId,
+  submitError,
 }: ProductFormProps) {
   const { error } = useNotify();
   const [value, setValue] = useState<ProductFormValue>({
@@ -72,27 +132,95 @@ export default function ProductForm({
     ...initial,
   });
   const [errors, setErrors] = useState<FieldErrors>({});
+  const initialCategory = useRef(value.category);
+  // 校区选项：只列初始校区（本人校区 / 商品当前校区）所在学校的校区
+  const { campusChoicesFor } = useSchools();
+  const initialCampus = useRef(value.campus);
+  const campusOptions = campusChoicesFor(initialCampus.current);
+  // 模块 4：卖家主动确认的教材版本。切离教材分类时清空，不带到其他分类
+  const [linkedTextbook, setLinkedTextbook] = useState<LinkedTextbook | null>(() =>
+    initialTextbook ? { editionId: initialTextbook.editionId, label: describeLinked(initialTextbook) } : null,
+  );
+
+  // 验货模板随分类加载。undefined = 加载中；null = 该分类没有清单
+  const [template, setTemplate] = useState<InspectionTemplate | null | undefined>(undefined);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateAttempt, setTemplateAttempt] = useState(0);
+  const [declarations, setDeclarations] = useState<DeclarationValue>(() =>
+    initialInspection && initialInspection.category === value.category ? draftsFrom(initialInspection) : {},
+  );
+  const [declarationErrors, setDeclarationErrors] = useState<Record<string, string>>({});
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const [summaryItems, setSummaryItems] = useState<ErrorSummaryItem[]>([]);
+  const [summaryFocusTick, setSummaryFocusTick] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setTemplate(undefined);
+    setTemplateError(null);
+    getApiClient()
+      .getInspectionTemplate(value.category)
+      .then((t) => {
+        if (active) setTemplate(t);
+      })
+      .catch((e) => {
+        if (active) setTemplateError(toUserMessage(e, "验货清单加载失败"));
+      });
+    return () => {
+      active = false;
+    };
+  }, [value.category, templateAttempt]);
+
+  // 提交失败后把焦点移到错误摘要（等摘要渲染出来之后）
+  useEffect(() => {
+    if (summaryFocusTick > 0) summaryRef.current?.focus();
+  }, [summaryFocusTick]);
+
+  const changeCategory = (category: Category) => {
+    if (category === value.category) return;
+    patch({ category });
+    if (category !== TEXTBOOK_CATEGORY) setLinkedTextbook(null);
+    // 切换分类：不同分类的条目不能互相复用。回到原分类时恢复的是该分类自己的已存声明
+    setDeclarations(
+      initialInspection && initialInspection.category === category ? draftsFrom(initialInspection) : {},
+    );
+    setDeclarationErrors({});
+  };
+
+  const changeDeclaration = (code: string, draft: DeclarationDraft) => {
+    setDeclarations((prev) => ({ ...prev, [code]: draft }));
+    setDeclarationErrors((prev) => {
+      if (!prev[code]) return prev;
+      const { [code]: _cleared, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const categoryChanged = value.category !== initialCategory.current;
+  const anyDeclared = Object.values(declarations).some((d) => d.condition);
+  // 旧商品（从未声明）只改其他字段时允许继续保持「未声明」，不强迫补填，也不替它伪造
+  const declarationRequired =
+    mode === "create" || categoryChanged || Boolean(initialInspection) || anyDeclared;
 
   const patch = (partial: Partial<ProductFormValue>) => {
     setValue((prev) => ({ ...prev, ...partial }));
   };
 
-  const toggleImage = (url: string) => {
-    setValue((prev) => {
-      const exists = prev.images.includes(url);
-      if (exists) {
-        return { ...prev, images: prev.images.filter((i) => i !== url) };
-      }
-      if (prev.images.length >= 5) {
-        error("最多选择 5 张图片");
-        return prev;
-      }
-      return { ...prev, images: [...prev.images, url] };
-    });
-  };
+  // 正在上传的图片张数：上传完成前不提交，避免漏掉刚选的图片
+  const [uploading, setUploading] = useState(0);
 
   const validate = (): boolean => {
     const next: FieldErrors = {};
+    const nextDeclarationErrors: Record<string, string> = {};
+    if (template && declarationRequired) {
+      for (const item of template.items) {
+        const draft = declarations[item.code];
+        if (item.required && !draft?.condition) nextDeclarationErrors[item.code] = `请为「${item.label}」选择一项`;
+        else if (draft?.note && draft.note.trim().length > DECLARATION_NOTE_MAX)
+          nextDeclarationErrors[item.code] = `说明最多 ${DECLARATION_NOTE_MAX} 个字`;
+        else if (draft?.note && /[<>]/.test(draft.note)) nextDeclarationErrors[item.code] = "说明不能包含尖括号";
+      }
+    }
     if (!value.title.trim()) next.title = "请输入商品标题";
     else if (value.title.trim().length < 4) next.title = "标题至少 4 个字";
 
@@ -106,26 +234,97 @@ export default function ProductForm({
     else if (priceNum > 1000000) next.price = "价格过于离谱啦";
 
     if (!value.contact.trim()) next.contact = "请输入联系方式";
-    else if (
-      !isValidPhone(value.contact.trim()) &&
-      !isValidStudentId(value.contact.trim())
-    ) {
-      next.contact = "请输入有效的手机号或学号";
-    }
+    else if (value.contact.trim().length > 100) next.contact = "联系方式最多 100 个字";
 
-    if (value.images.length === 0) next.images = "请至少选择一张商品图片";
+    if (value.images.length === 0) next.images = "请至少上传或选择一张商品图片";
+    if (value.visibility === "CIRCLE_ONLY" && value.circleIds.length === 0)
+      next.circleIds = "圈子可见需要至少选择一个圈子";
 
     setErrors(next);
-    return Object.keys(next).length === 0;
+    setDeclarationErrors(nextDeclarationErrors);
+    const focusById = (id: string) => () => document.getElementById(id)?.focus();
+    const items: ErrorSummaryItem[] = [
+      ...(Object.keys(next) as (keyof FieldErrors)[]).map((key) => ({
+        key,
+        message: next[key]!,
+        focus: focusById(FIELD_IDS[key]),
+      })),
+      ...(template?.items ?? [])
+        .filter((item) => nextDeclarationErrors[item.code])
+        .map((item) => ({
+          key: `decl-${item.code}`,
+          message: nextDeclarationErrors[item.code],
+          focus: () => focusRadioGroup(declarationFieldName(item.code)),
+        })),
+    ];
+    setSummaryItems(items);
+    return items.length === 0;
+  };
+
+  /** 只提交 itemCode / condition / note 三个字段；未声明的选填项不提交。 */
+  const disclosurePayload = (): DisclosureInput[] | undefined => {
+    if (!template || !declarationRequired) return undefined;
+    return template.items
+      .filter((item) => declarations[item.code]?.condition)
+      .map((item) => {
+        const draft = declarations[item.code];
+        const note = draft.note.trim();
+        return { itemCode: item.code, condition: draft.condition!, ...(note ? { note } : {}) };
+      });
   };
 
   const [submitting, setSubmitting] = useState(false);
+  // 只为「发布前告诉用户将公开哪一栋楼」这一句提示而缓存楼栋名。
+  const [buildingNames, setBuildingNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let active = true;
+    if (!value.campus) return () => { active = false };
+    getApiClient()
+      .listBuildings(value.campus)
+      .then((list) => {
+        if (!active) return;
+        setBuildingNames(Object.fromEntries(list.map((b) => [b.id, `${b.zone} · ${b.name}`])));
+      })
+      .catch(() => undefined);   // 提示文案降级为通用说法即可，不打扰用户
+    return () => {
+      active = false;
+    };
+  }, [value.campus]);
+  const buildingLabelOf = (id: string) => buildingNames[id] ?? "所选楼栋";
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!validate()) {
-      error("请检查表单中标红的字段");
+    if (uploading > 0) {
+      error("图片还在上传，请稍候再提交");
       return;
     }
+    if (template === undefined) {
+      error(templateError ?? "验货清单仍在加载，请稍候");
+      return;
+    }
+    if (!validate()) {
+      error("请检查表单中标红的字段");
+      setSummaryFocusTick((n) => n + 1);
+      return;
+    }
+    const inspection = disclosurePayload();
+    // 教材版本：新建时只在确认了版本后提交；编辑时只在变化时提交（null 表示解除关联）。
+    // 切到其他分类时不提交，服务端会自动解除原关联。
+    let textbookEditionId: string | null | undefined;
+    if (value.category === TEXTBOOK_CATEGORY) {
+      if (mode === "create") textbookEditionId = linkedTextbook?.editionId;
+      else if ((linkedTextbook?.editionId ?? null) !== (initialTextbook?.editionId ?? null)) {
+        textbookEditionId = linkedTextbook?.editionId ?? null;
+      }
+    }
+    // 可见范围：新建时总是提交；编辑时只在变化时提交（整体替换）
+    const initialVisibility = initial?.visibility ?? "PUBLIC";
+    const initialCircleIds = [...(initial?.circleIds ?? [])].sort().join(",");
+    const visibilityChanged =
+      value.visibility !== initialVisibility || [...value.circleIds].sort().join(",") !== initialCircleIds;
+    const visibilityFields =
+      mode === "create" || visibilityChanged
+        ? { visibility: value.visibility, ...(value.visibility === "CIRCLE_ONLY" ? { circleIds: value.circleIds } : {}) }
+        : {};
     const originalPriceNum =
       value.originalPrice === "" ? undefined : Number(value.originalPrice);
     setSubmitting(true);
@@ -141,8 +340,14 @@ export default function ProductForm({
         category: value.category,
         condition: value.condition,
         campus: value.campus,
+        buildingId: value.buildingId,
         images: value.images,
         contact: value.contact.trim(),
+        contactPublic: value.contactPublic,
+        // 只在需要时带上该键：缺省表示「不改动声明」，与显式提交空声明语义不同
+        ...(inspection ? { inspection } : {}),
+        ...(textbookEditionId !== undefined ? { textbookEditionId } : {}),
+        ...visibilityFields,
       });
     } finally {
       setSubmitting(false);
@@ -151,7 +356,9 @@ export default function ProductForm({
 
   return (
     <Stack spacing={compact ? 2 : 2.5}>
+      <ErrorSummary ref={summaryRef} title="提交前请先修正以下问题" items={summaryItems} />
       <TextField
+        id={FIELD_IDS.title}
         label="商品标题"
         placeholder="例如：iPhone 13 128G 蓝色 国行"
         value={value.title}
@@ -163,8 +370,9 @@ export default function ProductForm({
       />
 
       <TextField
+        id={FIELD_IDS.description}
         label="商品描述"
-        placeholder="成色、入手时间、使用情况、配件是否齐全、可面交地点…"
+        placeholder="成色、入手时间、使用情况、配件是否齐全、其他补充信息…"
         value={value.description}
         onChange={(e) => patch({ description: e.target.value })}
         error={Boolean(errors.description)}
@@ -177,6 +385,7 @@ export default function ProductForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <TextField
+          id={FIELD_IDS.price}
           label="出售价格（元）"
           type="number"
           value={value.price}
@@ -203,7 +412,7 @@ export default function ProductForm({
           select
           label="分类"
           value={value.category}
-          onChange={(e) => patch({ category: e.target.value as Category })}
+          onChange={(e) => changeCategory(e.target.value as Category)}
           fullWidth
         >
           {CATEGORIES.map((c) => (
@@ -234,89 +443,132 @@ export default function ProductForm({
           onChange={(e) => patch({ campus: e.target.value as Campus })}
           fullWidth
         >
-          {CAMPUSES.map((c) => (
-            <MenuItem key={c} value={c}>
-              {c}
+          {campusOptions.map((c) => (
+            <MenuItem key={c.id} value={c.id}>
+              {c.name}
             </MenuItem>
           ))}
         </TextField>
       </div>
 
+      <div>
+        <p className="mb-2 text-sm font-medium text-slate-700">取货楼栋（选填）</p>
+        <BuildingSelect
+          campus={value.campus}
+          value={value.buildingId}
+          onChange={(buildingId) => patch({ buildingId })}
+          emptyLabel="不指定楼栋"
+          zoneLabel="取货园区"
+          buildingLabel="取货楼栋"
+        />
+        {/* 发布前把将要公开的内容原样说清楚，避免默认预填变成「悄悄公开了我住哪」 */}
+        <p className="mt-2 text-xs text-slate-500">
+          {value.buildingId
+            ? `买家会在商品页看到：${buildingLabelOf(value.buildingId)}。`
+            : "不指定楼栋时，买家只会看到校区。"}
+        </p>
+      </div>
+
+      {value.category === TEXTBOOK_CATEGORY && (
+        <TextbookIsbnField
+          value={linkedTextbook}
+          onChange={setLinkedTextbook}
+          editing={mode === "edit"}
+          initial={initialTextbook ?? null}
+          presetEditionId={mode === "create" ? presetTextbookEditionId ?? null : null}
+        />
+      )}
+
+      {templateError && (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => setTemplateAttempt((n) => n + 1)}>
+              重试
+            </Button>
+          }
+        >
+          {templateError}
+        </Alert>
+      )}
+      {template === undefined && !templateError && (
+        <p className="text-xs text-slate-600" role="status">正在加载该分类的验货清单…</p>
+      )}
+      {template === null && (
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          该分类暂无结构化验货清单，可以直接发布。
+        </p>
+      )}
+      {template && (
+        <>
+          {mode === "edit" && !initialInspection && !categoryChanged && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              该商品发布时未提供结构化验货声明。可以现在补充；不补充也能继续交易，买家会看到「未提供声明」。
+            </p>
+          )}
+          <InspectionDeclarationFields
+            template={template}
+            value={declarations}
+            errors={declarationErrors}
+            onChange={changeDeclaration}
+            editing={mode === "edit"}
+          />
+        </>
+      )}
+
       <TextField
+        id={FIELD_IDS.contact}
         label="联系方式"
-        placeholder="手机号或学号，方便买家联系你"
+        placeholder="手机号、微信号或其他联系方式"
+        inputProps={{ maxLength: 100 }}
         value={value.contact}
         onChange={(e) => patch({ contact: e.target.value })}
         error={Boolean(errors.contact)}
-        helperText={errors.contact ?? "仅登录用户可见，平台不会公开你的隐私"}
+        helperText={errors.contact ?? "由你选择公开展示，或同意买家的联系申请后展示"}
         fullWidth
         required
       />
 
-      {/* 图片选择器 */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <Typography
-            variant="body2"
-            sx={{ fontWeight: 600, color: "text.secondary" }}
-          >
-            商品图片（{value.images.length}/5）
-          </Typography>
-          {errors.images && (
-            <Typography variant="caption" color="error">
-              {errors.images}
-            </Typography>
-          )}
-        </div>
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-          {IMAGE_PRESETS.map((url, index) => {
-            const selected = value.images.includes(url);
-            return (
-              <button
-                key={url}
-                type="button"
-                onClick={() => toggleImage(url)}
-                className={`relative overflow-hidden rounded-xl border-2 transition ${
-                  selected
-                    ? "border-brand-500 ring-2 ring-brand-200"
-                    : "border-transparent"
-                }`}
-                aria-label={`选择图片 ${index + 1}`}
-                aria-pressed={selected}
-              >
-                <ImageWithFallback
-                  src={url}
-                  alt={`预置图片 ${index + 1}`}
-                  emoji={CATEGORY_EMOJI[value.category]}
-                  gradient={CATEGORY_GRADIENT[value.category]}
-                  className="aspect-square w-full"
-                />
-                <Checkbox
-                  checked={selected}
-                  size="small"
-                  sx={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    color: "#fff",
-                    "&.Mui-checked": { color: "#0d8a84" },
-                  }}
-                />
-              </button>
-            );
-          })}
-        </div>
-        <FormControlLabel
-          sx={{ mt: 1 }}
-          control={<Checkbox size="small" checked disabled />}
-          label={
-            <span className="text-xs text-slate-400">
-              演示版使用预置图片，不支持真实文件上传
-            </span>
-          }
+      <ContactPublicField checked={value.contactPublic} onChange={(contactPublic) => patch({ contactPublic })} />
+      {/* 商品图片：真实上传（阶段 4）+ 过渡期保留的示例图 */}
+      <ImageUploader
+        value={value.images}
+        onChange={(images) => {
+          patch({ images });
+          if (errors.images && images.length) setErrors(({ images: _cleared, ...rest }) => rest);
+        }}
+        label="商品图片"
+        inputId={FIELD_IDS.images}
+        presets={IMAGE_PRESETS}
+        presetLabel={(i) => `选择图片 ${i + 1}`}
+        error={errors.images}
+        onPendingChange={setUploading}
+        emoji={CATEGORY_EMOJI[value.category]}
+        gradient={CATEGORY_GRADIENT[value.category]}
+      />
+
+      <div id={FIELD_IDS.circleIds} tabIndex={-1}>
+        <VisibilityPicker
+          visibility={value.visibility}
+          circleIds={value.circleIds}
+          onChange={(next) => {
+            patch(next);
+            if (errors.circleIds) setErrors(({ circleIds: _cleared, ...rest }) => rest);
+          }}
+          error={errors.circleIds}
         />
+        {mode === "edit" && (
+          <p className="mt-1 text-xs text-slate-600">
+            改成圈子可见后，不在所选圈子里的同学将看不到这件商品（包括已收藏和已发起的会话）；联系申请的查看同样受商品可见范围限制。
+          </p>
+        )}
       </div>
 
+      {submitError && (
+        <Alert severity="error" role="alert">
+          {submitError}
+        </Alert>
+      )}
       <div className="flex justify-end gap-2 pt-1">
         {onCancel && (
           <Button onClick={onCancel} color="inherit">
@@ -327,7 +579,7 @@ export default function ProductForm({
           variant="contained"
           size="large"
           onClick={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || uploading > 0}
         >
           {submitLabel}
         </Button>

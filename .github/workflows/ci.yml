@@ -1,0 +1,224 @@
+# 模块 8.3 持续集成。只在 GitHub Actions 上运行；本仓库尚未提交、推送，这份配置还没有在远程执行过。
+# 不包含任何真实密钥或工作人员账号：E2E 与 Testcontainers 的数据库密码、JWT 密钥都在运行时随机生成、只存在于进程环境里。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: 静态检查（空白、旧迁移不可修改、编排可渲染）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: git diff --check
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then base="$(git rev-list --max-parents=0 HEAD)"; fi
+          git diff --check "$base" HEAD
+      - name: 已发布的 Flyway 迁移不可修改或删除（只能新增 V{n+1}）
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
+          changed="$(git diff --name-only --diff-filter=MDR "$base" HEAD -- campus-market-backend/src/main/resources/db/migration/)"
+          if [ -n "$changed" ]; then echo "禁止修改或删除已有迁移：$changed"; exit 1; fi
+      - name: 生产编排可以渲染（占位值，只用于校验语法与必填项）
+        working-directory: campus-market-frontend/deploy
+        run: |
+          : > "$RUNNER_TEMP/empty.env"
+          POSTGRES_PASSWORD="$(openssl rand -hex 16)" JWT_SECRET="$(openssl rand -base64 48)" SECURE_COOKIES=true WEB_ORIGIN=https://ci.example.test \
+            docker compose --env-file "$RUNNER_TEMP/empty.env" -f docker-compose.yml config --quiet
+          # 缺少 JWT_SECRET 时必须拒绝渲染
+          if POSTGRES_PASSWORD=x SECURE_COOKIES=true docker compose --env-file "$RUNNER_TEMP/empty.env" -f docker-compose.yml config --quiet; then
+            echo "缺少 JWT_SECRET 时编排不应能渲染"; exit 1
+          fi
+
+  backend:
+    name: 后端（单元测试 + PostgreSQL 集成测试 + 打包）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: 普通测试
+        run: ./mvnw -B test
+      - name: PostgreSQL 16 集成测试（Testcontainers）
+        run: ./mvnw -B verify -Ppostgres-it
+      - name: 失败用例写成注解（无需登录即可在 PR 上看到是哪一个用例）
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, html, re
+          shown = 0
+          for path in sorted(glob.glob('target/surefire-reports/TEST-*.xml') + glob.glob('target/failsafe-reports/TEST-*.xml')):
+              text = open(path, encoding='utf-8', errors='replace').read()
+              for m in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)"[^>]*>\s*<(failure|error)([^>]*)>', text):
+                  msg = re.search(r'message="([^"]*)"', m.group(4))
+                  detail = html.unescape(msg.group(1) if msg else m.group(3))[:600].replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+                  print(f"::error title={m.group(2).split('.')[-1]}.{m.group(1)}::{detail}")
+                  shown += 1
+                  if shown >= 30: raise SystemExit
+          PY
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-test-reports
+          path: |
+            campus-market-backend/target/surefire-reports/
+            campus-market-backend/target/failsafe-reports/
+          retention-days: 7
+      - name: 打包
+        run: ./mvnw -B -DskipTests package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: campus-market-backend/target/campus-market-backend-*.jar
+          retention-days: 3
+
+  frontend:
+    name: 前端（类型检查 + 全部测试 + REST / Mock 构建与包隔离 + 构建确定性）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: REST + Mock 构建与包隔离检查
+        run: npm run build
+      - run: npm run build:rest
+      - run: npm run build:mock
+      - run: npm run check:deterministic
+
+  admin:
+    name: 复用后台（类型检查、适配测试、生产构建）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-admin/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: 后台入口浏览器回归（开发与生产构建）
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+  miniapp:
+    name: 微信小程序（类型检查、单元测试、Mock 与 REST 构建）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: campus-market-miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-miniapp/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Mock 构建（默认）
+        run: npm run build:weapp
+      - name: REST 构建
+        run: npm run build:weapp:rest
+      # check:wxss 依赖微信开发者工具自带的 wcsc 编译器，GitHub 托管运行器上没有，只在本机发布前执行
+
+  dependency-audit:
+    name: 依赖漏洞扫描（生产依赖；网页与后台有 high 及以上即失败）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 网页
+        working-directory: campus-market-frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: 复用后台
+        working-directory: campus-market-admin
+        run: npm audit --omit=dev --audit-level=high
+      # 小程序的 Taro 工具链目前有已知高危依赖（阶段 4 处理）：先如实报告，不阻塞合并
+      - name: 微信小程序（只报告）
+        working-directory: campus-market-miniapp
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    name: 真实浏览器 E2E（Chromium + 后端 jar + 一次性 PostgreSQL 16）
+    needs: backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: campus-market-frontend/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-jar
+          path: campus-market-backend/target
+      - name: 安装依赖与 Playwright 自带的 Chromium
+        working-directory: campus-market-frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: E2E
+        working-directory: campus-market-frontend
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+        run: npm run e2e
+      - name: E2E（邀请注册模式：只跑 invite.spec.ts，按生产的 REGISTRATION_INVITE_REQUIRED=true）
+        working-directory: campus-market-frontend
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+          E2E_REGISTRATION_INVITE_REQUIRED: 'true'
+        run: npx playwright test e2e/specs/invite.spec.ts
+      - name: 失败时上传脱敏截图与 trace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failures
+          path: campus-market-frontend/test-results
+          retention-days: 7

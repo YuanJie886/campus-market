@@ -1,17 +1,9 @@
-import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  MenuItem,
-  Alert,
-} from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
-import Avatar from "@mui/material/Avatar";
+import Avatar from "../components/Avatar";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
@@ -21,7 +13,7 @@ import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
-import ShoppingCartCheckoutIcon from "@mui/icons-material/ShoppingCartCheckout";
+import TouchAppOutlinedIcon from "@mui/icons-material/TouchAppOutlined";
 import SendIcon from "@mui/icons-material/Send";
 import EmptyState from "../components/EmptyState";
 import ImageWithFallback from "../components/ImageWithFallback";
@@ -40,21 +32,27 @@ import {
   formatRelativeTime,
   maskContact,
 } from "../utils/format";
+import { toUserMessage } from '../api/errors';
+import { getApiClient } from '../api/client';
+import type { ProductDisclosure, ContactRequest } from '../api/contracts';
+import SellerDeclarationCard from '../components/trust/SellerDeclarationCard';
+import { averagePerItem } from '../utils/supply';
+import ReportDialog from '../components/governance/ReportDialog';
+import { useSchools } from '../hooks/useSchools';
 
-/** 商品详情页：图片、信息、卖家、下单/收藏/联系、留言板 */
+/** 商品详情页：图片、信息、卖家、联系申请/收藏/留言、留言板 */
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { currentUser, getUser } = useAuth();
+  const { campusLabel } = useSchools();
   const {
     getProduct,
     loadProduct,
-    meetingPoints,
     loading,
     incrementViews,
     isFavorite,
-    toggleFavorite,
-    createOrder,
+    setFavorite,
     getProductComments,
     addComment,
     getOrCreateConversation,
@@ -66,22 +64,30 @@ export default function ProductDetailPage() {
 
   const [imageIndex, setImageIndex] = useState(0);
   const [commentText, setCommentText] = useState("");
+  // 留言失败时服务端的原话（例如内容安全拦截）显示在留言框下方
+  const [commentError, setCommentError] = useState<string | null>(null);
+  // 模块 7：举报商品或某条留言
+  const [reporting, setReporting] = useState<{ type: 'PRODUCT' | 'COMMENT'; id: string; label: string } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [viewed, setViewed] = useState(false);
-  const [bookingOpen, setBookingOpen] = useState(false);
-  const [meetingPoint, setMeetingPoint] = useState("");
-  const [meetingAt, setMeetingAt] = useState("");
-  const [bookingContact, setBookingContact] = useState("");
-  const [bookingBusy, setBookingBusy] = useState(false);
-  const [bookingKey, setBookingKey] = useState("");
+  const [contactRequest, setContactRequest] = useState<ContactRequest | null>(null);
+  const [contactBusy, setContactBusy] = useState(false);
+  const [contactLoading, setContactLoading] = useState(true);
+  const [contactError, setContactError] = useState('');
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState("");
+  // 卖家声明只在商品详情里有；undefined 表示尚未读到
+  const [disclosure, setDisclosure] = useState<ProductDisclosure | null | undefined>(undefined);
   useEffect(() => {
     let active = true;
     setDetailLoading(true);
     setDetailError("");
+    setDisclosure(undefined);
     if (id && !loading)
       void loadProduct(id)
+        .then((detail) => {
+          if (active) setDisclosure(detail.inspection ?? null);
+        })
         .catch((e) => {
           if (active) setDetailError(e.message);
         })
@@ -92,6 +98,23 @@ export default function ProductDetailPage() {
       active = false;
     };
   }, [id, loadProduct, currentUser?.id, loading]);
+
+  useEffect(() => {
+    let active = true;
+    setContactRequest(null); setContactLoading(true); setContactError('');
+    const refresh = async () => {
+      if (!id || !currentUser) return;
+      try {
+        const request = await getApiClient().getContactRequest(id);
+        if (active) { setContactRequest(request); setContactError(''); }
+        // 已同意：重新读取详情拿到联系方式；卖家撤回同意：重新读取，让缓存里的联系方式立即消失
+        if (request?.status === 'APPROVED' || request?.status === 'REVOKED') await loadProduct(id);
+      } catch (e) { if (active) setContactError(toUserMessage(e)); }
+      finally { if (active) setContactLoading(false); }
+    };
+    void refresh(); window.addEventListener('focus', refresh);
+    return () => { active = false; window.removeEventListener('focus', refresh); };
+  }, [id, currentUser?.id, loadProduct]);
 
   // 浏览量 +1（每次进入详情页仅一次）
   useEffect(() => {
@@ -135,6 +158,7 @@ export default function ProductDetailPage() {
 
   if (!product && (loading || detailLoading))
     return <p className="p-8 text-slate-500">正在加载商品…</p>;
+
   if (!product) {
     return (
       <EmptyState
@@ -154,6 +178,17 @@ export default function ProductDetailPage() {
   const isOwner = currentUser?.id === product.sellerId;
   const favorited = isFavorite(currentUser?.id, product.id);
   const soldOut = product.status !== "在售";
+  const requestStatus = contactRequest?.status ?? null;
+  // 卖家撤回同意后，即使本地缓存里还有旧的联系方式也不再显示（服务端已不再返回）
+  const contactShown = product.contact && (isOwner || product.contactPublic || requestStatus !== 'REVOKED') ? product.contact : '';
+  const canRequest = !isOwner && !soldOut && !contactShown && !product.contactPublic && (requestStatus === null || requestStatus === 'WITHDRAWN');
+  const wantLabel = isOwner ? "这是我发布的" : contactBusy ? "发送中…"
+    : contactShown || product.contactPublic || requestStatus === "APPROVED" ? "查看联系方式"
+    : requestStatus === "PENDING" ? "等待卖家同意"
+    : requestStatus === "REJECTED" ? "卖家已拒绝"
+    : requestStatus === "REVOKED" ? "卖家已撤回同意"
+    : soldOut ? "暂不可联系"
+    : requestStatus === "WITHDRAWN" ? "重新申请" : "我想要";
 
   const requireLogin = (): boolean => {
     if (!currentUser) {
@@ -167,57 +202,59 @@ export default function ProductDetailPage() {
   const handleFavorite = async () => {
     try {
       if (requireLogin()) return;
-      const nowFav = await toggleFavorite(currentUser!.id, product.id);
+      const nowFav = await setFavorite(currentUser!.id, product.id, !isFavorite(currentUser!.id, product.id));
       success(nowFav ? "已加入收藏" : "已取消收藏");
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
-  const handleBuy = async () => {
+  const refreshContactRequest = async () => {
     try {
-      if (requireLogin()) return;
-      if (isOwner) {
-        error("不能购买自己发布的商品哦");
-        return;
-      }
-      if (soldOut) {
-        error("该商品当前不可购买");
-        return;
-      }
-      setMeetingPoint(
-        meetingPoints.find((p) => p.campus === product.campus)?.id ?? "",
-      );
-      setBookingContact(currentUser!.contact ?? "");
-      setBookingKey(crypto.randomUUID());
-      setBookingOpen(true);
-    } catch (e) {
-      error((e as Error).message);
-    }
+      setContactRequest(await getApiClient().getContactRequest(product.id));
+      await loadProduct(product.id);
+      setContactError('');
+    } catch (e) { setContactError(toUserMessage(e)); }
   };
 
-  const submitBooking = async () => {
-    if (bookingBusy) return;
-    setBookingBusy(true);
-    try {
-      const order = await createOrder(product.id, currentUser!.id, {
-        meetingPointId: meetingPoint,
-        meetingAtIso: new Date(meetingAt).toISOString(),
-        contact: bookingContact,
-        idempotencyKey: bookingKey,
-      });
-      if (!order) {
-        error("下单失败，商品可能已被抢购");
-        return;
-      }
-      setBookingOpen(false);
-      success("预约成功，等待卖家确认");
-      navigate("/profile/orders");
-    } catch (e) {
-      error((e as Error).message);
-    } finally {
-      setBookingBusy(false);
+  const handleWant = async () => {
+    if (requireLogin() || isOwner || contactBusy) return;
+    if (contactShown || product.contactPublic || requestStatus === 'APPROVED') {
+      info(contactShown ? '卖家联系方式已展示，请通过该方式联系卖家' : '卖家尚未填写联系方式，可通过站内留言提醒卖家补充');
+      return;
     }
+    if (!canRequest) return;
+    setContactBusy(true);
+    try {
+      const request = await getApiClient().requestContact(product.id);
+      setContactRequest(request); setContactError('');
+      if (request.status === 'APPROVED') await loadProduct(product.id);
+      success(request.status === 'PENDING' ? '联系申请已发送，等待卖家同意' : '卖家已处理该申请');
+    } catch (e) {
+      // 服务端的原话（例如「申请联系方式」限制的解除时间、已拒绝 / 已撤回同意不能再次申请）原样显示
+      const message = toUserMessage(e);
+      setContactError(message);
+      error(message);
+      // 409 说明申请状态已经变化（例如卖家刚刚拒绝或撤回同意）：重新读取，按钮随之更新
+      if ((e as { code?: number }).code === 409) {
+        try { setContactRequest(await getApiClient().getContactRequest(product.id)); } catch { /* 保留上面的错误提示 */ }
+      }
+    }
+    finally { setContactBusy(false); }
+  };
+
+  const handleWithdraw = async () => {
+    if (!contactRequest || contactRequest.status !== 'PENDING' || contactBusy) return;
+    setContactBusy(true);
+    try {
+      setContactRequest(await getApiClient().withdrawContactRequest(contactRequest.id));
+      setContactError('');
+      success('已撤回联系申请，需要时可以重新申请');
+    } catch (e) {
+      const message = toUserMessage(e);
+      setContactError(message);
+      error(message);
+    } finally { setContactBusy(false); }
   };
 
   const handleContact = async () => {
@@ -234,7 +271,7 @@ export default function ProductDetailPage() {
       );
       navigate(`/messages/${conversation.id}`);
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
@@ -246,85 +283,20 @@ export default function ProductDetailPage() {
         error("请输入留言内容");
         return;
       }
+      setCommentError(null);
       await addComment(product.id, currentUser!.id, content, replyTo);
       setCommentText("");
       setReplyTo(null);
       success("留言成功");
     } catch (e) {
-      error((e as Error).message);
+      const message = toUserMessage(e);
+      setCommentError(message);
+      error(message);
     }
   };
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
-      <Dialog
-        open={bookingOpen}
-        onClose={() => !bookingBusy && setBookingOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>预约校园面交</DialogTitle>
-        <DialogContent className="space-y-4">
-          <Alert severity="info">
-            请选择公共交易点。面交验货后自行付款，平台不代收商品款。
-          </Alert>
-          <TextField
-            select
-            fullWidth
-            label="面交地点"
-            value={meetingPoint}
-            onChange={(e) => {
-              setMeetingPoint(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          >
-            {meetingPoints
-              .filter((p) => p.campus === product.campus)
-              .map((p) => (
-                <MenuItem key={p.id} value={p.id}>
-                  {product.campus} · {p.name}
-                </MenuItem>
-              ))}
-          </TextField>
-          <TextField
-            fullWidth
-            label="面交时间"
-            type="datetime-local"
-            value={meetingAt}
-            InputLabelProps={{ shrink: true }}
-            onChange={(e) => {
-              setMeetingAt(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          />
-          <TextField
-            fullWidth
-            label="联系方式（仅交易双方可见）"
-            value={bookingContact}
-            onChange={(e) => {
-              setBookingContact(e.target.value);
-              setBookingKey(crypto.randomUUID());
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={bookingBusy} onClick={() => setBookingOpen(false)}>
-            取消
-          </Button>
-          <Button
-            variant="contained"
-            disabled={
-              bookingBusy ||
-              !meetingPoint ||
-              !meetingAt ||
-              !bookingContact.trim()
-            }
-            onClick={submitBooking}
-          >
-            {bookingBusy ? "提交中…" : "确认预约"}
-          </Button>
-        </DialogActions>
-      </Dialog>
       <button
         type="button"
         onClick={() => navigate(-1)}
@@ -423,7 +395,12 @@ export default function ProductDetailPage() {
               <Chip label={product.category} size="small" variant="outlined" />
               <Chip
                 icon={<LocationOnOutlinedIcon />}
-                label={product.campus}
+                label={
+                  // 取货楼栋来自商品本身，不是卖家资料；没有楼栋就只显示校区
+                  product.buildingName
+                    ? `${campusLabel(product.campus)} · ${product.buildingZone ?? ''}${product.buildingName}`
+                    : campusLabel(product.campus)
+                }
                 size="small"
                 variant="outlined"
               />
@@ -451,13 +428,18 @@ export default function ProductDetailPage() {
                 variant="contained"
                 size="large"
                 fullWidth
-                disabled={soldOut || isOwner}
-                startIcon={<ShoppingCartCheckoutIcon />}
-                onClick={handleBuy}
+                disabled={isOwner || contactBusy || contactLoading || !(canRequest || contactShown || product.contactPublic || requestStatus === "APPROVED")}
+                startIcon={<TouchAppOutlinedIcon />}
+                onClick={handleWant}
                 sx={{ py: 1.2 }}
               >
-                {isOwner ? "这是我发布的" : soldOut ? "已售出" : "我想要"}
+                {wantLabel}
               </Button>
+              {!isOwner && requestStatus === "PENDING" && (
+                <Button variant="outlined" color="inherit" size="large" fullWidth disabled={contactBusy} onClick={handleWithdraw} sx={{ py: 1.2 }}>
+                  撤回申请
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 size="large"
@@ -467,7 +449,7 @@ export default function ProductDetailPage() {
                 onClick={handleContact}
                 sx={{ py: 1.2 }}
               >
-                联系卖家
+                私信卖家
               </Button>
             </div>
           </div>
@@ -476,25 +458,122 @@ export default function ProductDetailPage() {
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-card">
             <h2 className="mb-3 text-sm font-bold text-slate-700">卖家信息</h2>
             <div className="flex items-center gap-3">
-              <Avatar src={seller?.avatar} alt={seller?.nickname ?? "卖家"}>
-                {seller?.nickname?.slice(0, 1)}
-              </Avatar>
+              <Avatar
+                avatar={seller?.avatar}
+                nickname={seller?.nickname}
+                userId={seller?.id ?? product.sellerId}
+                alt={`${seller?.nickname ?? "卖家"}的头像`}
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-800">
                   {seller?.nickname ?? "未知用户"}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {seller?.campus ?? "—"} · 注册于{" "}
+                  {seller?.campus ? campusLabel(seller.campus) : "—"} · 注册于{" "}
                   {seller ? formatRelativeTime(seller.createdAt) : "—"}
                 </p>
               </div>
             </div>
             <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              {isOwner ? `本人联系方式：${product.contact || '未填写'}` : '请使用站内消息联系卖家，面交信息仅交易双方可见。'}
+              {contactShown ? <p className="break-all text-sm text-slate-800">{isOwner ? '本人联系方式' : '卖家联系方式'}：{contactShown}</p>
+                : isOwner ? <p>本人联系方式：未填写</p>
+                : product.contactPublic || requestStatus === 'APPROVED' ? <p>卖家尚未填写联系方式，可通过站内留言联系卖家。</p>
+                : <p>{requestStatus === 'REJECTED' ? '卖家未同意展示联系方式。'
+                  : requestStatus === 'REVOKED' ? '卖家已撤回对你这次申请的同意，联系方式已不再向你展示；这件商品不能再次申请，可以通过站内留言继续沟通。'
+                  : requestStatus === 'PENDING' ? '已发送联系申请，等待卖家同意后即可查看联系方式。你也可以撤回这次申请。'
+                  : requestStatus === 'WITHDRAWN' ? '你已撤回这次联系申请。需要时可以点击“重新申请”，卖家会重新收到申请。'
+                  : '卖家未公开联系方式，点击“我想要”申请，经卖家同意后展示。'}</p>}
+              {isOwner && <p className="mt-1">{product.contactPublic ? '已公开展示联系方式' : '需经你同意后向申请的买家展示联系方式'} · <Link to="/profile/contact-requests" className="text-brand-700">管理联系申请</Link></p>}
+              {!isOwner && !contactShown && <Button size="small" onClick={() => void refreshContactRequest()}>刷新申请状态</Button>}
+              {contactError && <p role="alert" className="mt-1 text-red-600">{contactError}</p>}
+              <p className="mt-2">平台仅展示商品与卖家提供的联系方式，不提供交易、预约或履约服务。后续沟通及交易以双方通过实际联系方式约定为准。</p>
+              {/* 8.0：如实说明——学校与校区由注册者自行选择，平台不核验身份 */}
+              <p className="mt-1">注册时的学校与校区由用户自行选择，平台目前不核验学籍或身份。</p>
             </div>
+            {isOwner && product.moderationHidden && (
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note">
+                这件商品已被平台工作人员隐藏，其他同学暂时看不到。可以在「我的限制」里查看原因并申诉一次。
+              </p>
+            )}
+            {!isOwner && (
+              <Button size="small" color="inherit" sx={{ mt: 1 }} onClick={() => setReporting({ type: 'PRODUCT', id: product.id, label: product.title })}>
+                举报这件商品
+              </Button>
+            )}
           </div>
         </div>
       </div>
+
+      {product.textbook && (
+        <section aria-labelledby="product-textbook-title" className="rounded-2xl border border-teal-100 bg-white p-4 shadow-card md:p-5"
+          data-textbook-edition={product.textbook.editionId}>
+          <h2 id="product-textbook-title" className="mb-2 text-sm font-bold text-slate-700">课程教材版本</h2>
+          <p className="text-sm text-slate-800">
+            {product.textbook.title} <strong>{product.textbook.editionLabel}</strong>
+          </p>
+          <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-slate-700">
+            <dt>ISBN</dt><dd>{product.textbook.isbn ?? '无 ISBN'}</dd>
+            <dt>出版社</dt><dd>{product.textbook.publisher}</dd>
+            <dt>关联课程</dt><dd>{product.textbook.courseNames.length ? product.textbook.courseNames.join('、') : '暂无已验证的课程'}</dd>
+          </dl>
+          <p className="mt-2 text-xs text-slate-600">以上是卖家发布时确认的版本。</p>
+          <Link to={`/textbooks/${encodeURIComponent(product.textbook.editionId)}`} className="mt-1 inline-block text-xs text-teal-800 underline">
+            查看这个版本的其他在售商品
+          </Link>
+        </section>
+      )}
+
+      {product.visibility === 'CIRCLE_ONLY' && (
+        <section aria-labelledby="product-circle-title" className="rounded-2xl border border-indigo-200 bg-white p-4 shadow-card md:p-5" data-visibility="CIRCLE_ONLY">
+          <h2 id="product-circle-title" className="mb-1 text-sm font-bold text-slate-700">圈子可见</h2>
+          <p className="text-xs text-slate-700">
+            这件商品只对卖家选择的圈子成员可见。圈子由同学自己创建，不代表学校或任何组织。
+          </p>
+          {product.circles && product.circles.length > 0 && (
+            <ul className="mt-1 flex flex-wrap gap-2 text-xs">
+              {product.circles.map((c) => (
+                <li key={c.id}><Link to={`/circles/${encodeURIComponent(c.id)}`} className="text-indigo-800 underline">{c.name}</Link></li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {product.listingKind === 'BUNDLE' && (
+        <section aria-labelledby="product-bundle-title" className="rounded-2xl border border-amber-200 bg-white p-4 shadow-card md:p-5" data-listing-kind="BUNDLE">
+          <h2 id="product-bundle-title" className="mb-1 text-sm font-bold text-slate-700">整套转让明细</h2>
+          <p className="text-sm font-semibold text-amber-900">整套出售，不单独出售其中的物品。</p>
+          {(() => {
+            const items = product.bundleItems ?? [];
+            const quantity = items.reduce((n, i) => n + i.quantity, 0);
+            const average = averagePerItem(product.price, quantity);
+            return (
+              <>
+                <p className="mt-1 text-xs text-slate-700">
+                  共 {items.length} 项 · {new Set(items.map((i) => i.category)).size} 类 / {quantity} 件 · 整套总价 {formatPrice(product.price)}
+                  {average ? ` · 平均每件约 ¥${average}（仅供参考，不能按件购买）` : ''}
+                </p>
+                <table className="mt-2 w-full text-left text-xs">
+                  <caption className="sr-only">整套包含的物品</caption>
+                  <thead>
+                    <tr className="text-slate-600"><th scope="col">物品</th><th scope="col">分类</th><th scope="col">成色</th><th scope="col">数量</th><th scope="col">备注</th></tr>
+                  </thead>
+                  <tbody>
+                    {items.map((i) => (
+                      <tr key={i.itemCode} className="border-t border-slate-100">
+                        <td className="py-1">{i.name}</td><td>{i.category}</td><td>{i.condition}</td><td>{i.quantity}</td><td>{i.note || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="mt-2 text-xs text-slate-600">以上明细由卖家填写，当面查看时请逐项核对；平台不做鉴定或担保。</p>
+              </>
+            );
+          })()}
+        </section>
+      )}
+
+      <SellerDeclarationCard disclosure={disclosure} />
 
       {/* 商品描述 */}
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-card md:p-5">
@@ -530,7 +609,7 @@ export default function ProductDetailPage() {
               startIcon={<SendIcon />}
               sx={{ flex: 1, minWidth: 96 }}
             >
-              留言
+              {replyTo ? "回复" : "留言"}
             </Button>
             {replyTo && (
               <Button
@@ -543,6 +622,7 @@ export default function ProductDetailPage() {
             )}
           </div>
         </div>
+        {commentError && <p role="alert" className="mt-2 text-sm text-red-700">{commentError}</p>}
 
         <div className="mt-4 flex flex-col gap-3">
           {topComments.length === 0 && (
@@ -557,9 +637,12 @@ export default function ProductDetailPage() {
             return (
               <div key={comment.id} className="rounded-xl bg-slate-50 p-3">
                 <div className="flex items-start gap-2.5">
-                  <Avatar src={author?.avatar} sx={{ width: 32, height: 32 }}>
-                    {author?.nickname?.slice(0, 1)}
-                  </Avatar>
+                  <Avatar
+                    avatar={author?.avatar}
+                    nickname={author?.nickname}
+                    userId={author?.id ?? comment.userId}
+                    size={32}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-slate-700">
@@ -569,9 +652,17 @@ export default function ProductDetailPage() {
                         {formatRelativeTime(comment.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                      {comment.content}
-                    </p>
+                    {comment.moderationHidden ? (
+                      <p className="mt-1 text-sm leading-6 text-slate-500" role="note">
+                        {comment.hiddenForAuthor
+                          ? "你的这条留言已被平台隐藏，其他同学看不到内容；原文保留，没有删除。可以在「我的限制」里查看并申诉一次。"
+                          : "该留言已被平台隐藏。"}
+                      </p>
+                    ) : (
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                        {comment.content}
+                      </p>
+                    )}
                     <button
                       type="button"
                       className="mt-1 text-xs font-medium text-brand-600"
@@ -582,6 +673,12 @@ export default function ProductDetailPage() {
                     >
                       回复
                     </button>
+                    {comment.userId !== currentUser?.id && !comment.moderationHidden && (
+                      <button type="button" className="ml-3 mt-1 text-xs font-medium text-slate-600"
+                        onClick={() => { if (requireLogin()) return; setReporting({ type: 'COMMENT', id: comment.id, label: `${author?.nickname ?? '同学'}的留言` }) }}>
+                        举报留言
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -592,11 +689,11 @@ export default function ProductDetailPage() {
                       return (
                         <div key={reply.id} className="flex items-start gap-2">
                           <Avatar
-                            src={replyAuthor?.avatar}
-                            sx={{ width: 26, height: 26 }}
-                          >
-                            {replyAuthor?.nickname?.slice(0, 1)}
-                          </Avatar>
+                            avatar={replyAuthor?.avatar}
+                            nickname={replyAuthor?.nickname}
+                            userId={replyAuthor?.id ?? reply.userId}
+                            size={26}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-semibold text-slate-700">
@@ -606,9 +703,22 @@ export default function ProductDetailPage() {
                                 {formatRelativeTime(reply.createdAt)}
                               </span>
                             </div>
-                            <p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                              {reply.content}
-                            </p>
+                            {reply.moderationHidden ? (
+                              <p className="mt-0.5 text-sm leading-6 text-slate-500" role="note">
+                                {reply.hiddenForAuthor ? "你的这条回复已被平台隐藏；原文保留，可以在「我的限制」里申诉。" : "该回复已被平台隐藏。"}
+                              </p>
+                            ) : (
+                              <p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                                {reply.content}
+                              </p>
+                            )}
+                            {/* 与小程序一致：别人的、没有被隐藏的回复也可以举报 */}
+                            {reply.userId !== currentUser?.id && !reply.moderationHidden && (
+                              <button type="button" className="mt-0.5 text-xs font-medium text-slate-600"
+                                onClick={() => { if (requireLogin()) return; setReporting({ type: 'COMMENT', id: reply.id, label: `${replyAuthor?.nickname ?? '同学'}的回复` }) }}>
+                                举报回复
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -629,6 +739,9 @@ export default function ProductDetailPage() {
           </h2>
           <ProductGrid products={related} />
         </div>
+      )}
+      {reporting && (
+        <ReportDialog open targetType={reporting.type} targetId={reporting.id} targetLabel={reporting.label} onClose={() => setReporting(null)} />
       )}
     </div>
   );

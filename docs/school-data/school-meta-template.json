@@ -1,0 +1,11 @@
+{
+  "id": "example-u",
+  "name": "示例大学（请改成学校全称）",
+  "shortName": "示例",
+  "coordinateSystem": "GCJ-02",
+  "notes": "数据来源与核实情况（例如：2026-10 由学校后勤处提供，坐标用高德坐标拾取器逐栋取点）",
+  "campuses": [
+    { "id": "example-u-main", "name": "主校区", "sortOrder": 1 },
+    { "id": "example-u-east", "name": "东校区", "sortOrder": 2 }
+  ]
+}

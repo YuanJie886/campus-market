@@ -1,3 +1,9 @@
+# 容器日志按大小轮转（每个容器最多 5 × 10 MB），避免日志写满磁盘；长期保存请接入日志服务（docs/operations-and-monitoring.md）
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,6 +21,7 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    logging: *default-logging
   api:
     build:
       context: ../..
@@ -23,14 +30,46 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/campus_market
       DATABASE_USERNAME: campus
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET:?请在 deploy/.env 配置随机 JWT 密钥}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：请先用 openssl rand -base64 48 生成，再填入 deploy/.env；不要使用 .env.example 中的任何示例值}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
-      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      # 必须显式声明，没有默认值。
+      # 刷新 Cookie 是系统里生命周期最长的凭据（默认 7 天），在 0.9A 之后又是刷新页面
+      # 后恢复登录的唯一途径。过去这里默认 false，部署到 HTTPS 时忘记设置不会有任何
+      # 征兆，Cookie 就在明文连接上裸奔。现在不填就起不来，把遗漏挡在部署阶段。
+      # 后端还会拒绝「WEB_ORIGIN 是 https 而此处为 false」的矛盾组合。
+      SECURE_COOKIES: ${SECURE_COOKIES:?SECURE_COOKIES 未设置：HTTPS 部署必须为 true；仅本地 http 调试可设为 false}
+      # Flyway 基线开关。默认 false：对没有 flyway_schema_history 的非空数据库拒绝启动。
+      # 仅在从旧 DatabaseInitializer 升级的首次接管时临时设为 true，成功后必须改回 false。
+      # 详见 campus-market-backend/docs/database-migrations.md
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
       PORT: 3000
+      # 阶段 4：上传图片存放在持久卷（接入对象存储前）；微信登录与内容安全只在两个值都配置时启用
+      IMAGES_DIR: /data/images
+      WECHAT_APP_ID: ${WECHAT_APP_ID:-}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}
+      # 外部图片链接（过渡期的示例图）。生产默认关闭：新发布只能用本平台上传的图片；已有商品里的外部图片编辑时可以保留
+      ALLOW_EXTERNAL_IMAGES: ${ALLOW_EXTERNAL_IMAGES:-false}
+      # 私信：默认只能发送预设快捷消息（没有人工审核前不开放文字私信），见 docs/messaging.md
+      MESSAGES_FREE_TEXT_ENABLED: ${MESSAGES_FREE_TEXT_ENABLED:-false}
+      # 学校数据包（docs/school-data.md）：生产启用安徽理工大学，隐藏迁移里的演示学校；新增学校时追加 id，或把数据文件放进 SCHOOL_PACKS_DIR
+      SCHOOL_PACKS: ${SCHOOL_PACKS:-aust}
+      DEMO_SCHOOL_ENABLED: ${DEMO_SCHOOL_ENABLED:-false}
+      # 小范围测试只接受邀请注册（docs/registration-invites.md）；第一个管理员的邀请码用：
+      #   docker compose run --rm api --campus-market.cli.issue-invite.school=aust
+      REGISTRATION_INVITE_REQUIRED: ${REGISTRATION_INVITE_REQUIRED:-true}
+    volumes:
+      - uploaded_images:/data/images
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
+  admin:
+    build:
+      context: ../..
+      dockerfile: campus-market-admin/deploy/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
   web:
     build:
       context: ..
@@ -39,6 +78,9 @@ services:
       - "127.0.0.1:8080:80"
     depends_on:
       - api
+      - admin
     restart: unless-stopped
+    logging: *default-logging
 volumes:
   postgres_data:
+  uploaded_images:

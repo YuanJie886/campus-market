@@ -1,39 +1,37 @@
-import { ApiError, unwrapEnvelope } from "./errors";
-import { TokenStore } from "../utils/tokenStore";
+import { ApiError, parseRetryAfterSeconds, unwrapEnvelope } from "./errors";
+import { withRefreshLock } from "../utils/sessionRecovery";
+import { authTokenStore } from "../utils/authTokenStore";
 import type { AuthSession } from "./contracts";
 export interface HttpTransportOptions {
   baseUrl?: string;
   timeoutMs?: number;
-  tokenStore?: TokenStore;
   fetchImpl?: typeof fetch;
 }
 export class HttpTransport {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
-  private readonly tokenStore: TokenStore;
   private readonly fetchImpl: typeof fetch;
   private refreshing: Promise<void> | null = null;
   constructor(options: HttpTransportOptions = {}) {
     this.baseUrl = (options.baseUrl ?? "").replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 10000;
-    this.tokenStore = options.tokenStore ?? new TokenStore();
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   }
   private refresh(): Promise<void> {
+    // 单飞：并发 401 共享同一个 Promise，只发一次 refresh。
+    // 再包一层 Web Locks，让多个标签页的 refresh 串行——后端 refresh token 会轮换，
+    // 并发刷新会互相作废。
     if (!this.refreshing)
-      this.refreshing = this.request<AuthSession>(
+      this.refreshing = withRefreshLock(() => this.request<AuthSession>(
         "/v1/auth/refresh",
         { method: "POST" },
-        false,
-      )
+        false,   // refresh 自身不得再触发 refresh，杜绝递归
+      ))
         .then((s) =>
-          this.tokenStore.set({
-            accessToken: s.accessToken,
-            expiresAtIso: s.expiresAtIso,
-          }),
+          authTokenStore.setAccessToken(s.accessToken, s.expiresAtIso),
         )
         .catch((e) => {
-          if (e instanceof ApiError && e.code === 401) this.tokenStore.clear();
+          if (e instanceof ApiError && e.code === 401) authTokenStore.clearAccessToken();
           throw e;
         })
         .finally(() => {
@@ -45,14 +43,17 @@ export class HttpTransport {
     path: string,
     init: RequestInit = {},
     retry = true,
+    timeoutMs = this.timeoutMs,
   ): Promise<T> {
     const controller = new AbortController(),
-      timer = globalThis.setTimeout(() => controller.abort(), this.timeoutMs);
+      timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (init.body && !headers.has("Content-Type"))
+    // multipart：Content-Type（含 boundary）必须由浏览器生成，不能写成 JSON
+    const multipart = typeof FormData !== "undefined" && init.body instanceof FormData;
+    if (init.body && !multipart && !headers.has("Content-Type"))
       headers.set("Content-Type", "application/json");
-    const token = this.tokenStore.getAccessToken();
+    const token = authTokenStore.getAccessToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     try {
       const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -61,13 +62,16 @@ export class HttpTransport {
         headers,
         signal: controller.signal,
       });
+      // 每个业务请求最多自动重试一次（retry=false 传下去）。
+      // login/register/refresh/logout 的 401 是真实结果，不触发刷新。
+      // 429 从不自动重试——那会把限流变成自我加剧的风暴。
       if (
         response.status === 401 &&
         retry &&
         !/\/auth\/(login|register|refresh|logout)$/.test(path)
       ) {
         await this.refresh();
-        return await this.request<T>(path, init, false);
+        return await this.request<T>(path, init, false, timeoutMs);
       }
       let payload: unknown;
       try {
@@ -86,6 +90,15 @@ export class HttpTransport {
             typeof b?.message === "string"
               ? b.message
               : `请求失败（${response.status}）`,
+          // requestId 优先取响应头，缺失时回落到 envelope
+          requestId:
+            response.headers.get("X-Request-ID") ??
+            (typeof b?.requestId === "string" ? b.requestId : undefined),
+          httpStatus: response.status,
+          retryAfterSeconds: parseRetryAfterSeconds(response.headers.get("Retry-After")),
+          // 后端错误 envelope 把结构化详情放在 data 里（限制范围与到期时间、NO_EXPLICIT_SLOT、CONFLICT_OF_INTEREST、
+          // 批量发布的问题清单……）。8.1 真实浏览器 E2E 发现这里曾经丢掉它们，界面只能退回通用提示
+          details: errorDetails(b),
         });
       }
       return unwrapEnvelope<T>(payload);
@@ -107,10 +120,11 @@ export class HttpTransport {
       headers,
     });
   }
-  patch<T>(path: string, body: unknown) {
+  patch<T>(path: string, body: unknown, headers?: HeadersInit) {
     return this.request<T>(path, {
       method: "PATCH",
       body: JSON.stringify(body),
+      headers,
     });
   }
   put<T>(path: string, body?: unknown) {
@@ -119,7 +133,20 @@ export class HttpTransport {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
+  /**
+   * multipart 上传（阶段 4 图片）。与其他业务请求同一套认证：内存里的 Bearer 令牌、401 时单飞刷新后重试一次、
+   * 429 不自动重试。FormData 可以重复发送，所以重试时请求体仍然完整。上传比普通请求慢，超时放宽到 60 秒。
+   */
+  upload<T>(path: string, form: FormData, timeoutMs = Math.max(this.timeoutMs, 60_000)) {
+    return this.request<T>(path, { method: "POST", body: form }, true, timeoutMs);
+  }
   delete<T>(path: string) {
     return this.request<T>(path, { method: "DELETE" });
   }
+}
+
+/** 错误 envelope 里的结构化详情：后端放在 data，兼容旧的 details 字段；null / 非对象一律视为没有详情 */
+function errorDetails(b: Record<string, unknown> | undefined): unknown {
+  const value = b?.data ?? b?.details;
+  return value !== null && typeof value === "object" ? value : undefined;
 }

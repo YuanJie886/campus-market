@@ -4,16 +4,22 @@
 
 ## 本地启动
 
-需要 Java 17+、Maven 和 PostgreSQL。Spring Boot 启动时会自动执行 `campus-market-backend/src/main/resources/db/schema.sql`，已有表和数据不会被覆盖。
+需要 Java 17+、Maven 和 PostgreSQL。数据库结构由 **Flyway** 管理：空库启动时自动执行 `campus-market-backend/src/main/resources/db/migration/V1__initial_schema.sql`。
+
+> 旧的「Spring Boot 启动时自动执行 `db/schema.sql`」机制已删除，`db/schema.sql` 本身也已不存在。
+> 迁移流程、旧库 baseline 接管与回滚策略见 [后端迁移手册](../../campus-market-backend/docs/database-migrations.md)。
 
 ```sh
 cd campus-market-backend
 export DATABASE_URL=jdbc:postgresql://localhost:5432/campus_market
 export DATABASE_USERNAME=campus
 export DATABASE_PASSWORD=replace-with-your-password
-export JWT_SECRET=replace-with-at-least-32-random-characters
+# JWT_SECRET 必须自行生成，至少 32 字节；不要使用任何文档或仓库里的固定示例值。
+export JWT_SECRET="$(openssl rand -base64 48)"
 mvn spring-boot:run
 ```
+
+`JWT_SECRET` 没有默认值：未设置时后端会直接启动失败。每个环境各自生成一把，不要复用，也不要提交进仓库。
 
 另开终端启动前端：
 

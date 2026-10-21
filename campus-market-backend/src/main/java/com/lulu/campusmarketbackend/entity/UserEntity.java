@@ -16,6 +16,8 @@ public class UserEntity {
     private String nickname;
     private String avatar;
     private String campus;
+    /** 宿舍楼。可空，由用户自己填，系统绝不推断。 */
+    private String dormBuildingId;
     private String contact;
     private OffsetDateTime createdAt;
 }

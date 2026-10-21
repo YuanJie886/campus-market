@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import Avatar from "@mui/material/Avatar";
+import Avatar from "../components/Avatar";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
@@ -14,6 +14,14 @@ import { useMarket } from "../context/MarketContext";
 import { useNotify } from "../context/NotificationContext";
 import { CATEGORY_EMOJI, CATEGORY_GRADIENT } from "../utils/constants";
 import { formatChatTime } from "../utils/format";
+import { toUserMessage } from '../api/errors';
+import ReportDialog from '../components/governance/ReportDialog';
+import { getApiClient } from '../api/client';
+import { templatesForRole, type MessageTemplateList, type SendMessageInput } from '../api/contracts';
+import { useClientConfig } from '../hooks/useClientConfig';
+
+/** 文字私信关闭时（默认）显示在快捷消息上方的说明 */
+export const QUICK_MESSAGE_NOTICE = '为保护双方安全，私信目前只能发送快捷消息；交换联系方式请使用「申请联系方式」';
 
 /** 站内消息页：会话列表 + 聊天窗口 */
 export default function MessagesPage() {
@@ -26,14 +34,36 @@ export default function MessagesPage() {
 
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  // 快捷消息由服务端给出（GET /v1/message-templates）；文字输入框只在服务端明确开放时出现
+  const { config, loading: configLoading } = useClientConfig();
+  const [templateList, setTemplateList] = useState<MessageTemplateList | null>(null);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [templatesAttempt, setTemplatesAttempt] = useState(0);
+  const currentUserId = currentUser?.id ?? null;
+  useEffect(() => {
+    if (!currentUserId) return;
+    let alive = true;
+    setTemplatesError(null);
+    getApiClient().listMessageTemplates()
+      .then((list) => { if (alive) setTemplateList(list) })
+      .catch((e) => { if (alive) setTemplatesError(toUserMessage(e)) });
+    return () => { alive = false };
+  }, [currentUserId, templatesAttempt]);
+  // 发送失败时服务端的原话（例如内容安全拦截）显示在输入框上方，消息原文保留以便修改
+  const [sendError, setSendError] = useState<string | null>(null);
+  useEffect(() => { setSendError(null) }, [conversationId]);
+  // 模块 7：举报对方发来的某一条消息（只快照这一条，不复制整段会话）
+  const [reportingMessage, setReportingMessage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const conversations = currentUser
     ? getConversationsForUser(currentUser.id)
     : [];
-  const { loadMessages } = useMarket();
+  const { loadMessages, loading: marketLoading } = useMarket();
   useEffect(() => {
-    if (!conversationId) return;
+    // 等市场数据首次刷新结束再读消息：刷新开始时会作废之前发出的读取（generation），
+    // 否则首屏会显示「暂无消息」，直到下一次 5 秒轮询才出现消息
+    if (!conversationId || marketLoading) return;
     let active = true;
     const load = () =>
       loadMessages(conversationId).catch((e) => {
@@ -47,7 +77,7 @@ export default function MessagesPage() {
       active = false;
       clearInterval(timer);
     };
-  }, [conversationId, loadMessages]);
+  }, [conversationId, loadMessages, marketLoading]);
   const active = conversations.find((c) => c.id === conversationId) ?? null;
   const messages = active ? getMessages(active.id) : [];
 
@@ -72,23 +102,39 @@ export default function MessagesPage() {
     : null;
   const counterpart = getUser(counterpartId);
 
-  const handleSend = async () => {
-    if (busy) return;
+  // 以快捷消息接口的结果为准；还没拿到时参考 /v1/config。两处都只认明确的 true
+  const freeTextEnabled = templateList
+    ? templateList.freeTextEnabled
+    : !configLoading && config.messages.freeTextEnabled;
+  const myRole = active && active.buyerId === currentUser.id ? "BUYER" : "SELLER";
+  const quickMessages = templateList ? templatesForRole(templateList.templates, myRole) : [];
+
+  const submit = async (input: SendMessageInput) => {
+    if (busy || !active) return false;
     setBusy(true);
     try {
-      if (!active) return;
-      const content = text.trim();
-      if (!content) {
-        error("请输入消息内容");
-        return;
-      }
-      await sendMessage(active.id, currentUser.id, content);
-      setText("");
+      setSendError(null);
+      await sendMessage(active.id, input);
+      return true;
     } catch (e) {
-      error((e as Error).message);
+      // 服务端的原话（模板不能由你发送、只能发快捷消息、内容安全拦截……）原样显示
+      const message = toUserMessage(e);
+      setSendError(message);
+      error(message);
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleSend = async () => {
+    if (busy) return;
+    const content = text.trim();
+    if (!content) {
+      error("请输入消息内容");
+      return;
+    }
+    if (await submit({ content })) setText("");
   };
 
   return (
@@ -101,7 +147,7 @@ export default function MessagesPage() {
         <EmptyState
           icon={<ChatBubbleOutlineIcon sx={{ fontSize: 34 }} />}
           title="还没有会话"
-          description="在商品详情页点击「联系卖家」，就可以和同学聊起来啦～"
+          description="在商品详情页点「私信卖家」，可以用快捷消息询问。"
           action={
             <Button variant="contained" onClick={() => navigate("/")}>
               去逛逛
@@ -162,7 +208,7 @@ export default function MessagesPage() {
                         {product?.title ?? "商品已删除"}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-slate-500">
-                        {last ? last.content : "暂无消息"}
+                        {last ? (last.quarantined ? "该消息已被平台隔离" : last.content) : "暂无消息"}
                       </p>
                     </div>
                   </button>
@@ -189,11 +235,12 @@ export default function MessagesPage() {
                     <ArrowBackIcon fontSize="small" />
                   </IconButton>
                   <Avatar
-                    src={counterpart?.avatar}
-                    sx={{ width: 32, height: 32 }}
-                  >
-                    {counterpart?.nickname?.slice(0, 1)}
-                  </Avatar>
+                    avatar={counterpart?.avatar}
+                    nickname={counterpart?.nickname}
+                    userId={counterpart?.id}
+                    alt={`${counterpart?.nickname ?? "对方"}的头像`}
+                    size={32}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-800">
                       {counterpart?.nickname ?? "用户"}
@@ -216,6 +263,8 @@ export default function MessagesPage() {
 
                 <div
                   ref={scrollRef}
+                  role="log"
+                  aria-label="聊天记录"
                   className="flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-3 py-4"
                 >
                   {messages.length === 0 && (
@@ -234,11 +283,12 @@ export default function MessagesPage() {
                         }`}
                       >
                         <Avatar
-                          src={sender?.avatar}
-                          sx={{ width: 30, height: 30 }}
-                        >
-                          {sender?.nickname?.slice(0, 1)}
-                        </Avatar>
+                          avatar={sender?.avatar}
+                          nickname={sender?.nickname}
+                          userId={sender?.id ?? message.senderId}
+                          alt={`${sender?.nickname ?? "同学"}的头像`}
+                          size={30}
+                        />
                         <div
                           className={`max-w-[76%] ${mine ? "items-end" : "items-start"} flex flex-col`}
                         >
@@ -249,22 +299,70 @@ export default function MessagesPage() {
                                 : "rounded-bl-sm bg-white text-slate-700"
                             }`}
                           >
-                            {message.content}
+                            {message.quarantined ? (
+                              <span role="note" className="italic">
+                                {mine ? "你发送的这条消息已被平台隔离，对方看不到内容；可以在「我的限制」里申诉。" : "该消息已被平台隔离。"}
+                              </span>
+                            ) : message.content}
                           </div>
                           <span className="mt-0.5 text-[10px] text-slate-400">
                             {formatChatTime(message.createdAt)}
                           </span>
+                          {!mine && !message.quarantined && (
+                            <button type="button" className="text-[11px] text-slate-600 underline" onClick={() => setReportingMessage(message.id)}
+                              aria-label={`举报 ${formatChatTime(message.createdAt)} 的这条消息`}>
+                              举报
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
                   })}
                 </div>
 
-                <div className="flex items-end gap-2 border-t border-slate-100 px-3 py-2.5">
+                {sendError && <p role="alert" className="border-t border-slate-100 px-3 pt-2 text-sm text-red-700">{sendError}</p>}
+                <section aria-labelledby="quick-messages-title" className="border-t border-slate-100 px-3 pt-2.5">
+                  <h2 id="quick-messages-title" className="text-xs font-semibold text-slate-600">
+                    快捷消息（点一下即发送）
+                  </h2>
+                  {!freeTextEnabled && (
+                    <p id="quick-messages-notice" className="mt-1 text-xs leading-5 text-slate-500">
+                      {QUICK_MESSAGE_NOTICE}
+                    </p>
+                  )}
+                  {templatesError ? (
+                    <p className="mt-1.5 text-xs text-red-700">
+                      快捷消息加载失败：{templatesError}
+                      <button type="button" className="ml-1 font-semibold underline" onClick={() => setTemplatesAttempt((n) => n + 1)}>
+                        重试
+                      </button>
+                    </p>
+                  ) : !templateList ? (
+                    <p className="mt-1.5 text-xs text-slate-500" role="status">正在加载快捷消息…</p>
+                  ) : (
+                    <ul className="mt-1.5 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pb-1" aria-label="可发送的快捷消息">
+                      {quickMessages.map((template) => (
+                        <li key={template.code}>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void submit({ templateCode: template.code })}
+                            className="rounded-full border border-brand-200 bg-white px-3 py-1 text-left text-xs text-brand-700 transition hover:bg-brand-50 disabled:opacity-60"
+                          >
+                            {template.text}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+                {freeTextEnabled && (
+                <div className="flex items-end gap-2 px-3 py-2.5">
                   <TextField
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     placeholder="输入消息，回车发送…"
+                    inputProps={{ "aria-label": "输入消息" }}
                     fullWidth
                     multiline
                     maxRows={3}
@@ -285,6 +383,8 @@ export default function MessagesPage() {
                     发送
                   </Button>
                 </div>
+                )}
+                {!freeTextEnabled && <div className="pb-2" />}
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-400">
@@ -302,6 +402,9 @@ export default function MessagesPage() {
             )}
           </section>
         </div>
+      )}
+      {reportingMessage && (
+        <ReportDialog open targetType="MESSAGE" targetId={reportingMessage} targetLabel="对方发来的一条消息" onClose={() => setReportingMessage(null)} />
       )}
     </div>
   );

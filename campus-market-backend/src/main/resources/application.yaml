@@ -1,6 +1,17 @@
 spring:
+  config:
+    # 本地开发可从仓库根目录或后端目录启动；私有 .env 不进入版本控制。
+    # 环境变量仍可覆盖文件中的值。没有文件时，仍要求显式提供 JWT_SECRET。
+    import:
+      - optional:file:./campus-market-backend/.env[.properties]
+      - optional:file:./.env[.properties]
   application:
     name: campus-market-backend
+  # 阶段 4：只有图片上传使用 multipart；单张最大 5 MB（服务端还会按文件头再判断一次）
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/campus_market}
     username: ${DATABASE_USERNAME:postgres}
@@ -8,18 +19,143 @@ spring:
     driver-class-name: ${DATABASE_DRIVER:org.postgresql.Driver}
     hikari:
       maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  # Flyway 是本项目唯一的数据库结构管理入口，使用上面的 DataSource，不另建账号。
+  # 详见 docs/database-migrations.md
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    # 默认 false：对没有 flyway_schema_history 的非空数据库必须拒绝启动，
+    # 避免把任意未知数据库误当作本项目的旧库接管。
+    # 仅在「从旧 DatabaseInitializer 升级、且已备份并核对过结构」的首次接管时，
+    # 临时设置 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true，成功后必须改回 false。
+    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: 1
+    baseline-description: legacy-schema-v1
+    # 禁止 flyway clean，防止误删生产数据。任何环境都不得改为 false。
+    clean-disabled: true
 
 server:
   port: ${PORT:3000}
 
 campus-market:
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
-  jwt-secret: ${JWT_SECRET:change-me-in-development-only-secret-please-set-a-long-random-value}
+  # 必填，无默认值：JWT_SECRET 缺失时应用必须启动失败，绝不能回落到任何仓库内固定密钥。
+  # 要求至少 32 字节（UTF-8）的强随机值，通过环境变量或本地私有 .env 提供。
+  # 本地开发同样需要显式设置；测试环境使用 src/test/resources/application-test.yaml 中的专用测试值。
+  jwt-secret: ${JWT_SECRET}
   jwt-issuer: campus-market
+  # 阶段 3：微信小程序登录（code2session）。两个值都配置后才启用；任一为空时接口返回「微信登录尚未开通」。
+  # 密钥只来自环境变量，不写入仓库；session_key 不落库、不记录。
+  # 阶段 4：上传图片的存放目录（生产用持久卷；接入对象存储后替换 ImageStore 实现）
+  images:
+    dir: ${IMAGES_DIR:${java.io.tmpdir}/campus-market-images}
+    # 是否允许商品 / 打包 / 批量 / 草稿使用外部 http(s) 图片地址。默认 true（开发、测试与演示数据不变）；
+    # 生产建议设为 false：新提交的外部地址 400，编辑时商品原有的外部地址可以保留。见 docs/images-and-content-safety.md
+    allow-external: ${ALLOW_EXTERNAL_IMAGES:true}
+  # 私信：早期需要人工审核，默认只能发送预设的快捷消息（GET /v1/message-templates）。
+  # 设为 true 后才允许自由文字（照常做内容安全检查）。商品留言不受影响。见 docs/messaging.md
+  messages:
+    free-text-enabled: ${MESSAGES_FREE_TEXT_ENABLED:false}
+  # 学校数据包（docs/school-data.md）：启动时把启用的学校 / 校区 / 楼栋导入数据库。
+  # packs：逗号分隔的学校 id，例如 aust；默认空 = 不导入。文件先找 packs-dir/<id>.json，再找 classpath:schools/<id>.json。
+  # demo-school-enabled：V1 演示学校 'pilot'（东/西/南/北校区）是否对新用户可见；生产环境设为 false。
+  schools:
+    packs: ${SCHOOL_PACKS:}
+    packs-dir: ${SCHOOL_PACKS_DIR:}
+    demo-school-enabled: ${DEMO_SCHOOL_ENABLED:true}
+  # 注册邀请码（docs/registration-invites.md）：true 时注册必须填写本校工作人员签发的邀请码。
+  # 默认 false（开发、测试与 E2E 不变）；首批试运行的生产环境设为 true。客户端从 GET /v1/config 的 registration.inviteRequired 读取。
+  registration:
+    invite-required: ${REGISTRATION_INVITE_REQUIRED:false}
+  wechat:
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    api-base: ${WECHAT_API_BASE:https://api.weixin.qq.com}
   jwt-audience: campus-market-web
+  # BUYER_CONFIRMED 停留超过该时长后自动 EXPIRED 并释放商品。
+  # 与早期订单的 expires_at 是两套独立阈值，不要混用。
+  buyer-confirmed-expiry-hours: ${BUYER_CONFIRMED_EXPIRY_HOURS:24}
   access-token-minutes: 15
   refresh-token-days: 7
   secure-cookies: ${SECURE_COOKIES:false}
+
+  # 主体维度限流（非 IP 限流）。计数存于 PostgreSQL 的 rate_limit_counters，
+  # 多实例一致；limit 与 window-seconds 必须为正数，否则启动失败。
+  # 订单的 code_attempts <= 5 仍然独立生效，此处只是纵深防御。
+  rate-limit:
+    # 同一账号 10 次 / 10 分钟
+    login:
+      limit: ${RATE_LIMIT_LOGIN:10}
+      window-seconds: ${RATE_LIMIT_LOGIN_WINDOW:600}
+    # 同一账号 5 次 / 60 分钟
+    register:
+      limit: ${RATE_LIMIT_REGISTER:5}
+      window-seconds: ${RATE_LIMIT_REGISTER_WINDOW:3600}
+    # 同一 session 30 次 / 10 分钟
+    refresh:
+      limit: ${RATE_LIMIT_REFRESH:30}
+      window-seconds: ${RATE_LIMIT_REFRESH_WINDOW:600}
+    # 同一用户每天 10 条教材建议（只计新建）
+    textbook-suggestion:
+      limit: ${RATE_LIMIT_TEXTBOOK_SUGGESTION:10}
+      window-seconds: ${RATE_LIMIT_TEXTBOOK_SUGGESTION_WINDOW:86400}
+    # 模块 5（均按登录用户计）：草稿创建、批量发布、协助邀请创建与兑换
+    listing-draft-create:
+      limit: ${RATE_LIMIT_LISTING_DRAFT_CREATE:120}
+      window-seconds: 3600
+    listing-batch-publish:
+      limit: ${RATE_LIMIT_LISTING_BATCH_PUBLISH:30}
+      window-seconds: 3600
+    assist-invite-create:
+      limit: ${RATE_LIMIT_ASSIST_INVITE_CREATE:20}
+      window-seconds: 86400
+    assist-invite-redeem:
+      limit: ${RATE_LIMIT_ASSIST_INVITE_REDEEM:10}
+      window-seconds: 600
+    circle-create:
+      limit: ${RATE_LIMIT_CIRCLE_CREATE:10}
+      window-seconds: 86400
+    circle-invite-create:
+      limit: ${RATE_LIMIT_CIRCLE_INVITE_CREATE:30}
+      window-seconds: 86400
+    circle-invite-redeem:
+      limit: ${RATE_LIMIT_CIRCLE_INVITE_REDEEM:10}
+      window-seconds: 600
+    # 模块 7：举报每日 20 次、申诉每日 5 次（均按登录用户计）
+    moderation-report:
+      limit: ${RATE_LIMIT_MODERATION_REPORT:20}
+      window-seconds: 86400
+    appeal-submit:
+      limit: ${RATE_LIMIT_APPEAL_SUBMIT:5}
+      window-seconds: 86400
+    # 阶段 1：同一用户每小时最多发起 20 次联系申请（对同一件商品重复请求不计数）
+    contact-request:
+      limit: ${RATE_LIMIT_CONTACT_REQUEST:20}
+      window-seconds: 3600
+    # 阶段 2：运营后台按工作人员计——读取（列表 / 详情 / 导出）每 10 分钟 300 次，写入每 10 分钟 60 次
+    admin-read:
+      limit: ${RATE_LIMIT_ADMIN_READ:300}
+      window-seconds: 600
+    admin-write:
+      limit: ${RATE_LIMIT_ADMIN_WRITE:60}
+      window-seconds: 600
+    # 阶段 3：修改密码 / 注销按用户每小时 10 次；重置码兑换按账号每小时 10 次；微信登录全局每分钟 600 次
+    account-security:
+      limit: ${RATE_LIMIT_ACCOUNT_SECURITY:10}
+      window-seconds: 3600
+    password-reset:
+      limit: ${RATE_LIMIT_PASSWORD_RESET:10}
+      window-seconds: 3600
+    wechat-login:
+      limit: ${RATE_LIMIT_WECHAT_LOGIN:600}
+      window-seconds: 60
+    # 阶段 4：同一用户每小时最多上传 60 张图片
+    image-upload:
+      limit: ${RATE_LIMIT_IMAGE_UPLOAD:60}
+      window-seconds: 3600
+    # 过期计数清理任务；测试 profile 关闭
+    cleanup-enabled: ${RATE_LIMIT_CLEANUP_ENABLED:true}
 
 logging:
   level:
@@ -30,3 +166,6 @@ mybatis-plus:
   type-handlers-package: com.lulu.campusmarketbackend.mapper
   configuration:
     map-underscore-to-camel-case: true
+    # 关闭事务内的一级缓存（默认 SESSION）：业务依赖「加锁之后重新读」得到最新行，
+    # SESSION 缓存会在同一事务里把加锁前读到的旧结果原样返回（CircleConcurrencyIT 暴露过这个问题）
+    local-cache-scope: statement

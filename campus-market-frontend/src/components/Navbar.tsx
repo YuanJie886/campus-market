@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import InputBase from "@mui/material/InputBase";
 import IconButton from "@mui/material/IconButton";
 import Badge from "@mui/material/Badge";
-import Avatar from "@mui/material/Avatar";
+import Avatar from "./Avatar";
 import Button from "@mui/material/Button";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -20,21 +20,50 @@ import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import ContactMailOutlinedIcon from "@mui/icons-material/ContactMailOutlined";
 import LogoutIcon from "@mui/icons-material/Logout";
 import LoginIcon from "@mui/icons-material/Login";
 import { useAuth } from "../context/AuthContext";
 import { useMarket } from "../context/MarketContext";
 import { useNotify } from "../context/NotificationContext";
+import { toUserMessage } from '../api/errors';
+import RadarOutlinedIcon from "@mui/icons-material/RadarOutlined";
+import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
+import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
+import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
+import { getApiClient } from "../api/client";
+import { useSchools } from "../hooks/useSchools";
+import { useDemandUnreadCount } from "../context/DemandUnreadContext";
+import { contactUnreadLabel, useContactUnreadCounts } from "../context/ContactUnreadContext";
 
 /** 全局顶部导航栏：Logo / 搜索 / 发布 / 消息 / 用户菜单 */
 export default function Navbar() {
   const navigate = useNavigate();
   const { currentUser, isAuthenticated, logout } = useAuth();
+  const { campusLabel } = useSchools();
   const { getUnreadCount } = useMarket();
   const { success, error } = useNotify();
+  const { count: demandUnread } = useDemandUnreadCount();
+  // 阶段 1：联系申请未读（卖家的新申请 + 买家收到的同意 / 拒绝 / 撤回同意）
+  const { counts: contactUnread } = useContactUnreadCounts();
 
   const [keyword, setKeyword] = useState("");
+  // 首页自带醒目的搜索框（与小程序集市页一致），导航栏不再重复一份
+  const showSearch = useLocation().pathname !== "/";
+  // 模块 7：只有服务端确认的本校平台工作人员才显示工作台入口（权限以后端为准，这里只是体验）
+  const [isStaff, setIsStaff] = useState(false);
+  const [isAuditor, setIsAuditor] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setIsStaff(false);
+    setIsAuditor(false);
+    if (!currentUser) return;
+    getApiClient().getStaffStatus().then((s) => {
+      if (active) { setIsStaff(s.staff); setIsAuditor(s.role === 'AUDITOR'); }
+    }).catch(() => undefined);
+    return () => { active = false };
+  }, [currentUser?.id]);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const menuOpen = Boolean(anchorEl);
   const unread = currentUser ? getUnreadCount(currentUser.id) : 0;
@@ -63,7 +92,7 @@ export default function Navbar() {
       success("已退出登录");
       navigate("/");
     } catch (e) {
-      error((e as Error).message);
+      error(toUserMessage(e));
     }
   };
 
@@ -110,6 +139,7 @@ export default function Navbar() {
         </Link>
 
         {/* 桌面端搜索框 */}
+        {showSearch ? (
         <form
           onSubmit={handleSearch}
           className="hidden flex-1 items-center sm:flex"
@@ -134,6 +164,9 @@ export default function Navbar() {
             </Button>
           </div>
         </form>
+        ) : (
+          <div className="hidden flex-1 sm:block" />
+        )}
 
         <div className="flex-1 sm:hidden" />
 
@@ -152,6 +185,83 @@ export default function Navbar() {
           >
             发布闲置
           </Button>
+
+          <Tooltip title="课程教材">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/courses" : "/login", isAuthenticated ? undefined : { state: { from: "/courses" } })}
+              aria-label="课程教材"
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <MenuBookOutlinedIcon aria-hidden />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="我的圈子">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/circles" : "/login", isAuthenticated ? undefined : { state: { from: "/circles" } })}
+              aria-label="我的圈子"
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <GroupsOutlinedIcon aria-hidden />
+            </IconButton>
+          </Tooltip>
+
+          {isStaff && !isAuditor && (
+            <Tooltip title="治理工作台">
+              <IconButton onClick={() => navigate("/moderation")} aria-label="治理工作台"
+                sx={{ borderRadius: 2.5, "&:hover": { bgcolor: "rgba(13,138,132,0.08)" } }}>
+                <GavelOutlinedIcon aria-hidden />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {isStaff && import.meta.env.VITE_API_MODE !== 'mock' && import.meta.env.VITE_API_MODE !== 'MOCK' && (
+            <Tooltip title="管理后台">
+              <IconButton component="a" href="/admin/" aria-label="管理后台" sx={{ borderRadius: 2.5 }}>
+                <AdminPanelSettingsOutlinedIcon aria-hidden />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          <Tooltip title="需求匹配">
+            <IconButton
+              onClick={() => navigate(isAuthenticated ? "/demands" : "/login", isAuthenticated ? undefined : { state: { from: "/demands" } })}
+              // 可访问名称里带上数字：读屏用户听到的是「需求匹配，3 条未读」，而不只是一个图标
+              aria-label={demandUnread > 0 ? `需求匹配，${demandUnread} 条未读` : "需求匹配"}
+              sx={{
+                borderRadius: 2.5,
+                "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+              }}
+            >
+              <Badge color="error" badgeContent={demandUnread} max={99}>
+                <RadarOutlinedIcon aria-hidden />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+
+          {isAuthenticated && (
+            <Tooltip title="联系申请">
+              <IconButton
+                onClick={() => navigate("/profile/contact-requests")}
+                // 可访问名称里带上数字：读屏用户听到「联系申请，2 条未读」
+                aria-label={contactUnreadLabel(contactUnread.total)}
+                sx={{
+                  borderRadius: 2.5,
+                  "&:hover": { bgcolor: "rgba(13,138,132,0.08)" },
+                }}
+              >
+                <Badge color="error" badgeContent={contactUnread.total} max={99}>
+                  <ContactMailOutlinedIcon aria-hidden />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          )}
 
           <Tooltip title="消息">
             <IconButton
@@ -177,17 +287,15 @@ export default function Navbar() {
                   aria-label="用户菜单"
                 >
                   <Avatar
-                    src={currentUser.avatar}
-                    alt={currentUser.nickname}
-                    sx={{
-                      width: 36,
-                      height: 36,
+                    avatar={currentUser.avatar}
+                    nickname={currentUser.nickname}
+                    userId={currentUser.id}
+                    size={36}
+                    style={{
                       border: "2px solid #fff",
                       boxShadow: "0 3px 12px rgba(15,23,42,0.12)",
                     }}
-                  >
-                    {currentUser.nickname.slice(0, 1)}
-                  </Avatar>
+                  />
                 </IconButton>
               </Tooltip>
               <Menu
@@ -202,7 +310,7 @@ export default function Navbar() {
                   <p className="text-sm font-semibold text-slate-800">
                     {currentUser.nickname}
                   </p>
-                  <p className="text-xs text-slate-400">{currentUser.campus}</p>
+                  <p className="text-xs text-slate-400">{campusLabel(currentUser.campus)}</p>
                 </div>
                 <Divider />
                 <MenuItem onClick={() => go("/profile")}>
@@ -223,11 +331,11 @@ export default function Navbar() {
                   </ListItemIcon>
                   我的收藏
                 </MenuItem>
-                <MenuItem onClick={() => go("/profile/orders")}>
+                <MenuItem onClick={() => go("/profile/contact-requests")}>
                   <ListItemIcon>
-                    <ReceiptLongOutlinedIcon fontSize="small" />
+                    <ContactMailOutlinedIcon fontSize="small" />
                   </ListItemIcon>
-                  我的订单
+                  联系申请
                 </MenuItem>
                 <Divider />
                 <MenuItem onClick={handleLogout} sx={{ color: "error.main" }}>
@@ -253,6 +361,7 @@ export default function Navbar() {
       </Toolbar>
 
       {/* 移动端搜索行 */}
+      {showSearch && (
       <form onSubmit={handleSearch} className="flex px-3 pb-2 sm:hidden">
         <div className="flex w-full items-center gap-1 rounded-[16px] border border-transparent bg-white px-3 py-1.5 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
           <SearchIcon fontSize="small" className="text-slate-400" />
@@ -273,6 +382,7 @@ export default function Navbar() {
           </Button>
         </div>
       </form>
+      )}
     </AppBar>
   );
 }

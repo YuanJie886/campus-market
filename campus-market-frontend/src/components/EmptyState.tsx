@@ -8,7 +8,7 @@ interface EmptyStateProps {
   icon?: ReactNode;
 }
 
-/** 通用空状态：图标 + 文案 + 可选操作按钮 */
+/** 通用空状态：图标 + 文案 + 可选操作（样式与小程序 .empty 一致，见 index.css 的 .cm-empty） */
 export default function EmptyState({
   title = '这里空空如也',
   description = '',
@@ -16,17 +16,13 @@ export default function EmptyState({
   icon,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center">
-      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-50 text-slate-300">
-        {icon ?? <SearchOffIcon sx={{ fontSize: 34 }} />}
+    <div className="cm-empty">
+      <div className="cm-empty-symbol" aria-hidden="true">
+        {icon ?? <SearchOffIcon sx={{ fontSize: 28 }} />}
       </div>
-      <h3 className="text-base font-semibold text-slate-700">{title}</h3>
-      {description && (
-        <p className="mt-1.5 max-w-md text-sm leading-6 text-slate-400">
-          {description}
-        </p>
-      )}
-      {action && <div className="mt-5">{action}</div>}
+      <h3 className="cm-empty-title">{title}</h3>
+      {description && <p className="cm-empty-description">{description}</p>}
+      {action && <div className="cm-empty-action">{action}</div>}
     </div>
   );
 }

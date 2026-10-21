@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/dist
+**/dist-mock
+**/target
+**/.env
+**/.env.*
+!**/.env.example
+.local-backups
+.workbuddy-ai

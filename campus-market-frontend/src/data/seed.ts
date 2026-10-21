@@ -23,9 +23,9 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const NOW = Date.now();
 
-/** 一键体验账号 */
-export const DEMO_ACCOUNT = '2021001';
-export const DEMO_PASSWORD = '123456';
+/** 一键体验账号（定义在 demoAccount.ts，这里继续导出） */
+import { DEMO_ACCOUNT, DEMO_PASSWORD } from './demoAccount';
+export { DEMO_ACCOUNT, DEMO_PASSWORD };
 
 const CATEGORY_IMAGE_SETS: Record<Category, string[]> = {
   数码电子: [
@@ -130,10 +130,6 @@ function img(seed: string, category?: Category, index = 0): string {
   return `https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1200&q=88`;
 }
 
-function avatar(seed: string): string {
-  return `https://picsum.photos/seed/${seed}/200/200`;
-}
-
 /* -------------------------------- 用户 -------------------------------- */
 
 export const seedUsers: User[] = [
@@ -142,7 +138,7 @@ export const seedUsers: User[] = [
     account: DEMO_ACCOUNT,
     password: DEMO_PASSWORD,
     nickname: '小鹿同学',
-    avatar: avatar('cm-avatar-demo'),
+    avatar: 'preset:1',
     campus: '东校区',
     contact: '13800008001',
     createdAt: NOW - 120 * DAY,
@@ -152,7 +148,7 @@ export const seedUsers: User[] = [
     account: '2021002',
     password: '123456',
     nickname: '林小满',
-    avatar: avatar('cm-avatar-lin'),
+    avatar: 'preset:2',
     campus: '西校区',
     contact: '13900008002',
     createdAt: NOW - 110 * DAY,
@@ -162,7 +158,7 @@ export const seedUsers: User[] = [
     account: '2021003',
     password: '123456',
     nickname: '赵一鸣',
-    avatar: avatar('cm-avatar-zhao'),
+    avatar: 'preset:3',
     campus: '南校区',
     contact: '13700008003',
     createdAt: NOW - 95 * DAY,
@@ -172,7 +168,7 @@ export const seedUsers: User[] = [
     account: '2021004',
     password: '123456',
     nickname: '陈思远',
-    avatar: avatar('cm-avatar-chen'),
+    avatar: 'preset:4',
     campus: '北校区',
     contact: '13600008004',
     createdAt: NOW - 80 * DAY,
@@ -182,7 +178,7 @@ export const seedUsers: User[] = [
     account: '2021005',
     password: '123456',
     nickname: '王小米',
-    avatar: avatar('cm-avatar-wang'),
+    avatar: 'preset:5',
     campus: '东校区',
     contact: '13500008005',
     createdAt: NOW - 60 * DAY,
@@ -595,7 +591,8 @@ const productSeeds: ProductSeed[] = [
   },
 ];
 
-export const seedProducts: Product[] = productSeeds.map(buildProduct);
+// 纯计算：标注后 REST 构建可以把整份演示种子（含演示图片地址）摇掉
+export const seedProducts: Product[] = /* @__PURE__ */ productSeeds.map(buildProduct);
 
 /* ------------------------------- 留言板 ------------------------------- */
 
@@ -660,6 +657,9 @@ export const seedOrders: Order[] = [
     buyerId: 'u_demo',
     sellerId: 'u_lin',
     price: 2200,
+    // canonicalStatus 是真值，中文文案只是展示。种子数据必须自带它，
+    // 否则新装用户的订单会缺少 canonical 值，被兜底成最保守的初始态（0.9E）。
+    canonicalStatus: 'PENDING_SELLER_CONFIRM',
     status: '待确认',
     createdAt: NOW - 20 * HOUR,
     updatedAt: NOW - 20 * HOUR,
@@ -670,6 +670,7 @@ export const seedOrders: Order[] = [
     buyerId: 'u_chen',
     sellerId: 'u_demo',
     price: 450,
+    canonicalStatus: 'COMPLETED',
     status: '已完成',
     createdAt: NOW - 92 * HOUR,
     updatedAt: NOW - 88 * HOUR,

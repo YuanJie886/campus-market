@@ -1,0 +1,237 @@
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import ContactPublicField from '../ContactPublicField';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import MenuItem from '@mui/material/MenuItem';
+import TextField from '@mui/material/TextField';
+import { getApiClient } from '../../api/client';
+import { toUserMessage } from '../../api/errors';
+import type { DisclosureInput, InspectionTemplate, ListingDraft, ListingPayload, ListingValidation } from '../../api/contracts';
+import { CATEGORIES, CONDITIONS } from '../../types';
+import { useOptionalAuth } from '../../context/AuthContext';
+import { useSchools } from '../../hooks/useSchools';
+import { IMAGE_PRESETS } from '../../utils/externalDemoImages';
+import { VALIDATION_LABEL, missingText, priceValue, versionConflict } from '../../utils/supply';
+import BuildingSelect from '../BuildingSelect';
+import ImageUploader from '../ImageUploader';
+import InspectionDeclarationFields, { type DeclarationValue } from '../trust/InspectionDeclarationFields';
+import BundleEditor, { itemsFromRows, rowsFromItems, type BundleRow } from './BundleEditor';
+import VisibilityPicker from '../circle/VisibilityPicker';
+import type { ProductVisibility } from '../../api/contracts';
+
+export interface ListingItemEditorHandle { focusTitle: () => void }
+
+interface Props {
+  draft: ListingDraft;
+  /** 协助人模式：只显示可以整理的字段（标题、描述、分类、价格建议、打包明细、取货楼栋建议），没有联系方式 */
+  assistant?: boolean;
+  /** 批次给出的逐项校验结果 */
+  validation?: ListingValidation;
+  /** 标题前缀，例如「第 3 件」 */
+  label: string;
+  onSaved: (draft: ListingDraft) => void;
+  /** 发生版本冲突后，用户选择重新加载服务端的最新版本 */
+  onReload: () => void;
+}
+
+interface FormState {
+  title: string; description: string; price: string; category: string; condition: string; campus: string;
+  buildingId: string | null; images: string[]; contact: string; contactPublic: boolean; declarations: DeclarationValue; bundleRows: BundleRow[];
+  visibility: ProductVisibility; circleIds: string[];
+}
+
+function formFrom(payload: ListingPayload): FormState {
+  const declarations: DeclarationValue = {};
+  for (const item of payload.inspection ?? []) declarations[item.itemCode] = { condition: item.condition, note: item.note ?? '' };
+  return {
+    title: payload.title ?? '', description: payload.description ?? '',
+    price: payload.price === undefined || payload.price === null ? '' : String(payload.price),
+    category: String(payload.category ?? ''), condition: String(payload.condition ?? ''), campus: String(payload.campus ?? ''),
+    buildingId: payload.buildingId ?? null, images: [...(payload.images ?? [])], contact: payload.contact ?? '', contactPublic: payload.contactPublic === true,
+    declarations, bundleRows: rowsFromItems(payload.bundleItems),
+    visibility: payload.visibility === 'CIRCLE_ONLY' ? 'CIRCLE_ONLY' : 'PUBLIC', circleIds: [...(payload.circleIds ?? [])],
+  };
+}
+
+/**
+ * 批量发布中的一件商品（也用于协助整理页）。草稿允许不完整：留空的字段不提交，
+ * 进入发布前由服务端逐项校验。这里<b>不</b>替卖家预选分类、成色或任何验货状态。
+ */
+const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function ListingItemEditor(
+  { draft, assistant = false, validation, label, onSaved, onReload }, ref,
+) {
+  const [form, setForm] = useState<FormState>(() => formFrom(draft.payload));
+  const [template, setTemplate] = useState<InspectionTemplate | null>(null);
+  // 模板还在加载时保存：保留原有声明，不能因为「还没拿到模板」把卖家填过的声明清掉
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<number | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const bundle = draft.draftType === 'BUNDLE';
+  // 校区选项：本人学校的校区（不在登录上下文里时按草稿已有的校区推断学校）
+  const ownerCampus = useOptionalAuth()?.currentUser?.campus ?? null;
+  const { campusChoicesFor, schoolOfCampus, schools } = useSchools();
+  const campusOptions = campusChoicesFor(ownerCampus || form.campus);
+  const idPrefix = `item-${draft.id}`;
+
+  useImperativeHandle(ref, () => ({ focusTitle: () => titleRef.current?.focus() }));
+
+  useEffect(() => {
+    if (bundle || assistant || !(CATEGORIES as string[]).includes(form.category)) { setTemplate(null); setTemplateLoading(false); return }
+    let active = true;
+    setTemplateLoading(true);
+    getApiClient().getInspectionTemplate(form.category as never)
+      .then((t) => { if (active) setTemplate(t) })
+      .catch(() => { if (active) setTemplate(null) })
+      .finally(() => { if (active) setTemplateLoading(false) });
+    return () => { active = false };
+  }, [form.category, bundle, assistant]);
+
+  const patch = (next: Partial<FormState>) => { setForm((f) => ({ ...f, ...next })); setStatus('') };
+
+  /** 协助人：以所有者的原内容为底，只覆盖可以整理的字段。所有者：以表单为准，保留表单未展示的字段。 */
+  const toPayload = (): ListingPayload => {
+    const base: ListingPayload = JSON.parse(JSON.stringify(draft.payload));
+    const set = (key: keyof ListingPayload, value: unknown) => {
+      if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) delete (base as Record<string, unknown>)[key];
+      else (base as Record<string, unknown>)[key] = value;
+    };
+    set('title', form.title.trim() || undefined);
+    set('description', form.description.trim() || undefined);
+    set('price', priceValue(form.price));
+    set('category', form.category || undefined);
+    (base as Record<string, unknown>).buildingId = form.buildingId;
+    if (bundle) set('bundleItems', form.bundleRows.length ? itemsFromRows(form.bundleRows) : undefined);
+    if (!assistant) {
+      set('condition', form.condition || undefined);
+      set('campus', form.campus || undefined);
+      set('images', form.images);
+      set('contact', form.contact.trim() || undefined);
+      set('contactPublic', form.contactPublic);
+      // 可见范围只有所有者能选；协助人保存时沿用所有者的原值（服务端也会拒绝协助人改动这两个字段）
+      set('visibility', form.visibility === 'CIRCLE_ONLY' ? 'CIRCLE_ONLY' : undefined);
+      set('circleIds', form.visibility === 'CIRCLE_ONLY' ? form.circleIds : undefined);
+      if (!bundle) {
+        const inspection: DisclosureInput[] = Object.entries(form.declarations)
+          .filter(([, d]) => d.condition)
+          .map(([itemCode, d]) => ({ itemCode, condition: d.condition!, ...(d.note.trim() ? { note: d.note.trim() } : {}) }));
+        if (!templateLoading) set('inspection', template ? inspection : undefined);
+      }
+    }
+    return base;
+  };
+
+  /**
+   * 保存这件；ready=true 时同时把草稿标记为「可以发布」（与小程序 DraftEditor 相同：status=READY）。
+   * 进入 READY 前服务端按正式商品规则校验，不通过时 400「草稿还不能发布：…」原样显示；只有所有者能标记。
+   * 之后再普通保存会回到 DRAFT（服务端规则），需要时重新标记。
+   */
+  const save = async (ready = false) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    setStatus('');
+    try {
+      const saved = await getApiClient().updateListingDraft(draft.id, {
+        expectedVersion: draft.version, payload: toPayload(), ...(ready ? { status: 'READY' as const } : {}),
+      });
+      setStatus(ready ? `${label}已标记为可以发布` : `${label}已保存`);
+      onSaved(saved);
+    } catch (e) {
+      const current = versionConflict(e);
+      if (current !== null) setConflict(current);
+      else setError(toUserMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const problem = validation && validation.code !== 'VALID' ? validation : null;
+  // 只有已知的校区才去拉楼栋；学校列表不可用时不拦（由服务端校验）
+  const campus = form.campus && (schools.length === 0 || schoolOfCampus(form.campus)) ? form.campus : null;
+  return (
+    <section aria-labelledby={`${idPrefix}-heading`} className="space-y-3">
+      <h2 id={`${idPrefix}-heading`} className="text-base font-bold text-slate-800">
+        {label}{bundle ? '（整套打包）' : ''}
+      </h2>
+      {problem && (
+        <Alert severity="warning" role="note">
+          {VALIDATION_LABEL[problem.code]}
+          {problem.code === 'MISSING_FIELD' ? `：${missingText(problem.field)}` : problem.message ? `：${problem.message}` : ''}
+        </Alert>
+      )}
+      {conflict !== null && (
+        <Alert
+          severity="warning"
+          action={<Button color="inherit" size="small" onClick={onReload}>重新加载这件</Button>}
+        >
+          这件商品已在其他页面或被协助人保存过（最新是第 {conflict} 版）。本页的修改没有保存，也不会自动合并；
+          重新加载会显示最新内容并放弃本页未保存的修改。
+        </Alert>
+      )}
+      <TextField label="标题" value={form.title} inputRef={titleRef} fullWidth size="small" inputProps={{ maxLength: 100 }}
+        onChange={(e) => patch({ title: e.target.value })} />
+      <TextField label="描述" value={form.description} fullWidth size="small" multiline minRows={2} inputProps={{ maxLength: 4000 }}
+        onChange={(e) => patch({ description: e.target.value })} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <TextField label={bundle ? '整套总价（元）' : assistant ? '价格建议（元）' : '价格（元）'} value={form.price} size="small"
+          inputProps={{ inputMode: 'decimal', maxLength: 12 }} onChange={(e) => patch({ price: e.target.value })} />
+        <TextField select label={bundle ? '主分类' : '分类'} value={form.category} size="small"
+          onChange={(e) => patch({ category: e.target.value, declarations: {} })}>
+          {CATEGORIES.map((c) => <MenuItem key={c} value={c}>{bundle && c === '其他' ? '其他 / 混合物品' : c}</MenuItem>)}
+        </TextField>
+        {!assistant && (
+          <TextField select label={bundle ? '整体成色' : '成色'} value={form.condition} size="small" onChange={(e) => patch({ condition: e.target.value })}>
+            {CONDITIONS.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          </TextField>
+        )}
+      </div>
+
+      {!assistant && (
+        <TextField select label="校区" value={form.campus} size="small" onChange={(e) => patch({ campus: e.target.value, buildingId: null })}>
+          {campusOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+        </TextField>
+      )}
+      {campus ? (
+        <BuildingSelect campus={campus} value={form.buildingId} onChange={(buildingId) => patch({ buildingId })}
+          emptyLabel="不指定楼栋" zoneLabel="取货园区" buildingLabel={assistant ? '取货楼栋建议' : '取货楼栋'} />
+      ) : (
+        <p className="text-xs text-slate-600">{assistant ? '所有者还没有选择校区，暂时不能建议取货楼栋。' : '先选择校区，再选择取货楼栋（可不指定）。'}</p>
+      )}
+      {!assistant && (
+        <ImageUploader value={form.images} onChange={(images) => patch({ images })} label="商品图片" inputId={`${idPrefix}-images`}
+          presets={IMAGE_PRESETS.slice(0, 6)} presetVariant="compact" presetLabel={(i) => `${label}选择图片 ${i + 1}`} onPendingChange={setUploading} />
+      )}
+      {!assistant && (
+        <TextField label="联系方式（只有你自己能看到草稿里的联系方式）" value={form.contact} size="small" fullWidth inputProps={{ maxLength: 100 }}
+          onChange={(e) => patch({ contact: e.target.value })} />
+      )}
+      {!assistant && <ContactPublicField checked={form.contactPublic} onChange={(contactPublic) => patch({ contactPublic })} />}
+      {bundle && (
+        <BundleEditor rows={form.bundleRows} onChange={(bundleRows) => patch({ bundleRows })} idPrefix={`${idPrefix}-bundle`}
+          error={problem?.code === 'INVALID_BUNDLE' ? problem.message : null} />
+      )}
+      {!bundle && template && (
+        <InspectionDeclarationFields template={template} value={form.declarations} errors={{}}
+          onChange={(code, d) => patch({ declarations: { ...form.declarations, [code]: d } })} />
+      )}
+      {!assistant && (
+        <VisibilityPicker visibility={form.visibility} circleIds={form.circleIds}
+          onChange={(next) => patch(next)} error={problem?.code === 'INVALID_CIRCLE' ? problem.message : null} />
+      )}
+      {error && <Alert severity="error">{error}</Alert>}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="contained" onClick={() => void save()} disabled={saving || conflict !== null || uploading > 0}>保存这件</Button>
+        {!assistant && (
+          <Button variant="outlined" onClick={() => void save(true)} disabled={saving || conflict !== null || uploading > 0}>标记为可以发布</Button>
+        )}
+        <span role="status" aria-live="polite" className="text-sm text-emerald-800">{status}</span>
+      </div>
+    </section>
+  );
+});
+
+export default ListingItemEditor;
