@@ -22,6 +22,7 @@ import { ProductsList, ProductShow } from './Products';
 import { RoleRequestsList, RoleRequestShow } from './RoleRequests';
 import { ReadAuditList } from './ReadAudit';
 import { PasswordResetAction } from './PasswordReset';
+import { RegistrationInvitesList, RegistrationInviteShow } from './RegistrationInvites';
 import { CampusField } from './CampusUi';
 import { PageHeading, IdentifierField, RoleField, StatusField, ActionCodeField, ReasonCodeField, ScopeField, ROLES, statusNames, targetNames, resourceNames, decisionActionChoices, decisionReasonChoices } from './adminUi';
 
@@ -150,6 +151,8 @@ function RolesList() { return <><PageHeading title="角色权限" description="�
 export default function App() {
     return <Admin layout={AdminLayout} loginPage={AdminLogin} theme={adminTheme} darkTheme={null} defaultTheme="light" title="校园集市 · 管理后台" dataProvider={dataProvider} authProvider={authProvider} dashboard={Dashboard} i18nProvider={i18nProvider} requireAuth>
         <Resource icon={resourceIcons.users} name="users" options={{ label: '用户与工作人员' }} list={UsersList} show={UserShow} edit={StaffPermissions} />
+        {/* 邀请注册：发放在列表页的弹窗里完成（完整邀请码只显示一次），撤销走专用接口；没有新建 / 编辑视图。 */}
+        <Resource icon={resourceIcons['registration-invites']} name="registration-invites" options={{ label: resourceNames['registration-invites'] }} list={RegistrationInvitesList} show={RegistrationInviteShow} />
         <Resource icon={resourceIcons.products} name="products" options={{ label: '商品目录' }} list={ProductsList} show={ProductShow} />
         {/* 站内交易已停用（V16）：历史订单只读，不提供 edit / create。 */}
         <Resource icon={resourceIcons.orders} name="orders" options={{ label: resourceNames.orders }} list={OrdersList} show={OrderShow} />

@@ -2,7 +2,7 @@
 /**
  * 4.8B 构建产物检查：在 `npm run build:rest` 与 `npm run build:mock` 之后运行（npm run build:all 会依次执行）。
  *
- * - REST 产物（dist/）里不能出现离线 Mock：Mock 的存储键、演示种子、Mock 专用的历史交易收尾标识。
+ * - REST 产物（dist/）里不能出现离线 Mock：Mock 的存储键、演示种子、Mock 专用的历史交易收尾标识、演示邀请码面板与演示邀请码。
  * - Mock 产物（dist-mock/）里不能出现真实 REST 传输层：认证刷新、批量发布、协助邀请、联系申请未读 / 已读、找回密码、注销、图片上传、客户端配置、私信快捷消息、学校列表等 REST 路径。
  * - 每个标记都必须在另一份产物里出现，证明检查不是空转（例如标记拼错了永远找不到）。
  * - 入口 chunk 不超过 chunkSizeWarningLimit（1500 kB，未调高）。
@@ -18,7 +18,10 @@ const MOCK_DIR = 'dist-mock';
 const ENTRY_LIMIT_KB = 1500;
 
 /** REST 产物里不得出现的离线 Mock 标记 */
-const MOCK_ONLY = ['mock_database_v1', 'demo-calculus-8', 'PLATFORM_TRADE_RETIRED', 'demo-staff-switch', 'demo-reset-code', 'mock_uploaded_images_v1'];
+const MOCK_ONLY = ['mock_database_v1', 'demo-calculus-8', 'PLATFORM_TRADE_RETIRED', 'demo-staff-switch', 'demo-reset-code', 'mock_uploaded_images_v1',
+  // 邀请制：注册页的「演示邀请码」面板（data-marker）、离线演示的邀请制开关与内存里的演示邀请码只属于 Mock；
+  // 真实部署的邀请码由学校工作人员发放，REST 产物里不能有任何写死的邀请码
+  'demo-invite-code', 'mock_invite_required_v1', 'CAMP-US23-4567'];
 /** Mock 产物里不得出现的 REST 传输层标记 */
 const REST_ONLY = ['/v1/auth/refresh', '/v1/listing-batches', '/v1/listing-assist-invites', '/v1/contact-requests/unread-count', '/v1/contact-requests/read',
   // 阶段 3 / 4：账号生命周期与图片上传只走真实后端；离线演示用本机的 data: 图片与内存里的演示重置码

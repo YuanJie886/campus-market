@@ -47,7 +47,10 @@ describe('7 工作人员与演示开关', () => {
   it('工作人员权限每次从数据库读取：JWT 里没有角色；注册接口不接受角色；迁移不植入任何工作人员', () => {
     expect(javaOf('JwtService')).not.toMatch(/role|staff/i);
     expect(javaOf('StaffGuard')).toContain('selectActiveStaff');
-    expect(javaOf('AuthService')).toMatch(/REGISTER_FIELDS = java\.util\.Set\.of\("account", "password", "nickname", "campus", "contact"\)/);
+    // REWRITTEN（邀请制注册）：注册请求体的白名单多了 inviteCode（只在 registration.inviteRequired=true 时使用），仍然没有任何角色字段
+    const registerFields = /REGISTER_FIELDS = java\.util\.Set\.of\(([^)]*)\)/.exec(javaOf('AuthService'))?.[1] ?? '';
+    expect(registerFields).toBe('"account", "password", "nickname", "campus", "contact", "inviteCode"');
+    expect(registerFields).not.toMatch(/role|staff/i);
     expect(V10).not.toMatch(/INSERT INTO staff_members/i);
     expect(V10).toMatch(/CHECK \(ends_at > starts_at AND ends_at <= starts_at \+ interval '30 days'\)/);
   });

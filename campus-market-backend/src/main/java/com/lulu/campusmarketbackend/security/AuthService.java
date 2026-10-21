@@ -29,7 +29,7 @@ import java.util.UUID;
 @Service
 public class AuthService {
     /** 注册请求允许的字段。role / id / createdAt 等一律作为未知字段拒绝。 */
-    private static final java.util.Set<String> REGISTER_FIELDS = java.util.Set.of("account", "password", "nickname", "campus", "contact");
+    private static final java.util.Set<String> REGISTER_FIELDS = java.util.Set.of("account", "password", "nickname", "campus", "contact", "inviteCode");
     /** 登录请求允许的字段。 */
     private static final java.util.Set<String> LOGIN_FIELDS = java.util.Set.of("account", "password");
 
@@ -49,15 +49,22 @@ public class AuthService {
     private final com.lulu.campusmarketbackend.school.SchoolScope schools;
     /** 阶段 4：注册昵称同样过内容安全（还没有账号，只做关键词过滤） */
     private final ContentSafetyService safety;
+    /** V23：首批试运行只允许持邀请码注册（REGISTRATION_INVITE_REQUIRED） */
+    private final com.lulu.campusmarketbackend.registration.RegistrationInvites invites;
+    private final com.lulu.campusmarketbackend.mapper.ReferenceMapper references;
 
     public AuthService(UserMapper users, SessionMapper sessions, JwtService jwt, DomainMapper mapper, RateLimitService rateLimit,
                        com.lulu.campusmarketbackend.school.SchoolScope schools, ContentSafetyService safety,
+                       com.lulu.campusmarketbackend.registration.RegistrationInvites invites,
+                       com.lulu.campusmarketbackend.mapper.ReferenceMapper references,
                        @Value("${campus-market.web-origin}") String webOrigin,
                        @Value("${campus-market.secure-cookies}") boolean secureCookies,
                        @Value("${campus-market.refresh-token-days}") long refreshDays) {
         this.users = users; this.sessions = sessions; this.jwt = jwt; this.mapper = mapper; this.rateLimit = rateLimit;
         this.schools = schools;
         this.safety = safety;
+        this.invites = invites;
+        this.references = references;
         this.webOrigin = webOrigin; this.secureCookies = secureCookies; this.refreshDays = refreshDays;
         requireCoherentCookiePolicy(webOrigin, secureCookies);
     }
@@ -101,11 +108,16 @@ public class AuthService {
     public Map<String, Object> register(Map<String, Object> body, HttpServletResponse response) {
         JsonFieldPolicy.rejectUnknown(body, REGISTER_FIELDS);
         String account = field(body, "account", 64), password = string(body, "password", 8, 72), nickname = string(body, "nickname", 1, 40), campus = schools.requireRegistrableCampus(body.get("campus")), contact = optional(body, "contact", 100);
-        // 基础校验通过后才计数，避免格式垃圾把限流表撑大
+        // 要求邀请码时缺少即 400；不要求时 inviteCode 照常接受但完全忽略
+        String inviteCode = invites.requirePresent(body.get("inviteCode"));
+        // 基础校验通过后才计数，避免格式垃圾把限流表撑大；邀请码的有效性在计数之后才判断（猜码同样受限流）
         rateLimit.consume(RateLimitService.Scope.AUTH_REGISTER, RateLimitService.normalizeAccount(account));
         safety.checkAnonymous(nickname);
         UserEntity user = new UserEntity(); user.setId(UUID.randomUUID()); user.setAccount(account); user.setPasswordHash(passwordEncoder.encode(password)); user.setNickname(nickname); user.setAvatar(""); user.setCampus(campus); user.setContact(contact);
+        // 占用邀请码与插入用户在同一事务：账号已存在等任何失败都会回滚，不占用次数。口令散列在占用之前算好，缩短行锁持有时间
+        UUID invite = inviteCode == null ? null : invites.consume(inviteCode, references.selectCampusSchool(campus));
         try { users.insert(user); } catch (org.springframework.dao.DuplicateKeyException e) { throw ApiException.conflict("账号已存在"); }
+        if (invite != null) invites.recordUse(invite, user.getId());
         return session(users.selectRowById(user.getId()), response);
     }
 

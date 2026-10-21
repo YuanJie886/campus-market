@@ -170,7 +170,7 @@ describe('REST 第二部分：每个新接口的路径与请求体（与 Web res
 
 describe('REST 第二部分：错误与兜底', () => {
   it('旧后端没有 /v1/config（404）时用默认值；返回值逐项校验', async () => {
-    expect(await setup(() => ({ statusCode: 404, data: '<html>' })).api.clientConfig()).toEqual({ images: { maxCount: 9, maxBytes: 5242880, accept: ['image/jpeg', 'image/png'], externalAllowed: true } });
+    expect(await setup(() => ({ statusCode: 404, data: '<html>' })).api.clientConfig()).toEqual({ images: { maxCount: 9, maxBytes: 5242880, accept: ['image/jpeg', 'image/png'], externalAllowed: true }, registration: { inviteRequired: false } });
     expect((await setup(() => ok({ images: { maxCount: 6, externalAllowed: false, maxBytes: 'x' } })).api.clientConfig()).images).toMatchObject({ maxCount: 6, externalAllowed: false, maxBytes: 5242880 });
     await expect(setup(() => ({ statusCode: 500, data: { code: 500, message: '服务暂时不可用' } })).api.clientConfig()).rejects.toMatchObject({ code: 500 });
   });

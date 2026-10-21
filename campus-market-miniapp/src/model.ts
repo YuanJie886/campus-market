@@ -121,6 +121,8 @@ export interface ContactPage { items: ContactRequest[]; total: number; page: num
 export interface UnreadCount { received: number; updates: number; total: number }
 export interface InspectionTemplate { items: { code: string; label: string; required: boolean }[] }
 export interface Session { accessToken: string; expiresAtIso: string; user: User }
+/** 注册请求体（后端白名单）：inviteCode 只在需要邀请码时出现。 */
+export interface RegisterInput { account: string; password: string; nickname: string; campus: Campus; contact: string; inviteCode?: string }
 /** GET /v1/auth/wechat：enabled 表示服务端已配置微信登录；bound 表示当前登录账号已绑定微信（未登录时为 false）。 */
 export interface WechatStatus { enabled: boolean; bound: boolean }
 /** POST /v1/auth/wechat/login：已绑定直接是会话；未绑定返回 10 分钟、一次性的绑定票据（只放内存）。 */
@@ -131,7 +133,8 @@ export interface DeletionResult { productsTakenDown: number; requestsClosed: num
 export interface MarketApi {
   restore(): Promise<User | null>;
   login(account: string, password: string): Promise<User>;
-  register(input: { account: string; password: string; nickname: string; campus: Campus; contact: string }): Promise<User>;
+  /** POST /v1/auth/register；inviteCode 只在 GET /v1/config 的 registration.inviteRequired 为 true 时发送。 */
+  register(input: RegisterInput): Promise<User>;
   logout(): Promise<void>;
   list(query: Query): Promise<ProductPage>;
   detail(id: string): Promise<Product>;
@@ -254,17 +257,21 @@ export interface MarketApi {
 }
 
 // ---------------- 客户端配置 ----------------
-export interface ClientConfig { images: { maxCount: number; maxBytes: number; accept: string[]; externalAllowed: boolean } }
-export const DEFAULT_CLIENT_CONFIG: ClientConfig = { images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: true } };
+/** registration.inviteRequired：试点期只能凭学校工作人员发放的邀请码注册（缺失时按 false）。 */
+export interface ClientConfig { images: { maxCount: number; maxBytes: number; accept: string[]; externalAllowed: boolean }; registration: { inviteRequired: boolean } }
+export const DEFAULT_CLIENT_CONFIG: ClientConfig = { images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: true }, registration: { inviteRequired: false } };
 /** 逐项校验：缺失或类型不对的字段回落到默认值（与 Web normalizeClientConfig 一致）。 */
 export function normalizeClientConfig(raw: unknown): ClientConfig {
   const fallback = DEFAULT_CLIENT_CONFIG.images;
   const images = (raw && typeof raw === 'object' ? (raw as { images?: unknown }).images : undefined) as Record<string, unknown> | undefined;
+  const registration = (raw && typeof raw === 'object' ? (raw as { registration?: unknown }).registration : undefined) as Record<string, unknown> | null | undefined;
   const positiveInt = (v: unknown, d: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : d);
   const accept = Array.isArray(images?.accept) && (images!.accept as unknown[]).length > 0 && (images!.accept as unknown[]).every((t) => typeof t === 'string' && t.startsWith('image/'))
     ? [...images!.accept as string[]] : [...fallback.accept];
   return { images: { maxCount: positiveInt(images?.maxCount, fallback.maxCount), maxBytes: positiveInt(images?.maxBytes, fallback.maxBytes), accept,
-    externalAllowed: typeof images?.externalAllowed === 'boolean' ? images.externalAllowed : fallback.externalAllowed } };
+    externalAllowed: typeof images?.externalAllowed === 'boolean' ? images.externalAllowed : fallback.externalAllowed },
+    // 只有明确为 true 才要求邀请码；缺失或类型不对都按 false（与后端契约一致）
+    registration: { inviteRequired: registration?.inviteRequired === true } };
 }
 
 // ---------------- 楼栋集市 ----------------

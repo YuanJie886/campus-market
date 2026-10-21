@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -11,12 +11,24 @@ import { useSchools } from "../hooks/useSchools";
 import { toUserMessage } from '../api/errors';
 import { clearPendingInvite } from '../utils/pendingInvite';
 import { LegalDialog, LegalLinks, type LegalKind } from '../legal/LegalDocumentView';
+import { useClientConfig } from '../hooks/useClientConfig';
+import { INVITE_CODE_ALPHABET, INVITE_CODE_INVALID, INVITE_CODE_REQUIRED, formatInviteCodeInput, looksLikeInviteCode, normalizeInviteCode } from '../api/contracts';
+import type { RegisterInput } from '../types';
+import { inviteCodeFromFragment, stripInviteFragment } from '../utils/registrationInvite';
+
+// 离线演示专用的「演示邀请码」面板。构建期常量折叠：REST 构建里这个懒加载被整体删掉
+const DemoInviteCodes = import.meta.env.VITE_API_MODE === 'mock' ? lazy(() => import('../components/demo/DemoInviteCodes')) : null;
 
 /** 未勾选同意时的提示（显示在勾选框下方，并由 role=alert 播报） */
 export const CONSENT_REQUIRED = "请先阅读并勾选同意《用户协议》和《隐私政策》";
 /** 学校 / 校区没有选择时的提示（显示在对应选择框下方） */
 export const SCHOOL_REQUIRED = "请选择学校";
 export const CAMPUS_REQUIRED = "请选择所在校区";
+/** 邀请制（GET /v1/config 的 registration.inviteRequired=true）时邀请码输入框下方的说明 */
+export const INVITE_HELP = "目前为小范围测试，需要学校工作人员发放的邀请码";
+/** 格式提示：只提示，不拦截提交（以服务端的判定为准） */
+export const INVITE_FORMAT_HINT = "邀请码格式为 XXXX-XXXX-XXXX（12 位大写字母或数字，不含 I、L、O、0、1），请核对";
+const INVITE_SERVER_ERRORS: readonly string[] = [INVITE_CODE_REQUIRED, INVITE_CODE_INVALID];
 
 /** 注册页 */
 export default function RegisterPage() {
@@ -52,8 +64,29 @@ export default function RegisterPage() {
   const consentLabelId = useId();
   const consentErrorId = useId();
 
+  // 邀请制：只有服务端配置要求时才显示邀请码并随注册请求提交；服务端回答「请输入邀请码」时（例如配置没有拿到）同样补出输入框
+  const { config } = useClientConfig();
+  const [serverAskedInvite, setServerAskedInvite] = useState(false);
+  const inviteRequired = config.registration.inviteRequired || serverAskedInvite;
+  // 邀请链接 /register#invite=CODE：渲染前读出片段预填，挂载后立即从地址栏删掉（片段本来就不会发给服务器）
+  const [inviteCode, setInviteCode] = useState(() => (typeof window === "undefined" ? "" : inviteCodeFromFragment(window.location.hash) ?? ""));
+  useEffect(() => { stripInviteFragment() }, []);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteBlurred, setInviteBlurred] = useState(false);
+  const [inviteFocusTick, setInviteFocusTick] = useState(0);
+  const inviteRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (inviteFocusTick > 0) inviteRef.current?.focus() }, [inviteFocusTick]);
+  const inviteCompact = normalizeInviteCode(inviteCode);
+  const inviteFormatHint = inviteCompact !== "" && !looksLikeInviteCode(inviteCode)
+    && (inviteBlurred || inviteCompact.length >= 12 || [...inviteCompact].some((ch) => !INVITE_CODE_ALPHABET.includes(ch)));
+
   const handleRegister = async () => {
     if (busy) return;
+    if (inviteRequired && !inviteCompact) {
+      setInviteError(INVITE_CODE_REQUIRED);
+      setInviteFocusTick((t) => t + 1);
+      return;
+    }
     if (!schoolId) {
       setSchoolError(true);
       schoolRef.current?.focus();
@@ -75,19 +108,23 @@ export default function RegisterPage() {
         error("两次输入的密码不一致");
         return;
       }
-      const result = await register({
-        account,
-        password,
-        nickname,
-        campus,
-        contact,
-      });
+      const input: RegisterInput = { account, password, nickname, campus, contact };
+      // 不需要邀请码时不发送这个字段（服务端也会忽略）
+      if (inviteRequired) input.inviteCode = inviteCode.trim();
+      const result = await register(input);
       if (result.ok) {
         success(result.message);
         navigate(redirectTo, { replace: true });
       } else {
         clearPendingInvite();
         error(result.message);
+        // 服务端的邀请码提示（原文）同时显示在输入框下方，并把焦点移过去
+        const inviteProblem = INVITE_SERVER_ERRORS.find((m) => result.message.startsWith(m));
+        if (inviteProblem) {
+          if (inviteProblem === INVITE_CODE_REQUIRED) setServerAskedInvite(true);
+          setInviteError(inviteProblem);
+          setInviteFocusTick((t) => t + 1);
+        }
       }
     } catch (e) {
       clearPendingInvite();
@@ -113,6 +150,30 @@ export default function RegisterPage() {
         </div>
 
         <div className="flex flex-col gap-4">
+          {inviteRequired && (
+            <TextField
+              label="邀请码"
+              value={inviteCode}
+              onChange={(e) => { setInviteCode(formatInviteCodeInput(e.target.value)); setInviteError(null); setInviteBlurred(false); }}
+              onBlur={() => setInviteBlurred(true)}
+              fullWidth
+              required
+              placeholder="XXXX-XXXX-XXXX"
+              error={inviteError !== null}
+              inputRef={inviteRef}
+              inputProps={{ maxLength: 64, autoComplete: "off", autoCapitalize: "characters", spellCheck: false }}
+              helperText={
+                <>
+                  <span className="block">{INVITE_HELP}</span>
+                  {inviteError ? (
+                    <span role="alert" className="block">{inviteError}</span>
+                  ) : inviteFormatHint ? (
+                    <span className="block">{INVITE_FORMAT_HINT}</span>
+                  ) : null}
+                </>
+              }
+            />
+          )}
           <TextField
             label="学号 / 手机号"
             value={account}
@@ -251,6 +312,11 @@ export default function RegisterPage() {
         </div>
       </div>
 
+      {DemoInviteCodes && (
+        <Suspense fallback={null}>
+          <DemoInviteCodes onPick={(code) => { setInviteCode(formatInviteCodeInput(code)); setInviteError(null); }} />
+        </Suspense>
+      )}
       <p className="text-center text-sm text-slate-500">
         已有账号？
         <Link to="/login" className="ml-1 font-semibold text-brand-600">

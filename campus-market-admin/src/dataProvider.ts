@@ -2,17 +2,26 @@ import type { DataProvider, GetListParams, GetManyParams, Identifier, RaRecord }
 import { HttpError } from './HttpError';
 import { request } from './http';
 
-const RESOURCES = new Set(['users', 'products', 'orders', 'cases', 'appeals', 'audit', 'role-requests', 'read-audit', 'roles']);
+const RESOURCES = new Set(['users', 'products', 'orders', 'cases', 'appeals', 'audit', 'role-requests', 'read-audit', 'roles', 'registration-invites']);
 /** 与后端 AdminService.rejectQuery 一致：每个资源只发送它接受的筛选参数。 */
-const FILTERS: Record<string, string[]> = { cases: ['status', 'targetType'], appeals: ['status'], products: ['q', 'status', 'category', 'campus', 'moderationHidden'], 'role-requests': ['q', 'status'] };
+const FILTERS: Record<string, string[]> = { cases: ['status', 'targetType'], appeals: ['status'], products: ['q', 'status', 'category', 'campus', 'moderationHidden'], 'role-requests': ['q', 'status'], 'registration-invites': ['status'] };
 const queueResources = new Set(['cases', 'appeals']);
+/**
+ * 按 page / size 分页的资源及其每页上限。注册邀请码接口（GET /v1/admin/registration-invites）的契约是
+ * page + size（最多 50）+ status，不接受 perPage / sort / order / q。
+ */
+export const SIZE_PAGED: Readonly<Record<string, number>> = { 'registration-invites': 50 };
 function base(resource: string) {
     if (!RESOURCES.has(resource)) throw new HttpError('不支持的后台资源', 400);
     return `/v1/admin/${resource}`;
 }
 export function listQuery(resource: string, params: GetListParams): string {
-    const query = new URLSearchParams({ page: String(params.pagination?.page ?? 1), perPage: String(params.pagination?.perPage ?? 25) });
-    if (!queueResources.has(resource) && resource !== 'roles') {
+    const page = String(params.pagination?.page ?? 1), perPage = params.pagination?.perPage ?? 25;
+    const sizeLimit = SIZE_PAGED[resource];
+    const query = sizeLimit
+        ? new URLSearchParams({ page, size: String(Math.min(Math.max(1, perPage), sizeLimit)) })
+        : new URLSearchParams({ page, perPage: String(perPage) });
+    if (!sizeLimit && !queueResources.has(resource) && resource !== 'roles') {
         query.set('sort', params.sort?.field ?? 'createdAt'); query.set('order', params.sort?.order ?? 'DESC');
     }
     const allowed = FILTERS[resource] ?? ['q'];
@@ -23,8 +32,11 @@ function path(resource: string, id: Identifier) { return `${base(resource)}/${en
 const unsupported = () => Promise.reject(new HttpError('此后台不支持直接创建或删除业务记录', 405));
 export const dataProvider: DataProvider = {
     async getList<RecordType extends RaRecord>(resource: string, params: GetListParams) {
-        const page = await request<{ items: RecordType[]; total: number }>(`${base(resource)}?${listQuery(resource, params)}`);
-        return { data: page.items, total: page.total };
+        const page = await request<{ items: RecordType[]; total?: number | null }>(`${base(resource)}?${listQuery(resource, params)}`);
+        if (typeof page.total === 'number') return { data: page.items, total: page.total };
+        // 没有返回总数（注册邀请码契约中 total 可选）：按这一页是否取满判断还有没有下一页。
+        const current = params.pagination?.page ?? 1, perPage = params.pagination?.perPage ?? 25;
+        return { data: page.items, pageInfo: { hasPreviousPage: current > 1, hasNextPage: page.items.length >= Math.min(perPage, SIZE_PAGED[resource] ?? perPage) } };
     },
     async getOne(resource, { id }) {
         // 读取审计只有列表（后端详情接口返回 404），不发请求。

@@ -307,6 +307,8 @@ export interface RegisterInput {
   nickname: string;
   campus: Campus;
   contact: string;
+  /** 只在 GET /v1/config 的 registration.inviteRequired=true 时提交（XXXX-XXXX-XXXX） */
+  inviteCode?: string;
 }
 
 /* ------------------------------ 筛选排序 ------------------------------ */

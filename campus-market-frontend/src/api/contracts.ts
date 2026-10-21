@@ -7,7 +7,11 @@ import type { BuildingScope } from '../utils/geo';
 export interface ApiEnvelope<T> { code: number; data: T; message: string; requestId?: string }
 export interface AuthSession { accessToken: string; expiresAtIso: string; user: User }
 export interface LoginInput { account: string; password: string }
-export interface RegisterInput { account: string; password: string; nickname: string; campus: Campus; contact?: string }
+/**
+ * inviteCode：只在 GET /v1/config 的 registration.inviteRequired=true 时提交（不需要时服务端忽略，界面也不发送）。
+ * 格式 XXXX-XXXX-XXXX；服务端统一处理大小写、空格与短横线。
+ */
+export interface RegisterInput { account: string; password: string; nickname: string; campus: Campus; contact?: string; inviteCode?: string }
 /** dormBuildingId 显式传 null 表示清空——用户有权收回这条信息。 */
 export interface ProfilePatch { nickname?: string; avatar?: string; campus?: Campus; contact?: string; dormBuildingId?: string | null }
 export interface ProductQuery { keyword?: string; category?: Category; campus?: Campus; condition?: Condition; minPrice?: number; maxPrice?: number; sort: SortKey; page: number; pageSize: number }
@@ -480,16 +484,20 @@ export interface UploadedImage { id: string; ref: string; url: string; width: nu
 export interface ImageConfig { maxCount: number; maxBytes: number; accept: string[]; externalAllowed: boolean }
 /** 私信：freeTextEnabled=false 时只能发送预设的快捷消息（旧后端没有这个字段：按 false 处理） */
 export interface MessagesConfig { freeTextEnabled: boolean }
-export interface ClientConfig { images: ImageConfig; messages: MessagesConfig }
+/** 注册：inviteRequired=true 时注册必须填写学校工作人员发放的邀请码（首个试点为邀请制；旧后端没有这个字段：按 false 处理） */
+export interface RegistrationConfig { inviteRequired: boolean }
+export interface ClientConfig { images: ImageConfig; messages: MessagesConfig; registration: RegistrationConfig }
 export const DEFAULT_CLIENT_CONFIG: ClientConfig = Object.freeze({
   images: Object.freeze({ maxCount: 9, maxBytes: IMAGE_MAX_BYTES, accept: ['image/jpeg', 'image/png'], externalAllowed: true }),
   messages: Object.freeze({ freeTextEnabled: false }),
+  registration: Object.freeze({ inviteRequired: false }),
 }) as ClientConfig;
 /** 服务端返回的配置逐项校验：缺失或类型不对的字段回落到默认值（不信任半截响应） */
 export function normalizeClientConfig(raw: unknown): ClientConfig {
   const fallback = DEFAULT_CLIENT_CONFIG.images;
   const images = (raw && typeof raw === 'object' ? (raw as { images?: unknown }).images : undefined) as Partial<Record<keyof ImageConfig, unknown>> | undefined;
   const messages = (raw && typeof raw === 'object' ? (raw as { messages?: unknown }).messages : undefined) as Partial<Record<keyof MessagesConfig, unknown>> | null | undefined;
+  const registration = (raw && typeof raw === 'object' ? (raw as { registration?: unknown }).registration : undefined) as Partial<Record<keyof RegistrationConfig, unknown>> | null | undefined;
   const positiveInt = (v: unknown, d: number) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : d);
   const accept = Array.isArray(images?.accept) && images!.accept.length > 0 && images!.accept.every((t) => typeof t === 'string' && t.startsWith('image/'))
     ? [...images!.accept as string[]] : [...fallback.accept];
@@ -502,7 +510,38 @@ export function normalizeClientConfig(raw: unknown): ClientConfig {
     },
     // 只有明确的 true 才开放文字私信：缺失、null 或类型不对一律按 false（宁可少一个输入框，也不提供一定会被拒绝的输入）
     messages: { freeTextEnabled: messages != null && typeof messages === 'object' && messages.freeTextEnabled === true },
+    // 只有明确的 true 才要求邀请码；缺失（旧后端）或类型不对按 false。服务端仍然是最终裁决：
+    // 即使这里判断错了，注册接口的 400「请输入邀请码」也会让注册页补出邀请码输入框
+    registration: { inviteRequired: registration != null && typeof registration === 'object' && registration.inviteRequired === true },
   };
+}
+
+/* ------------------------------ 注册邀请码 ------------------------------ */
+
+/** 邀请码字母表：去掉了容易混淆的 I / L / O / 0 / 1（与服务端相同） */
+export const INVITE_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+/** 规范格式 XXXX-XXXX-XXXX（大写、三组、每组 4 位，只含 INVITE_CODE_ALPHABET） */
+export const INVITE_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}(?:-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}){2}$/;
+/** POST /v1/auth/register 的 400 提示（服务端原文，界面原样显示） */
+export const INVITE_CODE_REQUIRED = '请输入邀请码';
+export const INVITE_CODE_INVALID = '邀请码无效或已用完';
+
+/** 与服务端相同的比较口径：去掉空白（含全角空格）与短横线（含全角「－」）、转大写（不删除其他字符，交给服务端判定） */
+export function normalizeInviteCode(raw: string): string {
+  return raw.replace(/[\s\-\uFF0D]+/g, '').toUpperCase();
+}
+
+/**
+ * 输入框里的显示格式：转大写、去掉空白与短横线后每 4 位插一个短横线（「abcd efgh」→「ABCD-EFGH」）。
+ * 只调整显示，不删除任何字母或数字：字母表以外的字符原样保留，由服务端判定，界面只给出格式提示。
+ */
+export function formatInviteCodeInput(raw: string): string {
+  return normalizeInviteCode(raw).replace(/(.{4})(?=.)/g, '$1-');
+}
+
+/** 规范化后是不是 12 位字母表内的字符（只用于格式提示，不据此拦截提交） */
+export function looksLikeInviteCode(raw: string): boolean {
+  return INVITE_CODE_PATTERN.test(formatInviteCodeInput(raw));
 }
 
 /* ------------------------------ 私信快捷消息 ------------------------------ */

@@ -44,7 +44,7 @@ function png() {
 }
 const pngFile = (name = 'photo.png') => new File([png()], name, { type: 'image/png' });
 const choose = (input: HTMLElement, ...files: File[]) => fireEvent.change(input, { target: { files } });
-const config = (images: Partial<ClientConfig['images']>): ClientConfig => ({ images: { ...DEFAULT_CLIENT_CONFIG.images, ...images }, messages: { ...DEFAULT_CLIENT_CONFIG.messages } });
+const config = (images: Partial<ClientConfig['images']>): ClientConfig => ({ images: { ...DEFAULT_CLIENT_CONFIG.images, ...images }, messages: { ...DEFAULT_CLIENT_CONFIG.messages }, registration: { ...DEFAULT_CLIENT_CONFIG.registration } });
 
 /** 假的后端：按路径返回 envelope；记录每一次请求 */
 type Route = (method: string, path: string, body: unknown) => { status?: number; data?: unknown; raw?: string } | undefined;
@@ -104,7 +104,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); authTokenStore.clearAccessTok
 describe('GET /v1/config（REST 适配层）', () => {
   it('旧后端 404（JSON envelope 或网关的 HTML 页）：回落到 9 张 / 5 MB / JPEG、PNG / 允许外部图片', async () => {
     const json = restApi((m, p) => (p === '/v1/config' ? { status: 404 } : undefined));
-    expect(await json.rest.getClientConfig()).toEqual({ images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: true }, messages: { freeTextEnabled: false } });
+    expect(await json.rest.getClientConfig()).toEqual({ images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: true }, messages: { freeTextEnabled: false }, registration: { inviteRequired: false } });
     expect(json.calls).toEqual([{ method: 'GET', path: '/v1/config', body: undefined }]);
     const html = restApi((m, p) => (p === '/v1/config' ? { status: 404, raw: '<html>Not Found</html>' } : undefined));
     expect(await html.rest.getClientConfig()).toEqual(DEFAULT_CLIENT_CONFIG);
@@ -112,8 +112,8 @@ describe('GET /v1/config（REST 适配层）', () => {
 
   it('新后端：按返回值使用；缺失或类型不对的字段回落到默认值；其他错误（500）不被当成默认值吞掉', async () => {
     const ok = restApi(() => ({ data: { images: { maxCount: 6, maxBytes: 2 * 1024 * 1024, accept: ['image/jpeg'], externalAllowed: false } } }));
-    // 这个后端还没有 messages 字段：私信按只能发送快捷消息处理
-    expect(await ok.rest.getClientConfig()).toEqual({ images: { maxCount: 6, maxBytes: 2 * 1024 * 1024, accept: ['image/jpeg'], externalAllowed: false }, messages: { freeTextEnabled: false } });
+    // 这个后端还没有 messages / registration 字段：私信按只能发送快捷消息处理，注册按不需要邀请码处理
+    expect(await ok.rest.getClientConfig()).toEqual({ images: { maxCount: 6, maxBytes: 2 * 1024 * 1024, accept: ['image/jpeg'], externalAllowed: false }, messages: { freeTextEnabled: false }, registration: { inviteRequired: false } });
     const partial = restApi(() => ({ data: { images: { maxCount: '9', accept: [], externalAllowed: false } } }));
     expect(await partial.rest.getClientConfig()).toEqual(config({ externalAllowed: false }));
     const down = restApi(() => ({ status: 500 }));

@@ -22,7 +22,7 @@ public class AdminPermissions {
             "SCHOOL_ADMIN", "学校管理员", "SENIOR_MODERATOR", "高级审核员",
             "MODERATOR", "审核员", "AUDITOR", "只读审计员");
     private static final Set<String> READ_ONLY = Set.of("users:read", "products:read", "orders:read", "audit:read", "roles:read",
-            "role-requests:read", "read-audit:read");
+            "role-requests:read", "read-audit:read", "registration-invites:read");
     private static final Set<String> MODERATION = Set.of("products:read", "cases:read", "cases:write", "appeals:read", "appeals:write");
     private final StaffGuard staff;
 
@@ -36,6 +36,8 @@ public class AdminPermissions {
             result.addAll(READ_ONLY);
             result.add("products:write");
             result.add("users:write");
+            // V23：签发 / 撤销本校注册邀请码
+            result.add("registration-invites:write");
         }
         return List.copyOf(result);
     }

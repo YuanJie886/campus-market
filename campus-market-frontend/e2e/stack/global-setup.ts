@@ -1,5 +1,5 @@
 import { execFileSync, fork, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readdirSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -105,6 +105,8 @@ async function start() {
       DATABASE_URL: `jdbc:postgresql://127.0.0.1:${dbPort}/${dbName}`, DATABASE_USERNAME: dbUser,
       DATABASE_PASSWORD: secrets.POSTGRES_PASSWORD, JWT_SECRET: secrets.JWT_SECRET,
       WEB_ORIGIN: origin, SECURE_COOKIES: 'false', PORT: String(apiPort), SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'false',
+      // E2E_REGISTRATION_INVITE_REQUIRED=true：按生产的邀请注册运行（只跑 invite.spec.ts 时使用）
+      REGISTRATION_INVITE_REQUIRED: process.env.E2E_REGISTRATION_INVITE_REQUIRED === 'true' ? 'true' : 'false',
     },
     stdio: ['ignore', log, log],
   });
@@ -114,6 +116,17 @@ async function start() {
     const res = await fetch(`http://127.0.0.1:${apiPort}/v1/health`);
     return res.ok;
   }).catch((e) => { if (backend.exitCode !== null) throw new Error('后端启动失败，见 e2e/.run/backend.log'); throw e });
+
+  // 邀请注册模式：给演示学校写入一张一次性的测试邀请码（只存摘要，与后端同样的规范化与 SHA-256），
+  // 码本身只放进本进程的环境变量交给用例与 fixtures，不写文件、不打印
+  if (process.env.E2E_REGISTRATION_INVITE_REQUIRED === 'true' && !process.env.E2E_REGISTRATION_INVITE_CODE) {
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const normalized = Array.from({ length: 12 }, () => alphabet[randomInt(alphabet.length)]).join('');
+    const hash = createHash('sha256').update(normalized, 'utf8').digest('hex');
+    docker(['exec', runId, 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-U', dbUser, '-d', dbName, '-c',
+      `INSERT INTO registration_invites(id, school_id, code_hash, code_hint, max_uses, expires_at, note) VALUES (gen_random_uuid(), 'pilot', '${hash}', '${normalized.slice(-4)}', 500, now() + interval '1 day', 'E2E')`]);
+    process.env.E2E_REGISTRATION_INVITE_CODE = `${normalized.slice(0, 4)}-${normalized.slice(4, 8)}-${normalized.slice(8)}`;
+  }
 
   // 3. 前端 REST 构建 + 代理（与 nginx 规则一致）
   const web = fork(join(HERE, 'static-server.mjs'), [], {

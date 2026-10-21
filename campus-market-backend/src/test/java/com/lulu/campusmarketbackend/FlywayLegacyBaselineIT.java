@@ -49,7 +49,7 @@ class FlywayLegacyBaselineIT {
     private static final String V1_RESOURCE = "db/migration/V1__initial_schema.sql";
     private static final String BASELINE_DESCRIPTION = "legacy-schema-v1";
     /** 最新迁移版本。新增迁移时只改这里（以及对应的新场景），各起点应执行的条数由它推出。 */
-    private static final int LATEST = 22;
+    private static final int LATEST = 23;
 
     /** 仅一次性容器使用的测试凭据，与项目 .env / 生产配置无关。 */
     private static final String TEST_DB = "campus_market_legacy";
@@ -203,6 +203,14 @@ class FlywayLegacyBaselineIT {
         assertThat(jdbc.queryForObject("SELECT short_name FROM schools WHERE id = 'pilot'", String.class)).isNull();
         assertThat(hasTable(jdbc, "school_pack_imports")).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM school_pack_imports", Integer.class)).isZero();
+
+        // ---- 7d) V23：注册邀请码两张表已建好且为空（旧库不会凭空出现邀请码），读取留痕接受新资源名 ----
+        assertThat(hasTable(jdbc, "registration_invites")).isTrue();
+        assertThat(hasTable(jdbc, "registration_invite_uses")).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM registration_invites", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM registration_invite_uses", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'admin_read_audit_resource_check'",
+                String.class)).contains("registration-invites");
 
         // ---- 8) 接管后用 baselineOnMigrate=false 再次 migrate：应成功且不执行任何迁移 ----
         Flyway normal = Flyway.configure()

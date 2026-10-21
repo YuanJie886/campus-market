@@ -12,6 +12,7 @@ import AuditIcon from '@mui/icons-material/HistoryOutlined';
 import RoleIcon from '@mui/icons-material/VerifiedUserOutlined';
 import RoleRequestIcon from '@mui/icons-material/HowToRegOutlined';
 import ReadAuditIcon from '@mui/icons-material/ManageSearchOutlined';
+import InviteIcon from '@mui/icons-material/ConfirmationNumberOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowIcon from '@mui/icons-material/ArrowOutward';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -20,8 +21,8 @@ import { type AdminIdentity } from './authProvider';
 import { resourceNames, roleName } from './adminUi';
 import './admin.css';
 
-export const resourceIcons = { users: PeopleIcon, products: ProductIcon, orders: OrderIcon, cases: CaseIcon, appeals: AppealIcon, audit: AuditIcon, 'role-requests': RoleRequestIcon, 'read-audit': ReadAuditIcon, roles: RoleIcon };
-const NAVIGATION = [{ name: '运营管理', resources: ['users', 'products', 'orders'] }, { name: '社区治理', resources: ['cases', 'appeals'] }, { name: '安全与权限', resources: ['audit', 'role-requests', 'read-audit', 'roles'] }];
+export const resourceIcons = { users: PeopleIcon, products: ProductIcon, orders: OrderIcon, cases: CaseIcon, appeals: AppealIcon, audit: AuditIcon, 'role-requests': RoleRequestIcon, 'read-audit': ReadAuditIcon, roles: RoleIcon, 'registration-invites': InviteIcon };
+const NAVIGATION = [{ name: '运营管理', resources: ['users', 'registration-invites', 'products', 'orders'] }, { name: '社区治理', resources: ['cases', 'appeals'] }, { name: '安全与权限', resources: ['audit', 'role-requests', 'read-audit', 'roles'] }];
 /** 菜单只取决于 GET /v1/admin/me 返回的 `资源:read` 权限；没有可见资源的分组不显示。 */
 export function navigationGroups(permissions: readonly string[] | undefined) {
     return NAVIGATION.map(group => ({ ...group, resources: group.resources.filter(resource => permissions?.includes(`${resource}:read`)) })).filter(group => group.resources.length > 0);

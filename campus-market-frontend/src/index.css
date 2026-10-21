@@ -824,6 +824,7 @@ a:focus-visible,
 .cm-landing-cta h2 { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.4; }
 .cm-landing-cta > p { margin: 6px 0 18px; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
 .cm-landing-cta .cm-landing-cta-note { margin: 14px 0 0; color: var(--ink-2); text-align: center; }
+.cm-landing-cta .cm-landing-invite-note { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; text-align: center; }
 .cm-landing-cta .cm-landing-legal {
   margin: 14px 0 0;
   padding-top: 14px;

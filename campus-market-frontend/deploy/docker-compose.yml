@@ -54,6 +54,9 @@ services:
       # 学校数据包（docs/school-data.md）：生产启用安徽理工大学，隐藏迁移里的演示学校；新增学校时追加 id，或把数据文件放进 SCHOOL_PACKS_DIR
       SCHOOL_PACKS: ${SCHOOL_PACKS:-aust}
       DEMO_SCHOOL_ENABLED: ${DEMO_SCHOOL_ENABLED:-false}
+      # 小范围测试只接受邀请注册（docs/registration-invites.md）；第一个管理员的邀请码用：
+      #   docker compose run --rm api --campus-market.cli.issue-invite.school=aust
+      REGISTRATION_INVITE_REQUIRED: ${REGISTRATION_INVITE_REQUIRED:-true}
     volumes:
       - uploaded_images:/data/images
     depends_on:

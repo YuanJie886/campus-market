@@ -102,7 +102,9 @@ export const test = base.extend<Fixtures>({
         return guest;
       }
       const res = await context.request.post('/v1/auth/register', {
-        data: { account, password, nickname, campus: opts.campus ?? '东校区', contact: '13800000000' },
+        // 邀请注册模式下带上测试邀请码；默认模式后端忽略这个字段
+        data: { account, password, nickname, campus: opts.campus ?? '东校区', contact: '13800000000',
+          ...(process.env.E2E_REGISTRATION_INVITE_CODE ? { inviteCode: process.env.E2E_REGISTRATION_INVITE_CODE } : {}) },
       });
       expect(res.status(), await res.text()).toBe(200);
       const body = await res.json();

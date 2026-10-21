@@ -12,11 +12,11 @@ export const ROLES = [
     { id: 'MODERATOR', name: '审核员', description: '负责日常内容治理和申诉处理，限制类动作最长 7 天。', capabilities: ['本校商品（只读）', '日常案件处理与申诉复核', '限制类动作最长 7 天'] },
     { id: 'AUDITOR', name: '只读审计员', description: '查看业务数据、授权记录、人员变更复核与读取审计，不能修改权限或处理案件。', capabilities: ['本校用户、商品与历史订单（只读）', '授权审计、人员变更复核与读取审计（只读）', '角色权限（只读）'] },
 ];
-export const resourceNames: Record<string, string> = { users: '用户与工作人员', products: '商品目录', orders: '历史订单（只读）', cases: '治理案件', appeals: '用户申诉', audit: '授权审计', 'role-requests': '人员变更复核', 'read-audit': '读取审计', roles: '角色权限' };
+export const resourceNames: Record<string, string> = { users: '用户与工作人员', 'registration-invites': '注册邀请码', products: '商品目录', orders: '历史订单（只读）', cases: '治理案件', appeals: '用户申诉', audit: '授权审计', 'role-requests': '人员变更复核', 'read-audit': '读取审计', roles: '角色权限' };
 /** 人员变更复核请求状态（admin_role_requests）。 */
 export const roleRequestStatusNames: Record<string, string> = { PENDING: '待确认', APPROVED: '已确认生效', REJECTED: '已驳回', CANCELLED: '已撤回', EXPIRED: '已过期' };
 /** 读取审计里的资源名（admin_read_audit.resource）。 */
-export const readAuditResourceNames: Record<string, string> = { users: '用户', orders: '历史订单', audit: '授权审计', 'role-requests': '人员变更复核', 'read-audit': '读取审计' };
+export const readAuditResourceNames: Record<string, string> = { users: '用户', orders: '历史订单', audit: '授权审计', 'role-requests': '人员变更复核', 'read-audit': '读取审计', 'registration-invites': '注册邀请码' };
 /** 发起涉及学校管理员的变更后，界面显示的提示：变更尚未生效。 */
 export const PENDING_ROLE_REQUEST_NOTICE = '已提交，需要另一位学校管理员确认后生效';
 /** 后端规则：变更前或变更后角色是学校管理员时，需要两人复核。 */

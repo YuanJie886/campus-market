@@ -1,7 +1,8 @@
 // 冒烟压测（阶段 6 准备）：注册一批一次性测试用户、发布商品，然后按「浏览为主」的比例并发请求，输出各接口的 p50 / p95 / p99、错误率与吞吐。
 //
 // 用法（在 campus-market-frontend 目录）：
-//   node deploy/loadtest/load-smoke.mjs <站点地址> [--users 20] [--products 3] [--concurrency 50] [--seconds 60]
+//   node deploy/loadtest/load-smoke.mjs <站点地址> [--users 20] [--products 3] [--concurrency 50] [--seconds 60] [--invite 邀请码]
+// 站点需要邀请注册时，用 --invite（或环境变量 LOAD_INVITE_CODE）传一个可用次数足够的测试邀请码。
 // 也被部署演练以 DRILL_LOAD=1 调用（对一次性演练栈）。
 //
 // 只能对本机或测试环境运行：会注册测试账号、发布测试商品。地址不是 localhost / 127.0.0.1 时必须加 --test-environment 明确确认。
@@ -18,7 +19,7 @@ function percentile(sorted, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
 }
 
-export async function runLoad({ origin, users = 20, productsPerUser = 3, concurrency = 50, seconds = 60, log = console.log }) {
+export async function runLoad({ origin, inviteCode = '', users = 20, productsPerUser = 3, concurrency = 50, seconds = 60, log = console.log }) {
   async function call(method, path, { token, body, form } = {}) {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -39,7 +40,7 @@ export async function runLoad({ origin, users = 20, productsPerUser = 3, concurr
   const people = [];
   for (let i = 0; i < users; i += 1) {
     const r = await call('POST', '/v1/auth/register', { body: { account: `load${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`,
-      nickname: `压测用户${i + 1}`, campus, contact: '13800000000' } });
+      nickname: `压测用户${i + 1}`, campus, contact: '13800000000', ...(inviteCode ? { inviteCode } : {}) } });
     if (r.status !== 200) throw new Error(`注册测试用户失败：${r.status}`);
     people.push({ token: r.json.data.accessToken, products: [] });
   }
@@ -131,6 +132,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.error(`${host} 不是本机地址：压测会注册测试账号并发布测试商品，只能对测试环境运行。确认后加 --test-environment。`);
     process.exit(2);
   }
-  const { summary } = await runLoad({ origin, users: opt('users', 20), productsPerUser: opt('products', 3), concurrency: opt('concurrency', 50), seconds: opt('seconds', 60) });
+  const invite = (() => { const i = args.indexOf('--invite'); return i >= 0 ? args[i + 1] : (process.env.LOAD_INVITE_CODE ?? '') })();
+  const { summary } = await runLoad({ origin, inviteCode: invite, users: opt('users', 20), productsPerUser: opt('products', 3), concurrency: opt('concurrency', 50), seconds: opt('seconds', 60) });
   process.exitCode = summary.pass ? 0 : 1;
 }

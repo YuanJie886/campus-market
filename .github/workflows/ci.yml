@@ -209,6 +209,12 @@ jobs:
         env:
           E2E_BROWSER_CHANNEL: chromium
         run: npm run e2e
+      - name: E2E（邀请注册模式：只跑 invite.spec.ts，按生产的 REGISTRATION_INVITE_REQUIRED=true）
+        working-directory: campus-market-frontend
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+          E2E_REGISTRATION_INVITE_REQUIRED: 'true'
+        run: npx playwright test e2e/specs/invite.spec.ts
       - name: 失败时上传脱敏截图与 trace
         if: failure()
         uses: actions/upload-artifact@v4

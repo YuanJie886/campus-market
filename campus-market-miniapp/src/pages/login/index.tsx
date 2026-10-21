@@ -4,14 +4,20 @@ import { useEffect, useState } from 'react';
 import { api, isDemo, wechatLoginCode, wechatLoginSupported } from '../../api';
 import { bindPendingWechat, pendingWechatBind, registerAccount, registrationError, wechatLoginFailure } from '../../account';
 import { registrationChoice } from '../../schools';
-import { notify, notifyError, useMarket, useSchools } from '../../state';
+import { INVITE_INPUT_MAXLENGTH, inviteField, isInviteRequiredError, loginEntryFromParams, normalizeInviteCode } from '../../invite';
+import { clientConfig, notify, notifyError, useClientConfig, useMarket, useSchools } from '../../state';
 import { AgreementCheck, LegalLinks, PageTitle, PrivacyPopup } from '../../components';
 
 const tabs = ['/pages/market/index', '/pages/publish/index', '/pages/notifications/index', '/pages/profile/index'];
 
 export default function LoginPage() {
   const { setUser } = useMarket(), router = useRouter();
-  const [register, setRegister] = useState(false), [busy, setBusy] = useState(false);
+  // 分享出来的注册路径可以带上邀请码（?invite=XXXX-XXXX-XXXX）：直接进入注册并预填
+  const [entry] = useState(() => loginEntryFromParams(router.params));
+  const [inviteCode, setInviteCode] = useState(entry.inviteCode);
+  const [register, setRegister] = useState(entry.register), [busy, setBusy] = useState(false);
+  // 试点期只能凭邀请码注册：GET /v1/config 的 registration.inviteRequired 为 true 时显示必填的邀请码输入框
+  const invite = inviteField(useClientConfig());
   // 微信一键登录：服务端开通后才显示；未绑定时手里有一张内存里的绑定票据，等账号密码登录 / 注册成功后绑定
   const [wechatEnabled, setWechatEnabled] = useState(false), [bindPending, setBindPending] = useState(pendingWechatBind.pending);
   // 注册前必须勾选同意《用户协议》《隐私政策》；每次进入登录页都需要重新勾选
@@ -33,6 +39,9 @@ export default function LoginPage() {
     else await Taro.switchTab({ url: '/pages/market/index' });
   };
 
+  // 进入注册时重新读取一次配置，是否需要邀请码以服务端当前设置为准
+  useEffect(() => { if (register) void clientConfig.refresh(); }, [register]);
+
   useEffect(() => {
     if (!wechatLoginSupported) return;
     let alive = true;
@@ -43,19 +52,23 @@ export default function LoginPage() {
   const login = async (demo?: 'buyer' | 'seller') => {
     if (busy) return;
     if (!demo && !register && (!account.trim() || !password)) { notify('请填写账号和密码'); return; }
-    const registration = { account, password, nickname, campus, contact };
-    if (!demo && register) { const error = registrationError(registration, agreed); if (error) { notify(error); return; } }
+    const registration = { account, password, nickname, campus, contact, inviteCode };
+    if (!demo && register) { const error = registrationError(registration, agreed, invite.required); if (error) { notify(error); return; } }
     setBusy(true);
     try {
       // 演示账号只在演示构建里出现（__API_MODE__ 是构建期常量，REST 产物里这段会被删掉）
       const user = demo && __API_MODE__ === 'mock' ? await api.login(demo === 'buyer' ? 'buyer001' : 'seller001', 'demo12345')
-        : register ? await registerAccount(api, registration, agreed) : await api.login(account, password);
+        : register ? await registerAccount(api, registration, agreed, invite.required) : await api.login(account, password);
       setUser(user);
       const hadTicket = bindPending, bound = await bindPendingWechat(api);
       setBindPending(false);
       if (bound) notify(bound); else if (hadTicket) notify('微信绑定已过期，请重新使用微信一键登录');
       await finish();
-    } catch (e) { notifyError(e); } finally { setBusy(false); }
+    } catch (e) {
+      // 后端已改为需要邀请码而本地配置还没更新：重新读取配置，输入框随即出现；提示一律用后端原文
+      if (isInviteRequiredError(e)) void clientConfig.refresh();
+      notifyError(e);
+    } finally { setBusy(false); }
   };
 
   const wechatLogin = async () => {
@@ -85,6 +98,11 @@ export default function LoginPage() {
       <Text className='field-label'>密码</Text>
       <Input className='field-input' password placeholder={register ? '至少 8 位密码' : '请输入密码'} value={password} onInput={(e) => setPassword(e.detail.value)} maxlength={72} />
       {register && <>
+        {invite.visible && <>
+          <Text className='field-label'>{invite.label}</Text>
+          <Input className='field-input' placeholder={invite.placeholder} value={inviteCode} onInput={(e) => setInviteCode(normalizeInviteCode(e.detail.value))} maxlength={INVITE_INPUT_MAXLENGTH} />
+          <Text className='field-help'>{invite.help}</Text>
+        </>}
         <Text className='field-label'>昵称</Text>
         <Input className='field-input' placeholder='同学们怎么称呼你' value={nickname} onInput={(e) => setNickname(e.detail.value)} maxlength={40} />
         {choice.showSchoolPicker ? <>

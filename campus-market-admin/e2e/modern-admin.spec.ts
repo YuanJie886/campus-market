@@ -1,10 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const read = ['users', 'products', 'orders', 'cases', 'appeals', 'audit', 'role-requests', 'read-audit', 'roles'].map(resource => `${resource}:read`);
-// 与后端 AdminPermissions（阶段 2）一致
-const adminPermissions = [...read, 'users:write', 'products:write', 'cases:write', 'appeals:write'];
+const read = ['users', 'products', 'orders', 'cases', 'appeals', 'audit', 'role-requests', 'read-audit', 'roles', 'registration-invites'].map(resource => `${resource}:read`);
+// 与后端 AdminPermissions（阶段 2）一致；注册邀请码：学校管理员读写，只读审计员只读，审核员没有
+const adminPermissions = [...read, 'users:write', 'products:write', 'cases:write', 'appeals:write', 'registration-invites:write'];
 const seniorModeratorPermissions = ['products:read', 'cases:read', 'cases:write', 'appeals:read', 'appeals:write'];
-const auditorPermissions = ['users:read', 'products:read', 'orders:read', 'audit:read', 'role-requests:read', 'read-audit:read', 'roles:read'];
+const auditorPermissions = ['users:read', 'products:read', 'orders:read', 'audit:read', 'role-requests:read', 'read-audit:read', 'roles:read', 'registration-invites:read'];
 const T0 = Date.parse('2026-10-19T02:00:00Z');
 const sampleRoleRequests = () => [
     { id: 'rr-1', targetId: 'user-9', targetNickname: '王老师', targetAccount: 'T2026009', requestedBy: 'admin-2', requesterNickname: '李主任', oldRole: null, oldActive: null, newRole: 'SCHOOL_ADMIN', newActive: true, note: '新学期增加一名学校管理员', status: 'PENDING', expiresAt: T0 + 72 * 3600_000, createdAt: T0 },
@@ -17,6 +17,16 @@ const sampleReadAudit = [
     { id: 'ra-3', actorId: 'auditor-1', actorNickname: '周审计', resource: 'role-requests', recordId: null, resultCount: 3, withQuery: false, requestId: 'req-role-requests', createdAt: T0 - 120_000 },
     { id: 'ra-4', actorId: 'auditor-1', actorNickname: '周审计', resource: 'read-audit', recordId: null, resultCount: 4, withQuery: false, requestId: 'req-read-audit', createdAt: T0 - 180_000 },
 ];
+/** 注册邀请码（GET /v1/admin/registration-invites）：列表只有尾号，完整邀请码只在发放响应里出现一次。createdBy=null 表示服务器命令发放。 */
+const sampleInvites = () => [
+    { id: 'inv-1', codeHint: 'Q7KD', maxUses: 10, usedCount: 3, expiresAt: T0 + 14 * 86_400_000, revokedAt: null as number | null, note: '计算机学院 2026 级试点' as string | null, createdBy: '陈予安' as string | null, createdAt: T0, status: 'ACTIVE',
+        uses: [{ userId: 'user-31', nickname: '林同学', usedAt: T0 + 60_000 }, { userId: 'user-32', nickname: '周同学', usedAt: T0 + 120_000 }, { userId: 'user-33', nickname: '吴同学', usedAt: T0 + 180_000 }] },
+    { id: 'inv-2', codeHint: 'M2PX', maxUses: 1, usedCount: 1, expiresAt: T0 + 7 * 86_400_000, revokedAt: null, note: null, createdBy: null, createdAt: T0 - 60_000, status: 'USED_UP', uses: [{ userId: 'user-40', nickname: '郑同学', usedAt: T0 + 30_000 }] },
+    { id: 'inv-3', codeHint: 'Z9AB', maxUses: 20, usedCount: 0, expiresAt: T0 - 86_400_000, revokedAt: null, note: '社团招新', createdBy: '李主任', createdAt: T0 - 15 * 86_400_000, status: 'EXPIRED', uses: [] },
+    { id: 'inv-4', codeHint: 'H4RT', maxUses: 5, usedCount: 2, expiresAt: T0 + 3 * 86_400_000, revokedAt: T0 + 3600_000, note: '误发', createdBy: '陈予安', createdAt: T0 - 120_000, status: 'REVOKED', uses: [] },
+    { id: 'inv-5', codeHint: 'C8LW', maxUses: 50, usedCount: 0, expiresAt: T0 + 30 * 86_400_000, revokedAt: null, note: '新生入学周', createdBy: '李主任', createdAt: T0 - 180_000, status: 'ACTIVE', uses: [] },
+];
+const INVITE_CODES = ['W4TN-8KQZ-3HVA', 'P6YC-2RJM-9DXE'];
 /** GET /v1/schools（公开接口）：只列出可见学校；演示学校 pilot（校区编号与名称相同，如「东校区」）在生产环境被隐藏。 */
 const sampleSchools = [
     { id: 'aust', name: '安徽理工大学', shortName: '安理', campuses: [{ id: 'aust-huainan', name: '淮南校区', hasBuildings: true }, { id: 'aust-hefei', name: '合肥校区', hasBuildings: false }] },
@@ -62,6 +72,10 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
     const deletedUser = { id: 'gone-1', nickname: '已注销用户', account: 'deleted-gone-1', campus: 'aust-huainan', role: null, active: false, deleted: true, createdAt: '2026-09-01T08:00:00Z' };
     const queries: URL[] = [];
     const requests: { method: string; path: string }[] = [];
+    // 注册邀请码：服务端状态与写入记录（路径与原始请求体）
+    const invites = sampleInvites();
+    const inviteWrites: { method: string; path: string; body: string | null }[] = [];
+    const inviteSummary = ({ uses: _uses, ...item }: ReturnType<typeof sampleInvites>[number]) => item;
     let user = { id: 'staff-1', nickname: '林小雨', account: '20260018', campus: 'aust-hefei', role: 'MODERATOR', active: true, createdAt: '2026-10-01T08:00:00Z' };
     await page.route('**/v1/**', async route => {
         const url = new URL(route.request().url()); const path = url.pathname;
@@ -98,6 +112,38 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
             data = roleRequests[index];
         }
         else if (path.startsWith('/v1/admin/role-requests/')) data = roleRequests.find(item => item.id === path.split('/').at(-1));
+        else if (path === '/v1/admin/registration-invites' || path.startsWith('/v1/admin/registration-invites/')) {
+            // 与契约一致：学校管理员读写，只读审计员只读，其他角色 403；查询只接受 page / size（≤50）/ status
+            const method = route.request().method();
+            const deny = async (status: number, message: string) => route.fulfill({ status, json: { code: status, message } });
+            if (!permissions.includes(method === 'GET' ? 'registration-invites:read' : 'registration-invites:write')) { await deny(403, '没有执行此操作的权限'); return; }
+            if (method === 'GET' && path === '/v1/admin/registration-invites') {
+                const params = url.searchParams, size = Number(params.get('size') ?? 20), current = Number(params.get('page') ?? 1);
+                if ([...params.keys()].some(key => !['page', 'size', 'status'].includes(key)) || !(size >= 1 && size <= 50)) { await deny(400, '查询参数无效'); return; }
+                const status = params.get('status');
+                const items = invites.filter(item => !status || item.status === status).sort((a, b) => b.createdAt - a.createdAt);
+                data = { items: items.slice((current - 1) * size, current * size).map(inviteSummary), total: items.length, page: current, size };
+            } else if (method === 'POST' && path === '/v1/admin/registration-invites') {
+                const body = route.request().postData();
+                inviteWrites.push({ method, path, body });
+                const payload = JSON.parse(body ?? '{}');
+                if (!Number.isInteger(payload.maxUses) || payload.maxUses < 1 || payload.maxUses > 500 || !Number.isInteger(payload.expiresInDays) || payload.expiresInDays < 1 || payload.expiresInDays > 90 || [...(payload.note ?? '')].length > 100) { await deny(400, '邀请码参数无效'); return; }
+                const code = INVITE_CODES[(inviteWrites.filter(write => write.path === path).length - 1) % INVITE_CODES.length];
+                const created = { id: `inv-new-${inviteWrites.length}`, codeHint: code.slice(-4), maxUses: payload.maxUses, usedCount: 0, expiresAt: Date.now() + payload.expiresInDays * 86_400_000, revokedAt: null, note: payload.note ?? null, createdBy: '陈予安', createdAt: Date.now(), status: 'ACTIVE', uses: [] };
+                invites.unshift(created);
+                data = { ...inviteSummary(created), code };
+            } else if (method === 'POST' && /^\/v1\/admin\/registration-invites\/[^/]+\/revoke$/.test(path)) {
+                inviteWrites.push({ method, path, body: route.request().postData() });
+                const item = invites.find(invite => invite.id === path.split('/')[4]);
+                if (!item) { await deny(404, '邀请码不存在'); return; }
+                if (item.status !== 'REVOKED') Object.assign(item, { status: 'REVOKED', revokedAt: Date.now() });
+                data = inviteSummary(item);
+            } else {
+                const item = invites.find(invite => invite.id === path.split('/')[4]);
+                if (!item) { await deny(404, '邀请码不存在'); return; }
+                data = item;
+            }
+        }
         else if (path === '/v1/admin/read-audit') data = { items: sampleReadAudit, total: sampleReadAudit.length };
         else if (path.endsWith('/password-reset') && route.request().method() === 'POST') {
             resets.push({ path, body: route.request().postData() });
@@ -140,7 +186,7 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
     await page.getByLabel(/^密码/).fill('ui-test-password');
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page.getByRole('heading', { name: '校园集市运营工作台' })).toBeVisible();
-    return { writes, queries, requests, decisions, resets, setSchoolsAvailable: (value: boolean) => { schoolsAvailable = value; } };
+    return { writes, queries, requests, decisions, resets, inviteWrites, setSchoolsAvailable: (value: boolean) => { schoolsAvailable = value; } };
 }
 const LEGACY_NOTICE = '平台已停用站内交易，现在只展示商品与联系方式。这里是停用前产生的历史订单，已在平台停用站内交易时统一关闭，仅供只读查看，不能新建、编辑或删除。';
 /** 页面上不应出现的写入入口：新建、编辑、删除、保存、批量选择。 */
@@ -860,4 +906,193 @@ test('学校目录读取失败：显示原始编号，筛选回落为自由输�
     await expect(page.getByRole('row').filter({ hasText: '林小雨' }).getByText('合肥校区', { exact: true })).toBeVisible();
     expect(schoolRequests(requests)).toBe(failedAttempts + 1);
     expect(errors).toEqual([]);
+});
+
+// ───────────── 注册邀请码（小范围测试只开放邀请注册） ─────────────
+
+const INVITE_WARNING = '完整邀请码只显示这一次，关闭后无法再次查看；请现在复制，或把下面的邀请消息直接发给受邀同学。';
+/** 记录复制到剪贴板的内容（无头浏览器不提供系统剪贴板）。 */
+async function captureClipboard(page: Page) {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { copied: string[] }).copied = [...((window as unknown as { copied?: string[] }).copied ?? []), text]; } } });
+    });
+}
+
+test('注册邀请码：学校管理员发放，完整邀请码只显示一次，可复制邀请码与邀请消息；关闭后页面与浏览器存储都不保留，列表显示尾号', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1540, height: 1080 });
+    const consoleText: string[] = [];
+    page.on('console', message => consoleText.push(message.text()));
+    await captureClipboard(page);
+    const { inviteWrites, queries } = await mockAdmin(page);
+    await page.getByRole('menuitem', { name: '注册邀请码' }).click();
+    await expect(page.getByRole('heading', { name: '注册邀请码', level: 1 })).toBeVisible();
+    for (const header of ['尾号', '已用/上限', '到期', '备注', '发放人', '状态']) await expect(page.getByRole('columnheader', { name: header, exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Q7KD' }).getByText('3 / 10', { exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'M2PX' }).getByText('服务器命令', { exact: true })).toBeVisible();
+    for (const label of ['有效', '已用完', '已过期', '已撤销']) await expect(page.getByRole('row').getByText(label, { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('cell', { name: /^(ACTIVE|USED_UP|EXPIRED|REVOKED)$/ })).toHaveCount(0);
+    // 按契约只发送 page / size，不发送 perPage、排序或搜索
+    const listQuery = queries.filter(url => url.pathname === '/v1/admin/registration-invites').at(-1)!;
+    expect(Object.fromEntries(listQuery.searchParams)).toEqual({ page: '1', size: '25' });
+
+    await page.getByRole('button', { name: '发放邀请码' }).click();
+    const form = page.getByRole('dialog', { name: '发放注册邀请码' });
+    await expect(form.getByLabel('可用次数')).toHaveValue('10');
+    await expect(form.getByLabel('有效天数')).toHaveValue('14');
+    await form.getByLabel('可用次数').fill('501');
+    await expect(form.getByText('可用次数需为 1～500 的整数')).toBeVisible();
+    await expect(form.getByRole('button', { name: '生成邀请码' })).toBeDisabled();
+    await form.getByLabel('可用次数').fill('30');
+    await form.getByLabel('有效天数').fill('91');
+    await expect(form.getByText('有效天数需为 1～90 的整数')).toBeVisible();
+    await expect(form.getByRole('button', { name: '生成邀请码' })).toBeDisabled();
+    await form.getByLabel('有效天数').fill('7');
+    await form.getByLabel('备注（选填）').fill('  社团招新第二批  ');
+    expect(inviteWrites).toEqual([]);
+    await form.getByRole('button', { name: '生成邀请码' }).click();
+
+    const dialog = page.getByRole('dialog', { name: '邀请码已生成' });
+    await expect(dialog.getByLabel('邀请码', { exact: true })).toHaveText('W4TN-8KQZ-3HVA');
+    await expect(dialog.getByRole('alert')).toHaveText(INVITE_WARNING);
+    await expect(dialog.getByLabel('邀请消息', { exact: true })).toHaveText('校园集市小范围测试邀请码：W4TN-8KQZ-3HVA，7 天内有效，注册时填写');
+    expect(inviteWrites).toEqual([{ method: 'POST', path: '/v1/admin/registration-invites', body: JSON.stringify({ maxUses: 30, expiresInDays: 7, note: '社团招新第二批' }) }]);
+    await page.screenshot({ path: testInfo.outputPath('registration-invite-code.png'), fullPage: true });
+    await dialog.getByRole('button', { name: '复制邀请码' }).click();
+    await expect(dialog.getByText('邀请码已复制。')).toBeVisible();
+    await dialog.getByRole('button', { name: '复制邀请消息' }).click();
+    await expect(dialog.getByText('邀请消息已复制，可以直接发给受邀同学。')).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { copied?: string[] }).copied)).toEqual(['W4TN-8KQZ-3HVA', '校园集市小范围测试邀请码：W4TN-8KQZ-3HVA，7 天内有效，注册时填写']);
+    // 点击背景不会误关
+    await page.mouse.click(5, 5);
+    await expect(dialog.getByLabel('邀请码', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: '我已保存，关闭' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText('W4TN-8KQZ-3HVA')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.outerHTML.includes('W4TN-8KQZ-3HVA'))).toBe(false);
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))).not.toContain('W4TN');
+    expect(consoleText.join('\n')).not.toContain('W4TN');
+
+    // 列表只显示新邀请码的尾号
+    const created = page.getByRole('row').filter({ hasText: '3HVA' });
+    await expect(created).toBeVisible();
+    for (const value of ['0 / 30', '社团招新第二批', '陈予安', '有效']) await expect(created.getByText(value, { exact: true })).toBeVisible();
+    // 再次打开回到空白表单，不会再显示旧码
+    await page.getByRole('button', { name: '发放邀请码' }).click();
+    await expect(form.getByLabel('可用次数')).toHaveValue('10');
+    await expect(form.getByLabel('备注（选填）')).toHaveValue('');
+    await expect(page.getByText('W4TN-8KQZ-3HVA')).toHaveCount(0);
+    await form.getByRole('button', { name: '取消' }).click();
+    await expect(form).toHaveCount(0);
+    expect(inviteWrites).toHaveLength(1);
+});
+
+test('注册邀请码：状态筛选只发送 status；列表行撤销需要确认，取消不发请求，确认后显示已撤销', async ({ page }) => {
+    const { inviteWrites, queries } = await mockAdmin(page);
+    await page.goto('/admin/registration-invites');
+    // 只有「有效」的邀请码可以撤销
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(2);
+    const row = page.getByRole('row').filter({ hasText: 'Q7KD' });
+    await row.getByRole('button', { name: '撤销', exact: true }).click();
+    const confirm = page.getByRole('dialog', { name: '撤销邀请码' });
+    await expect(confirm.getByText('确定撤销尾号 Q7KD 的邀请码吗？')).toBeVisible();
+    await confirm.getByRole('button', { name: '取消' }).click();
+    await expect(confirm).toHaveCount(0);
+    expect(inviteWrites).toEqual([]);
+    await expect(page).toHaveURL(/\/registration-invites(\?.*)?$/);
+    await row.getByRole('button', { name: '撤销', exact: true }).click();
+    await confirm.getByRole('button', { name: '确认撤销' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByText('邀请码已撤销')).toBeVisible();
+    await expect(row.getByText('已撤销', { exact: true })).toBeVisible();
+    await expect(row.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
+    expect(inviteWrites).toEqual([{ method: 'POST', path: '/v1/admin/registration-invites/inv-1/revoke', body: null }]);
+    // 点击撤销与确认没有打开详情
+    await expect(page).toHaveURL(/\/registration-invites(\?.*)?$/);
+
+    await page.getByRole('combobox', { name: '状态' }).click();
+    await page.getByRole('option', { name: '已撤销' }).click();
+    await expect.poll(() => Object.fromEntries(queries.filter(url => url.pathname === '/v1/admin/registration-invites').at(-1)!.searchParams)).toEqual({ page: '1', size: '25', status: 'REVOKED' });
+    await expect(page.getByRole('row').filter({ hasText: 'H4RT' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Q7KD' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'C8LW' })).toHaveCount(0);
+});
+
+test('注册邀请码：详情显示使用记录；撤销被拒绝时服务器信息原样显示，重试成功后显示已撤销', async ({ page }, testInfo) => {
+    const { inviteWrites } = await mockAdmin(page);
+    let attempt = 0;
+    await page.route('**/v1/admin/registration-invites/inv-1/revoke', route => attempt++ === 0
+        ? route.fulfill({ status: 409, json: { code: 409, message: '邀请码状态已变化，请刷新后重试' } })
+        : route.fallback());
+    await page.goto('/admin/registration-invites/inv-1/show');
+    await expect(page.getByRole('heading', { name: '邀请码详情', level: 1 })).toBeVisible();
+    await expect(page.getByText('尾号 Q7KD')).toBeVisible();
+    await expect(page.getByText('使用记录（3）')).toBeVisible();
+    const uses = page.getByRole('table', { name: '使用记录' });
+    for (const nickname of ['林同学', '周同学', '吴同学']) await expect(uses.getByRole('link', { name: nickname })).toBeVisible();
+    await expect(uses.getByRole('link', { name: '林同学' })).toHaveAttribute('href', '/admin/users/user-31/show');
+    await expect(uses.getByText('user-32', { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('registration-invite-detail.png'), fullPage: true });
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    const confirm = page.getByRole('dialog', { name: '撤销邀请码' });
+    await confirm.getByRole('button', { name: '确认撤销' }).click();
+    await expect(confirm.getByText('邀请码状态已变化，请刷新后重试', { exact: true })).toBeVisible();
+    await confirm.getByRole('button', { name: '确认撤销' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByText('这个邀请码已撤销，不能再用于注册。')).toBeVisible();
+    await expect(page.getByText('撤销时间')).toBeVisible();
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
+    expect(attempt).toBe(2);
+    expect(inviteWrites).toEqual([{ method: 'POST', path: '/v1/admin/registration-invites/inv-1/revoke', body: null }]);
+});
+
+test('注册邀请码：发放被拒绝（400 / 403 / 409 / 429）时服务器信息原样显示在表单里，不显示邀请码', async ({ page }) => {
+    const { inviteWrites } = await mockAdmin(page);
+    const failures = [
+        { status: 400, message: '请求包含不支持的字段：code' },
+        { status: 403, message: '没有执行此操作的权限' },
+        { status: 409, message: '本校有效邀请码已达上限，请先撤销不用的邀请码' },
+        { status: 429, message: '请求过于频繁，请稍后再试' },
+    ];
+    let attempt = 0;
+    await page.route('**/v1/admin/registration-invites', route => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        const failure = failures[attempt++];
+        return route.fulfill({ status: failure.status, json: { code: failure.status, message: failure.message } });
+    });
+    await page.goto('/admin/registration-invites');
+    await page.getByRole('button', { name: '发放邀请码' }).click();
+    const form = page.getByRole('dialog', { name: '发放注册邀请码' });
+    await form.getByLabel('备注（选填）').fill('新生入学周');
+    for (const failure of failures) {
+        await form.getByRole('button', { name: '生成邀请码' }).click();
+        await expect(form.getByText(failure.message, { exact: true })).toBeVisible();
+        await expect(page.getByRole('dialog', { name: '邀请码已生成' })).toHaveCount(0);
+    }
+    // 失败后保留已填写的内容，可以直接重试
+    await expect(form.getByLabel('备注（选填）')).toHaveValue('新生入学周');
+    expect(attempt).toBe(4);
+    expect(inviteWrites).toEqual([]);
+});
+
+test('注册邀请码：只读审计员可以查看列表与详情，但没有发放与撤销入口，也不发任何写请求', async ({ page }, testInfo) => {
+    const { requests } = await mockAdmin(page, auditorPermissions, { id: 'auditor-1', role: 'AUDITOR' });
+    await page.getByRole('menuitem', { name: '注册邀请码' }).click();
+    await expect(page.getByRole('heading', { name: '注册邀请码', level: 1 })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Q7KD' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '发放邀请码' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('registration-invites-read-only.png'), fullPage: true });
+    await page.getByRole('row').filter({ hasText: 'Q7KD' }).getByText('计算机学院 2026 级试点').click();
+    await expect(page).toHaveURL(/\/registration-invites\/inv-1\/show$/);
+    await expect(page.getByText('使用记录（3）')).toBeVisible();
+    await expect(page.getByText('只读查看：发放和撤销邀请码需要学校管理员权限。')).toBeVisible();
+    await expect(page.getByRole('button', { name: /撤销|发放邀请码/ })).toHaveCount(0);
+    expect(requests.filter(request => request.method !== 'GET' && request.path.startsWith('/v1/admin/'))).toEqual([]);
+});
+
+test('注册邀请码：审核员看不到菜单，也不会请求邀请码接口', async ({ page }) => {
+    const { queries } = await mockAdmin(page, seniorModeratorPermissions, { role: 'MODERATOR' });
+    await expect(page.getByRole('menuitem', { name: '治理案件' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: '注册邀请码' })).toHaveCount(0);
+    expect(queries.some(url => url.pathname.startsWith('/v1/admin/registration-invites'))).toBe(false);
 });

@@ -17,6 +17,7 @@ import { compareBuildings, publicBuilding, seedBuildings } from '../data/buildin
 import { allowsFallback, fallbackChain, haversineMeters, SCOPE_FALLBACK_ORDER, SCOPE_LABEL, walkMinutes, type BuildingScope } from '../utils/geo';
 import { safeUuid, uid } from '../utils/id';
 import { requireSafeText } from './mock/contentSafety';
+import { MOCK_DEMO_INVITE_CODES, MOCK_INVITE_REQUIRED_KEY, MockInviteCodeBook, type MockInviteCodeSeed, type MockInviteCodeStatus } from './mock/registrationInvites';
 import { FREE_TEXT_DISABLED, MOCK_MESSAGE_TEMPLATES, TEMPLATE_NOT_FOUND, TEMPLATE_OR_TEXT, TEMPLATE_REQUIRED, TEMPLATE_WRONG_ROLE } from './mock/messageTemplates';
 import { bytesToDataUrl, imageSize, readBytes, sniffImage } from './mock/imageRules';
 import { AVATAR_EXTERNAL_NOT_ALLOWED, AVATAR_INVALID, isPresetAvatar } from '../utils/avatar';
@@ -114,9 +115,19 @@ export class MockCampusMarketApi implements CampusMarketApi {
    */
   private readonly externalImagesAllowed: boolean;
 
-  constructor(options: { messageFreeTextEnabled?: boolean; externalImagesAllowed?: boolean } = {}) {
+  /**
+   * 注册是否需要邀请码（后端 GET /v1/config 的 registration.inviteRequired，默认 false）。
+   * 构造参数优先；未给出时读取离线演示的开关（注册页「演示邀请码」面板里切换，刷新后生效）。不写入演示数据。
+   */
+  private readonly inviteRequired: boolean;
+  /** 演示邀请码与使用次数：只在内存里，刷新页面即恢复 */
+  private readonly inviteCodes: MockInviteCodeBook;
+
+  constructor(options: { messageFreeTextEnabled?: boolean; externalImagesAllowed?: boolean; inviteRequired?: boolean; inviteCodes?: readonly MockInviteCodeSeed[] } = {}) {
     this.messageFreeTextEnabled = options.messageFreeTextEnabled === true;
     this.externalImagesAllowed = options.externalImagesAllowed !== false;
+    this.inviteRequired = options.inviteRequired ?? loadState<unknown>(MOCK_INVITE_REQUIRED_KEY, false) === true;
+    this.inviteCodes = new MockInviteCodeBook(options.inviteCodes ?? MOCK_DEMO_INVITE_CODES);
     // loadState 已经吃掉 JSON 解析异常；migrate 再负责形状与版本
     const raw = loadState<unknown>(DB_KEY, null);
     const result = migrateMockDatabase(raw, buildSeedDatabase);
@@ -222,7 +233,35 @@ export class MockCampusMarketApi implements CampusMarketApi {
   }
   async markConversationRead(_id: string) {}
   async login(input: LoginInput): Promise<AuthSession> { const account = input.account.trim(); const user = this.db.users.find((item) => item.account === account || item.contact === account); if (!user) throw ApiError.mock({ code: 404, message: '账号不存在，请先注册' }); if (user.password !== input.password) throw ApiError.mock({ code: 401, message: '密码错误，请重新输入' }); return this.session(user) }
-  async register(input: RegisterInput): Promise<AuthSession> { const account = input.account.trim(); if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' }); requireSafeText(input.nickname); if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' }); if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' }); const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: '', campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() }; this.db.users.push(user); this.persist(); return this.session(user) }
+  /**
+   * 邀请制（inviteRequired=true）时与后端的顺序相同：字段与校区校验 → 缺少邀请码 400「请输入邀请码」→ 昵称内容安全 →
+   * 邀请码不存在或已用完 400「邀请码无效或已用完」→ 账号已注册 409（没有有效邀请码的人无法借注册接口探测账号）。
+   * 次数在创建账号的同一个同步步骤里扣减（中间没有 await），其他校验失败不消耗次数。不需要邀请码时 inviteCode 被忽略。
+   */
+  async register(input: RegisterInput): Promise<AuthSession> {
+    const account = input.account.trim();
+    if (!account || !input.password || input.password.length < 6 || !input.nickname.trim()) throw ApiError.mock({ code: 400, message: '请完善注册信息，密码至少 6 位' });
+    if (!this.schoolOf(input.campus)) throw ApiError.mock({ code: 400, message: '校区无效' });
+    if (this.inviteRequired) this.inviteCodes.requirePresent(input.inviteCode);
+    requireSafeText(input.nickname);
+    if (this.inviteRequired) this.inviteCodes.check(input.inviteCode);
+    if (this.db.users.some((user) => user.account === account)) throw ApiError.mock({ code: 409, message: '该账号已注册，请直接登录' });
+    if (this.inviteRequired) this.inviteCodes.consume(input.inviteCode);
+    const user: User = { id: uid('u'), account, password: input.password, nickname: input.nickname.trim(), avatar: '', campus: input.campus, contact: input.contact?.trim() || account, createdAt: Date.now() };
+    this.db.users.push(user);
+    this.persist();
+    return this.session(user);
+  }
+
+  /** 仅离线演示：注册页「演示邀请码」面板列出的演示邀请码与剩余次数（真实部署由学校工作人员发放，REST 没有对应能力） */
+  demoInviteCodes(): { inviteRequired: boolean; codes: MockInviteCodeStatus[] } {
+    return { inviteRequired: this.inviteRequired, codes: this.inviteCodes.list() };
+  }
+
+  /** 仅离线演示：切换「以邀请制运行」开关（保存在本机，刷新页面后生效：客户端配置每个页面只读取一次） */
+  demoSetInviteRequired(required: boolean): void {
+    saveState(MOCK_INVITE_REQUIRED_KEY, required);
+  }
   /** Mock 的登录态持久在 MockDatabase（演示数据），无需真实刷新，直接回报当前会话。 */
   async refreshSession(): Promise<AuthSession | null> {
     const id = this.db.currentUserId;
@@ -432,9 +471,9 @@ export class MockCampusMarketApi implements CampusMarketApi {
     })));
   }
 
-  /** GET /v1/config 的离线版本：演示需要示例图，因此允许外部图片；张数、大小与类型与后端默认值相同 */
+  /** GET /v1/config 的离线版本：演示需要示例图，因此允许外部图片；张数、大小与类型与后端默认值相同；默认不需要邀请码（与后端默认相同） */
   async getClientConfig(): Promise<ClientConfig> {
-    return normalizeClientConfig({ images: { ...DEFAULT_CLIENT_CONFIG.images, externalAllowed: this.externalImagesAllowed }, messages: { freeTextEnabled: this.messageFreeTextEnabled } });
+    return normalizeClientConfig({ images: { ...DEFAULT_CLIENT_CONFIG.images, externalAllowed: this.externalImagesAllowed }, messages: { freeTextEnabled: this.messageFreeTextEnabled }, registration: { inviteRequired: this.inviteRequired } });
   }
 
   /** 商品里保存的引用 → 可显示的地址；外部示例图原样返回，已删除 / 不存在的上传图片为空串（界面显示占位图） */

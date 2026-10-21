@@ -1,17 +1,20 @@
 import type { MarketApi, User, Product, ProductInput, ContactRequest, ContactQuery, ContactRole, ContactStatus, Query, ProductStatus, Campus, UnreadCount, WechatStatus, WechatLoginResult, PasswordResetInput, DeletionInput, DeletionResult, ProfileInput, Building, ReportInput, MyReport, MyGovernance, MyRestriction, MyNotice, AppealInput, AppealSummary, Comment, Conversation, ChatMessage, SendMessageInput, MessageTemplates, ReportTargetType, ReportReason, RestrictionScope, RestrictionSource, RevokeReason, NoticeActionCode } from '../model';
 import { CONTACT_STATUSES, REPORT_REASONS, validateProduct, BATCH_MAX_ITEMS, CIRCLE_MEMBER_LIMIT, normalizeClientConfig } from '../model';
-import type { ClientConfig, FeedPage, FeedProduct, FeedQuery, BuildingScope, Circle, CircleInput, CircleInvite, CircleMemberPage, CircleRole, CircleType, CircleVisibility, DiscoverableCircle, ProductVisibility,
+import type { ClientConfig, RegisterInput, FeedPage, FeedProduct, FeedQuery, BuildingScope, Circle, CircleInput, CircleInvite, CircleMemberPage, CircleRole, CircleType, CircleVisibility, DiscoverableCircle, ProductVisibility,
   ListingDraft, ListingKind, ListingPayload, ListingBatch, ListingBatchSummary, ListingValidation, PublishBatchResult, AssistInvite, AssistInviteCreated, AssistInviteRedeemed, DraftStatus, BatchStatus,
   CourseQuery, CoursePage, CourseDetail, CourseOffering, TextbookDetail, TextbookEdition, TextbookSuggestionInput, TextbookSuggestionResult, TextbookSuggestion, TextbookUsage, ProductTextbook, BundleItem,
   DemandConditions, DemandSubscribeResult, DemandSubscription, DemandMatchPage, DemandMatch, Category } from '../model';
-import { ASSISTANT_FIELDS, DEMO_SCHOOLS, INVALID_CAMPUS, demoSchoolOf, DEMO_COURSES, DEMO_COURSE_TEXTBOOKS, DEMO_EDITIONS, DEMO_OFFERINGS, TERM_ORDER, USAGE_ORDER, mockTier, normalizeDemandText, parseBundleItems, randomToken, sanitizePayload, scoreDemandMatch, tokenDigest, validateListing, type DemoEdition, type ValidationContext } from './mockRules';
+import { ASSISTANT_FIELDS, DEMO_REGISTRATION_INVITES, compactRegistrationInvite, DEMO_SCHOOLS, INVALID_CAMPUS, demoSchoolOf, DEMO_COURSES, DEMO_COURSE_TEXTBOOKS, DEMO_EDITIONS, DEMO_OFFERINGS, TERM_ORDER, USAGE_ORDER, mockTier, normalizeDemandText, parseBundleItems, randomToken, sanitizePayload, scoreDemandMatch, tokenDigest, validateListing, type DemoEdition, type ValidationContext } from './mockRules';
 import { isbnProblem, parseIsbn } from '../catalog';
 import { AVATAR_EXTERNAL_REJECTED, AVATAR_INVALID, presetNumber } from '../avatar';
 import { FREE_TEXT_DISABLED, MESSAGE_TEMPLATES, TEMPLATE_NOT_FOUND, TEMPLATE_WRONG_ROLE } from '../messages';
 import { ApiError } from './transport';
+import { INVITE_INVALID_MESSAGE, INVITE_REQUIRED_MESSAGE } from '../invite';
 import { imageRefFromUrl, isUploadRef, type UploadedImage } from '../images';
 
 export interface StoragePort { get(): unknown; set(value: unknown): void }
+/** inviteRequired：演示是否要求注册邀请码（默认 false，与 GET /v1/config 缺省一致）。 */
+export interface MockOptions { inviteRequired?: boolean }
 /** 演示库中的申请：与后端一致，另存卖家 / 买家最近一次「看到」的时间，用于计算未读。 */
 type StoredContact = Omit<ContactRequest, 'unread' | 'buyerNickname' | 'sellerNickname'> & { sellerSeenAt: number | null; buyerSeenAt: number | null };
 /** wechat：演示里的「微信身份 ↔ 账号」绑定（相当于后端 user_wechat_identities）；绑定票据只在内存里，不进这个库。 */
@@ -24,6 +27,8 @@ interface Database {
   moderationReports?: StoredReport[]; restrictions?: StoredRestriction[]; actions?: StoredAction[]; appeals?: StoredAppeal[];
   /** 演示里私信是否开放自由文字（与后端配置同义，默认关闭）。 */
   messaging?: { freeTextEnabled: boolean };
+  /** 演示注册邀请码已用次数（按归一化后的邀请码）。 */
+  registrationInviteUses?: Record<string, number>;
   // 与 Web 对齐（第二部分）
   circles?: StoredCircle[]; memberships?: StoredMembership[]; circleInvites?: StoredCircleInvite[]; productCircles?: Record<string, string[]>;
   drafts?: StoredDraft[]; batches?: StoredBatch[]; assistInvites?: StoredAssistInvite[]; publishRequests?: { ownerId: string; key: string; batchId: string; productIds: string[] }[];
@@ -184,7 +189,9 @@ export class MockApi implements MarketApi {
   private db: Database;
   /** 微信绑定票据：只在内存，一次性、10 分钟；与后端一样只认票据本身。 */
   private readonly tickets = new Map<string, { openid: string; expiresAt: number }>();
-  constructor(private readonly storage: StoragePort) {
+  private readonly inviteRequired: boolean;
+  constructor(private readonly storage: StoragePort, options: MockOptions = {}) {
+    this.inviteRequired = options.inviteRequired === true;
     const saved = storage.get() as Partial<Database> | null;
     this.db = saved?.version === 1 && Array.isArray(saved.users) && Array.isArray(saved.products) && Array.isArray(saved.contacts) && saved.favorites
       ? saved as Database : seedDatabase();
@@ -215,12 +222,27 @@ export class MockApi implements MarketApi {
   }
   async restore() { const user = this.db.users.find((u) => u.id === this.db.userId); return user ? this.safeUser(user) : null; }
   async login(account: string, password: string) { const user = this.db.users.find((u) => !u.deleted && u.account === account.trim() && u.password === password); if (!user) throw new Error('账号或密码错误'); this.db.userId = user.id; this.save(); return this.safeUser(user); }
-  async register(input: { account: string; password: string; nickname: string; campus: Campus; contact: string }) {
+  async register(input: RegisterInput) {
     if (!/^[a-zA-Z0-9]{6,20}$/.test(input.account.trim()) || input.password.length < 8 || !input.nickname.trim()) throw new Error('请填写有效账号、昵称和至少 8 位密码');
     requireCampus(input.campus);
+    // 试点期邀请注册：未填 400「请输入邀请码」；不存在或已用完 400「邀请码无效或已用完」；只有注册成功才计一次使用
+    const invite = this.inviteRequired ? this.registrationInvite(input.inviteCode, input.campus) : null;
     if (this.db.users.some((u) => !u.deleted && u.account === input.account.trim())) throw new Error('该账号已注册');
-    const user = { ...input, account: input.account.trim(), nickname: input.nickname.trim(), id: id() };
+    const { account, password, nickname, campus, contact } = input;
+    const user = { account: account.trim(), password, nickname: nickname.trim(), campus, contact, id: id() };
+    if (invite) this.db.registrationInviteUses = { ...this.db.registrationInviteUses, [invite]: (this.db.registrationInviteUses?.[invite] ?? 0) + 1 };
     this.db.users.push(user); this.db.userId = user.id; this.save(); return this.safeUser(user);
+  }
+  /**
+   * 校验演示注册邀请码（与后端 RegistrationInvites 同序同文案）：缺少或空白 →「请输入邀请码」；
+   * 不是字符串、不存在、已用完、不是所选校区那所学校的 → 一律「邀请码无效或已用完」。返回归一化后的邀请码（用于计数）。
+   */
+  private registrationInvite(raw: unknown, campus: Campus): string {
+    if (raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim())) throw new ApiError(INVITE_REQUIRED_MESSAGE, 400);
+    const compact = typeof raw === 'string' ? compactRegistrationInvite(raw) : '';
+    const invite = DEMO_REGISTRATION_INVITES.find((c) => compactRegistrationInvite(c.code) === compact && c.school === demoSchoolOf(campus));
+    if (!invite || (this.db.registrationInviteUses?.[compact] ?? 0) >= invite.maxUses) throw new ApiError(INVITE_INVALID_MESSAGE, 400);
+    return compact;
   }
   async logout() { this.db.userId = null; this.save(); }
   async list(query: Query) {
@@ -660,7 +682,7 @@ export class MockApi implements MarketApi {
   // 与 Web 对齐（第二部分）：与后端 / Web Mock 逐条一致的演示实现
   // ======================================================================
   /** 演示不加载任何外部图片：外部头像与外部商品图都不允许（与后端 externalAllowed=false 一致）。 */
-  async clientConfig(): Promise<ClientConfig> { return normalizeClientConfig({ images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: false } }); }
+  async clientConfig(): Promise<ClientConfig> { return normalizeClientConfig({ images: { maxCount: 9, maxBytes: 5 * 1024 * 1024, accept: ['image/jpeg', 'image/png'], externalAllowed: false }, registration: { inviteRequired: this.inviteRequired } }); }
   /** 头像只能是空串、12 个预设之一或本人上传、仍有效的图片。 */
   private requireAvatar(userId: string, avatar: unknown) {
     if (avatar === '' || (typeof avatar === 'string' && presetNumber(avatar))) return;

@@ -14,9 +14,32 @@
 > 之后的学校管理员变更一律在后台走两人复核。高级审核员在后台只有治理与商品只读，需要用户 / 订单 / 审计只读的人请授予 `AUDITOR`。
 > 设计与测试见 [docs/admin-security.md](../../docs/admin-security.md)。
 
+## 0. 邀请制下的首次部署：先签发引导邀请码
+
+首批试运行开启了邀请制（`REGISTRATION_INVITE_REQUIRED=true`，见 [docs/registration-invites.md](../../docs/registration-invites.md)）：
+注册必须持有本校工作人员签发的邀请码，而首次部署时还没有任何工作人员。按下面的顺序引导：
+
+1. 确认部署环境已设置 `REGISTRATION_INVITE_REQUIRED=true`、`SCHOOL_PACKS` 含本校（例如 `aust`），且 compose 的 `api.environment` 会把它传进容器。
+2. 用同一个镜像以命令行方式签发**一张**引导邀请码（不启动 Web 服务，执行完即退出；迁移与学校数据包导入照常执行）：
+
+   ```bash
+   cd campus-market-frontend/deploy
+   docker compose run --rm api --campus-market.cli.issue-invite.school=aust \
+       --campus-market.cli.issue-invite.max-uses=2 --campus-market.cli.issue-invite.days=3 \
+       --campus-market.cli.issue-invite.note=首批两名学校管理员
+   ```
+
+   标准输出只有一行：`邀请码：XXXX-XXXX-XXXX（2 次，至 yyyy-MM-dd HH:mm）`（北京时间）。退出码非 0 时看标准错误里的原因
+   （学校 id 不存在或已停用、参数越界）。**这一行就是明文的唯一出处**：不要贴进工单、群聊或变更记录，只登记「已签发、几次、到期时间」。
+3. 把邀请码**分别私下**交给两位首批学校管理员，请他们在注册页填写后注册（校区选本校）。
+4. 按第 1 节第 2～3 步把两人登记为 `SCHOOL_ADMIN`（各执行一次）。之后的邀请码一律由学校管理员在后台「注册邀请码」签发、撤销，
+   不再使用命令行；引导邀请码若还有剩余次数，请学校管理员在后台撤销。
+
+没有开启邀请制时（`REGISTRATION_INVITE_REQUIRED` 未设置或为 false）跳过本节。
+
 ## 1. 配置首个工作人员
 
-1. 请对方先用普通方式注册一个账号（与普通同学相同），并告诉你**账号**（学号或手机号）。不要索取对方的密码。
+1. 请对方先用普通方式注册一个账号（与普通同学相同；开启邀请制时用第 0 节签发的引导邀请码），并告诉你**账号**（学号或手机号）。不要索取对方的密码。
 2. 确认这个账号属于哪所学校（工作人员只能处理本人所在学校的案件）：
 
    ```sql

@@ -1,5 +1,5 @@
 import type { MarketApi, Product, ProductInput, ProductPage, Query, User, ContactRequest, ContactPage, ContactQuery, ContactRole, InspectionTemplate, ProductStatus, Campus, Category, UnreadCount, WechatStatus, PasswordResetInput, DeletionInput, DeletionResult, ProfileInput, Building, ReportInput, MyReport, MyGovernance, AppealInput, AppealSummary, Comment, Conversation, ChatMessage, SendMessageInput, MessageTemplates, MessageTemplate,
-  ClientConfig, FeedPage, FeedQuery, Circle, CircleInput, CircleInvite, CircleInviteCreated, CircleMemberPage, CircleRole, DiscoverableCircle,
+  ClientConfig, RegisterInput, FeedPage, FeedQuery, Circle, CircleInput, CircleInvite, CircleInviteCreated, CircleMemberPage, CircleRole, DiscoverableCircle,
   ListingDraft, ListingKind, ListingPayload, ListingBatch, ListingBatchSummary, PublishBatchResult, AssistInvite, AssistInviteCreated, AssistInviteRedeemed,
   CourseQuery, CoursePage, CourseDetail, TextbookDetail, TextbookEdition, TextbookSuggestionInput, TextbookSuggestionResult, TextbookSuggestion,
   DemandConditions, DemandSubscribeResult, DemandSubscription, DemandMatchPage } from '../model';
@@ -85,7 +85,12 @@ export class RestApi implements MarketApi {
   constructor(private readonly transport: Transport) {}
   async restore() { const session = await this.transport.restore(); this.uid = session?.user.id ?? ''; return session?.user ?? null; }
   async login(account: string, password: string) { const user = await this.transport.login({ account: account.trim(), password }); this.uid = user.id; return user; }
-  async register(input: { account: string; password: string; nickname: string; campus: Campus; contact: string }) { const user = await this.transport.login(input, true); this.uid = user.id; return user; }
+  /** 只发送注册白名单字段；inviteCode 只在调用方给出时（需要邀请码时）出现。错误（如「请输入邀请码」「邀请码无效或已用完」）原样抛出。 */
+  async register(input: RegisterInput) {
+    const { account, password, nickname, campus, contact, inviteCode } = input;
+    const user = await this.transport.login({ account, password, nickname, campus, contact, ...(inviteCode !== undefined ? { inviteCode } : {}) }, true);
+    this.uid = user.id; return user;
+  }
   async logout() { try { await this.transport.logout(); } finally { this.uid = ''; } }
   list(query: Query) {
     const parameters = Object.entries(query).filter(([, value]) => value !== undefined && value !== '')

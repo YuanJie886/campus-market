@@ -40,7 +40,6 @@ import java.util.UUID;
 public class AccountService {
     private static final String DELETE_CONFIRMATION = "确认注销";
     private static final String RESET_FAILURE = "账号或重置码无效或已过期";
-    private static final char[] CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789".toCharArray();
 
     private final JdbcTemplate jdbc;
     private final AuthService auth;
@@ -131,17 +130,13 @@ public class AccountService {
         return Map.of("reset", true);
     }
 
+    /** 与注册邀请码同一套字母表与格式（{@link OneTimeCodes}）。 */
     private String newCode() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 12; i++) {
-            if (i > 0 && i % 4 == 0) sb.append('-');
-            sb.append(CODE_ALPHABET[random.nextInt(CODE_ALPHABET.length)]);
-        }
-        return sb.toString();
+        return OneTimeCodes.generate(random);
     }
 
     private static String normalizeCode(String code) {
-        return code.replace("-", "").replace(" ", "").toUpperCase(java.util.Locale.ROOT);
+        return OneTimeCodes.normalize(code);
     }
 
     // ================= 注销 =================

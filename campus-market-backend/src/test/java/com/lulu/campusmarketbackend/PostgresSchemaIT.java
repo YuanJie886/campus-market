@@ -77,6 +77,9 @@ class PostgresSchemaIT {
      * 逐条建立，而非依据文档。V3 新增 buildings，V4 新增需求雷达两张表，V5 新增可信面交 8 张表。
      */
     private static final Set<String> EXPECTED_TABLES = Set.of(
+            // V23：注册邀请码与使用记录
+            "registration_invites",
+            "registration_invite_uses",
             // V22：学校数据包导入记录
             "school_pack_imports",
             "admin_staff_audit",
@@ -163,6 +166,9 @@ class PostgresSchemaIT {
 
     /** schema.sql 中显式 CREATE INDEX / CREATE UNIQUE INDEX 创建的具名索引。 */
     private static final Set<String> EXPECTED_INDEXES = Set.of(
+            // V23
+            "registration_invites_school_created",
+            "registration_invite_uses_invite",
             // V22
             "buildings_active_campus_name",
             "campuses_school",
@@ -424,13 +430,13 @@ class PostgresSchemaIT {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("6. flyway_schema_history 将 V1～V22 记录为成功执行的 SQL 迁移（非 BASELINE）")
+    @DisplayName("6. flyway_schema_history 将 V1～V23 记录为成功执行的 SQL 迁移（非 BASELINE）")
     void flywayHistoryRecordsInitialMigration() {
         List<Map<String, Object>> history = jdbc.queryForList(
                 "SELECT installed_rank, version, description, type, checksum, installed_on, success "
                         + "FROM " + FLYWAY_HISTORY_TABLE + " ORDER BY installed_rank");
 
-        assertThat(history).as("空库场景下应有 V1～V22 二十二条迁移记录").hasSize(22);
+        assertThat(history).as("空库场景下应有 V1～V23 二十三条迁移记录").hasSize(23);
 
         Map<String, Object> v1 = history.get(0);
         assertThat(v1.get("version")).as("首条版本应为 1").isEqualTo("1");
@@ -511,7 +517,7 @@ class PostgresSchemaIT {
         assertThat((String) v11.get("description")).isEqualTo("slots corrections and content moderation");
         assertThat((String) v11.get("type")).isEqualTo("SQL");
         assertThat((Boolean) v11.get("success")).isTrue();
-        for (int version = 12; version <= 22; version++) {
+        for (int version = 12; version <= 23; version++) {
             Map<String, Object> migration = history.get(version - 1);
             assertThat(migration.get("version")).isEqualTo(String.valueOf(version));
             assertThat(migration.get("type")).isEqualTo("SQL");

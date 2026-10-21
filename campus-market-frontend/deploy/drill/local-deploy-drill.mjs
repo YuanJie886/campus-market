@@ -69,8 +69,9 @@ async function api(method, path, body, token, headers = {}) {
 }
 // 生产编排默认启用安徽理工大学数据包并隐藏演示学校：演练按真实配置，用淮南校区注册
 const DRILL_CAMPUS = 'aust-huainan';
+let DRILL_INVITE = '';   // 由服务器命令签发（见第 3 节），生产编排默认只接受邀请注册
 async function register(label) {
-  const r = await api('POST', '/v1/auth/register', { account: `d${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`, nickname: label, campus: DRILL_CAMPUS, contact: '13800000000' });
+  const r = await api('POST', '/v1/auth/register', { account: `d${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`, nickname: label, campus: DRILL_CAMPUS, contact: '13800000000', inviteCode: DRILL_INVITE });
   if (r.status !== 200) throw new Error(`注册失败 ${r.status}`);
   return { id: r.json.data.user.id, token: r.json.data.accessToken, cookie: r.headers.get('set-cookie') ?? '' };
 }
@@ -143,6 +144,17 @@ try {
   const schools = await api('GET', '/v1/schools');
   const shown = (schools.json?.data ?? []).map((sc) => `${sc.id}:${(sc.campuses ?? []).map((c) => c.id).join('+')}`).join(',');
   record('学校数据包：只展示安徽理工大学的淮南、合肥两个校区，演示学校不出现', schools.status === 200 && shown === 'aust:aust-huainan+aust-hefei', shown || `status=${schools.status}`);
+  // 邀请注册：没有邀请码不能注册；第一个邀请码按运维手册用服务器命令签发（不启动 Web 服务，打印一行后退出）
+  const config = await api('GET', '/v1/config');
+  const noInvite = await api('POST', '/v1/auth/register', { account: `d${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`, nickname: '无邀请码', campus: DRILL_CAMPUS, contact: '13800000000' });
+  record('生产默认只接受邀请注册：配置为需要邀请码，没有邀请码注册得到 400「请输入邀请码」',
+    config.json?.data?.registration?.inviteRequired === true && noInvite.status === 400 && noInvite.json?.message === '请输入邀请码', `inviteRequired=${config.json?.data?.registration?.inviteRequired} status=${noInvite.status}`);
+  const cli = compose(['run', '--rm', '-T', 'api', '--campus-market.cli.issue-invite.school=aust', '--campus-market.cli.issue-invite.max-uses=500',
+    '--campus-market.cli.issue-invite.days=1', '--campus-market.cli.issue-invite.note=部署演练'], baseEnv(), { timeout: 300_000 });
+  DRILL_INVITE = (String(cli.stdout).match(/邀请码：([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})/) ?? [])[1] ?? '';
+  const apiStillUp = await api('GET', '/v1/health');
+  record('服务器命令签发第一个邀请码：退出码 0、输出一行邀请码，不影响正在运行的服务', cli.status === 0 && DRILL_INVITE.length === 14 && apiStillUp.status === 200,
+    `exit=${cli.status} code=${DRILL_INVITE ? `****-****-${DRILL_INVITE.slice(-4)}` : '缺失'}`);
   const notFound = await api('GET', '/v1/no-such-endpoint');
   record('/v1 由 nginx 代理到 API（未知路径得到 API 的 JSON 404，而不是 SPA 页面或 500）', notFound.status === 404 && notFound.json?.code === 404, `status=${notFound.status}`);
   const wrongMethod = await api('DELETE', '/v1/health');
@@ -239,7 +251,7 @@ try {
   if (process.env.DRILL_LOAD === '1') {
     const { runLoad } = await import('../loadtest/load-smoke.mjs');
     const lines = [];
-    const { summary } = await runLoad({ origin: ORIGIN, seconds: Number(process.env.DRILL_LOAD_SECONDS ?? 60), log: (l) => { lines.push(l); console.log(l) } });
+    const { summary } = await runLoad({ origin: ORIGIN, inviteCode: DRILL_INVITE, seconds: Number(process.env.DRILL_LOAD_SECONDS ?? 60), log: (l) => { lines.push(l); console.log(l) } });
     writeFileSync(join(OUT, 'load-smoke.md'), `${lines.join('\n')}\n`);
     record('冒烟压测：读接口 p95 与错误率在目标内（详见 load-smoke.md）', summary.pass,
       `${summary.total} 次 · ${summary.rps.toFixed(1)}/s · 并发 ${summary.concurrency} · 读 p95 ${summary.readP95.toFixed(0)} ms · 错误率 ${(summary.errorRate * 100).toFixed(2)}%`);

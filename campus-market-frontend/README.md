@@ -68,6 +68,11 @@ npm run check:deterministic  # 在未设置 / mock / rest 三种环境下各构�
 # 输入演示账号即可得到一次性重置码（XXXX-XXXX-XXXX，30 分钟、最多 5 次错误，只存在于当前页面内存，刷新即失效）并自动回填。
 # 它同样只在 Mock 构建里懒加载（check-bundles 以 demo-reset-code 标记验证）；真实部署里重置码只能由本校学校管理员
 # 线下核对身份后在管理后台签发（POST /v1/admin/users/{id}/password-reset，见 ../docs/account-lifecycle.md）。
+# 邀请制注册（首个试点）：后端 GET /v1/config 返回 registration.inviteRequired=true 时，注册页显示必填的「邀请码」（XXXX-XXXX-XXXX），
+# 学校工作人员发放的邀请链接形如 /register#invite=CODE（片段不发给服务器，读到后立即从地址栏删掉）。离线演示默认不需要邀请码；
+# 注册页下方的「演示邀请码」面板里点「以邀请制运行离线演示」并刷新即可体验，面板列出演示邀请码 CAMP-US23-4567（100 次）
+# 与 XYZW-2345-6789（1 次，用来体验「邀请码无效或已用完」），点「填入」即可。使用次数只在内存里，刷新即恢复；
+# 面板与演示邀请码只在 Mock 构建里（check-bundles 以 demo-invite-code / mock_invite_required_v1 / CAMP-US23-4567 标记验证）。
 # 阶段 4：离线演示上传的图片以 data: 地址保存在本机（localStorage 的 campus_market_mock_uploaded_images_v1，超出浏览器配额时只留在内存里）。
 # 6.1A：商品浏览与搜索需要登录，只显示本校商品；未登录只看到落地页。
 

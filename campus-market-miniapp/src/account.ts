@@ -5,6 +5,7 @@
 import type { Campus, MarketApi } from './model';
 import { ApiError } from './api/transport';
 import { REGISTRATION_CAMPUS_REQUIRED } from './schools';
+import { INVITE_REQUIRED_MESSAGE, normalizeInviteCode } from './invite';
 
 /** 与后端 AuthService.string(…, 8, 72) 一致：后端先去掉首尾空白再计长度。 */
 export const PASSWORD_MIN = 8;
@@ -110,23 +111,27 @@ export function wechatLoginFailure(error: unknown): { hide: boolean; message: st
 
 // ---------------- 注册：必须先勾选「已阅读并同意《用户协议》和《隐私政策》」 ----------------
 export const AGREEMENT_REQUIRED_MESSAGE = '请先阅读并勾选同意《用户协议》和《隐私政策》';
-export interface RegistrationInput { account: string; password: string; nickname: string; campus: Campus; contact: string }
+/** inviteCode：邀请码输入框的内容，只在需要邀请码（GET /v1/config 的 registration.inviteRequired）时检查与发送。 */
+export interface RegistrationInput { account: string; password: string; nickname: string; campus: Campus; contact: string; inviteCode?: string }
 
-/** 注册表单检查；没有勾选同意时不能注册。 */
-export function registrationError(input: RegistrationInput, agreed: boolean): string | null {
+/** 注册表单检查；没有勾选同意时不能注册；需要邀请码时没有填写邀请码也不能注册。 */
+export function registrationError(input: RegistrationInput, agreed: boolean, inviteRequired = false): string | null {
   if (!input.account.trim() || !input.password || !input.nickname.trim() || input.password.length < PASSWORD_MIN) return '请填写账号、密码和注册资料';
   // 校区来自 GET /v1/schools：先选学校再选校区，提交校区 id
   if (!input.campus) return REGISTRATION_CAMPUS_REQUIRED;
+  // 只检查是否填写；是否有效、是否用完以后端为准（400 原文提示）
+  if (inviteRequired && !normalizeInviteCode(input.inviteCode)) return INVITE_REQUIRED_MESSAGE;
   if (!agreed) return AGREEMENT_REQUIRED_MESSAGE;
   return null;
 }
 
 /**
- * 注册：检查通过（含已勾选同意）才调用接口。请求体只含后端注册白名单字段，不附带「已同意」之类的额外字段
- * （后端对未知字段一律 400）。
+ * 注册：检查通过（含已勾选同意、需要时已填邀请码）才调用接口。请求体只含后端注册白名单字段，不附带「已同意」之类的额外字段
+ * （后端对未知字段一律 400）；inviteCode 只在需要邀请码时发送，格式为归一化后的 XXXX-XXXX-XXXX。
  */
-export async function registerAccount(api: Pick<MarketApi, 'register'>, input: RegistrationInput, agreed: boolean) {
-  const error = registrationError(input, agreed);
+export async function registerAccount(api: Pick<MarketApi, 'register'>, input: RegistrationInput, agreed: boolean, inviteRequired = false) {
+  const error = registrationError(input, agreed, inviteRequired);
   if (error) throw new Error(error);
-  return api.register({ account: input.account.trim(), password: input.password, nickname: input.nickname.trim(), campus: input.campus, contact: input.contact.trim() });
+  return api.register({ account: input.account.trim(), password: input.password, nickname: input.nickname.trim(), campus: input.campus, contact: input.contact.trim(),
+    ...(inviteRequired ? { inviteCode: normalizeInviteCode(input.inviteCode) } : {}) });
 }

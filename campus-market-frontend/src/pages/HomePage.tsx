@@ -9,6 +9,7 @@ import { ScopeNotice, ScopeSwitch } from '../components/BuildingScopeBar';
 import DemandEmptyStateCta from '../components/demand/DemandEmptyStateCta';
 import EmptyState from '../components/EmptyState';
 import { useBuildingFeed } from '../hooks/useBuildingFeed';
+import { useClientConfig } from '../hooks/useClientConfig';
 import { useCampusHasBuildings, useSchools } from '../hooks/useSchools';
 import { getApiClient } from '../api/client';
 import { CONTACT_REQUEST_PAGE_MAX, type ContactRequestStatus } from '../api/contracts';
@@ -56,8 +57,12 @@ const STEPS: readonly { title: string; body: string }[] = [
   { title: '自行联系，当面交易', body: '价格、时间和地点由你们自己约定，当面看货再决定。平台不经手任何钱款。' },
 ];
 
+/** 邀请制（GET /v1/config 的 registration.inviteRequired=true）时落地页注册入口旁的一句说明 */
+export const LANDING_INVITE_NOTE = '目前为小范围测试，注册需要学校工作人员发放的邀请码。';
+
 function Landing() {
   const navigate = useNavigate();
+  const { config } = useClientConfig();
   return (
     <div className="cm-home cm-landing">
       <section className="cm-landing-hero" aria-labelledby="landing-title">
@@ -96,6 +101,7 @@ function Landing() {
           <p className="cm-landing-cta-note">
             还没有账号？<Link to="/register" className="cm-link">注册新账号</Link>
           </p>
+          {config.registration.inviteRequired && <p className="cm-landing-invite-note">{LANDING_INVITE_NOTE}</p>}
           <p className="cm-landing-legal">
             使用前请阅读<Link to="/terms" className="cm-link">《用户协议》</Link>和<Link to="/privacy" className="cm-link">《隐私政策》</Link>
           </p>

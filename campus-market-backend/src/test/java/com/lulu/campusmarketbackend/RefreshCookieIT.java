@@ -169,13 +169,13 @@ class RefreshCookieIT {
     void insecureCookieOnHttpsOriginIsRefused() {
         // 直接构造：这条策略是构造期判定，不依赖容器
         assertThatThrownBy(() -> new com.lulu.campusmarketbackend.security.AuthService(
-                null, null, null, null, null, null, null, "https://market.example.edu", false, 7))
+                null, null, null, null, null, null, null, null, null, "https://market.example.edu", false, 7))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("SECURE_COOKIES");
 
         // http 本地开发仍然允许（只告警），否则开发环境无法工作
         org.assertj.core.api.Assertions.assertThatCode(() -> new com.lulu.campusmarketbackend.security.AuthService(
-                null, null, null, null, null, null, null, "http://localhost:5173", false, 7))
+                null, null, null, null, null, null, null, null, null, "http://localhost:5173", false, 7))
                 .doesNotThrowAnyException();
     }
 

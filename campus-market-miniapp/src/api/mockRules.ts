@@ -251,3 +251,15 @@ export function tokenDigest(token: string): string {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return `${(h2 >>> 0).toString(16).padStart(8, '0')}${(h1 >>> 0).toString(16).padStart(8, '0')}`;
 }
+
+// ---------------- 注册邀请码（试点期，演示专用；只会打进演示构建） ----------------
+/**
+ * 演示注册邀请码（与 Web 演示相同的两张）：格式与字母表与后端一致（XXXX-XXXX-XXXX，ABCDEFGHJKMNPQRSTUVWXYZ23456789）。
+ * 与后端一样按学校签发：只能用于注册到该学校的校区。maxUses 为可注册次数；用掉的次数记在演示库里（registrationInviteUses）。
+ */
+export const DEMO_REGISTRATION_INVITES: readonly { code: string; school: string; maxUses: number }[] = [
+  { code: 'CAMP-US23-4567', school: 'pilot', maxUses: 100 },
+  { code: 'XYZW-2345-6789', school: 'pilot', maxUses: 1 },
+];
+/** 与后端 OneTimeCodes.normalize 相同：转大写，去掉空白（含全角空格）与短横线（含全角短横线）。 */
+export const compactRegistrationInvite = (code: string) => code.replace(/[\s\u3000\-－]/g, '').toUpperCase();

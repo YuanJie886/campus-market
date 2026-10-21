@@ -173,7 +173,7 @@ public class AdminService {
     }
 
     /** 只记录谁、何时、读了哪类记录与条数；搜索词可能本身就是个人信息，只存它的 SHA-256。 */
-    private void auditRead(StaffGuard.Staff member, String resource, UUID recordId, Integer count, String keyword, String requestId) {
+    void auditRead(StaffGuard.Staff member, String resource, UUID recordId, Integer count, String keyword, String requestId) {
         String digest = keyword == null || keyword.isBlank() ? null : sha256(keyword.trim().toLowerCase(Locale.ROOT));
         jdbc.update("INSERT INTO admin_read_audit(school_id,staff_user_id,resource,record_id,result_count,query_digest,request_id) VALUES (?,?,?,?,?,?,?)",
                 member.schoolId(), member.userId(), resource, recordId, count, digest, requestId);

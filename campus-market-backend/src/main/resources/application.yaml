@@ -64,6 +64,10 @@ campus-market:
     packs: ${SCHOOL_PACKS:}
     packs-dir: ${SCHOOL_PACKS_DIR:}
     demo-school-enabled: ${DEMO_SCHOOL_ENABLED:true}
+  # 注册邀请码（docs/registration-invites.md）：true 时注册必须填写本校工作人员签发的邀请码。
+  # 默认 false（开发、测试与 E2E 不变）；首批试运行的生产环境设为 true。客户端从 GET /v1/config 的 registration.inviteRequired 读取。
+  registration:
+    invite-required: ${REGISTRATION_INVITE_REQUIRED:false}
   wechat:
     app-id: ${WECHAT_APP_ID:}
     app-secret: ${WECHAT_APP_SECRET:}

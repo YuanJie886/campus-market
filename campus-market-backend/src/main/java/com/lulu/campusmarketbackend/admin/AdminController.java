@@ -16,10 +16,12 @@ public class AdminController {
     private final AdminPermissions access;
     private final StaffModerationService moderation;
     private final com.lulu.campusmarketbackend.security.AccountService accounts;
+    private final RegistrationInviteAdminService invites;
 
     public AdminController(AuthService auth, AdminService admin, AdminPermissions access, StaffModerationService moderation,
-                           com.lulu.campusmarketbackend.security.AccountService accounts) {
+                           com.lulu.campusmarketbackend.security.AccountService accounts, RegistrationInviteAdminService invites) {
         this.auth = auth; this.admin = admin; this.access = access; this.moderation = moderation; this.accounts = accounts;
+        this.invites = invites;
     }
     @GetMapping("/me")
     public Map<String, Object> me(HttpServletRequest request) { return admin.me(auth.authenticate(request, false)); }
@@ -46,6 +48,24 @@ public class AdminController {
     @PostMapping("/users/{id}/password-reset")
     public Map<String, Object> passwordReset(HttpServletRequest request, @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         return accounts.issueResetCode(auth.authenticate(request, false), id, body, RequestIdFilter.currentRequestId(request));
+    }
+    /** V23：注册邀请码。不走通用的 {resource} 列表（分页参数是 page / size，且有签发与撤销），路径与契约一致。 */
+    @GetMapping("/registration-invites")
+    public Map<String, Object> registrationInvites(HttpServletRequest request, @RequestParam Map<String, String> query) {
+        return invites.list(auth.authenticate(request, false), query, RequestIdFilter.currentRequestId(request));
+    }
+    @GetMapping("/registration-invites/{id}")
+    public Map<String, Object> registrationInvite(HttpServletRequest request, @PathVariable String id) {
+        return invites.detail(auth.authenticate(request, false), id, RequestIdFilter.currentRequestId(request));
+    }
+    @PostMapping("/registration-invites")
+    public Map<String, Object> createRegistrationInvite(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> body) {
+        return invites.create(auth.authenticate(request, false), body);
+    }
+    @PostMapping("/registration-invites/{id}/revoke")
+    public Map<String, Object> revokeRegistrationInvite(HttpServletRequest request, @PathVariable String id,
+                                                        @RequestBody(required = false) Map<String, Object> body) {
+        return invites.revoke(auth.authenticate(request, false), id, body);
     }
     @PatchMapping("/products/{id}")
     public Map<String, Object> product(HttpServletRequest request, @PathVariable String id, @RequestBody Map<String, Object> body) {
