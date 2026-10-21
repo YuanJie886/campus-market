@@ -2,7 +2,7 @@
  * 需求订阅的展示与表单规则（纯函数，不依赖 Taro，便于测试），与 Web utils/demand.ts、DemandSubscribeDialog、DemandsPage 一致。
  * 这里没有任何评分或档位推导：分数、档位、理由码全部由服务端给出，界面只把机器码映射成文字。
  */
-import { CAMPUSES, CATEGORIES, type BuildingScope, type Campus, type Category, type DemandConditions, type DemandSubscribeResult } from './model';
+import { CATEGORIES, type BuildingScope, type Campus, type Category, type DemandConditions, type DemandSubscribeResult } from './model';
 
 /** 规范化后的关键词最大长度（与后端 DemandText.MAX_KEYWORD_LENGTH 一致）。 */
 export const MAX_KEYWORD_LENGTH = 40;
@@ -45,17 +45,20 @@ export interface DescribableConditions {
   textbook?: { title: string; editionLabel: string; isbn?: string | null } | null;
   circle?: { id: string; name: string | null } | null;
 }
-/** 地理范围写清是哪一栋楼、哪个园区。 */
-export function describeScope(c: DescribableConditions): string {
+/** 校区 id → 显示名称（页面传入 campusLabel；缺省原样显示）。 */
+export type CampusLabeler = (id: string | null | undefined) => string;
+const rawLabel: CampusLabeler = (id) => id ?? '';
+/** 地理范围写清是哪一栋楼、哪个园区；校区显示名称，不显示 id。 */
+export function describeScope(c: DescribableConditions, label: CampusLabeler = rawLabel): string {
   if (c.circle) return `圈子：${c.circle.name ?? '已不可见的圈子'}`;
   switch (c.geoScope ?? 'SCHOOL') {
     case 'BUILDING': return `${SCOPE_LABEL.BUILDING}：${c.zone ?? ''}${c.buildingName ?? ''}`;
-    case 'ZONE': return `${SCOPE_LABEL.ZONE}：${c.campusId ?? ''}${c.zone ?? ''}`;
-    case 'CAMPUS': return `${SCOPE_LABEL.CAMPUS}：${c.campusId ?? ''}`;
+    case 'ZONE': return `${SCOPE_LABEL.ZONE}：${label(c.campusId)}${c.zone ?? ''}`;
+    case 'CAMPUS': return `${SCOPE_LABEL.CAMPUS}：${label(c.campusId)}`;
     default: return SCOPE_LABEL.SCHOOL;
   }
 }
-export function describeConditions(c: DescribableConditions): string {
+export function describeConditions(c: DescribableConditions, label: CampusLabeler = rawLabel): string {
   const parts: string[] = [];
   if (c.textbook) parts.push(`教材《${c.textbook.title}》${c.textbook.editionLabel}${c.textbook.isbn ? `（ISBN ${c.textbook.isbn}）` : ''}`);
   if (c.keyword) parts.push(`关键词「${c.keyword}」`);
@@ -63,7 +66,7 @@ export function describeConditions(c: DescribableConditions): string {
   if (c.minPrice != null && c.maxPrice != null) parts.push(`¥${c.minPrice}–¥${c.maxPrice}`);
   else if (c.minPrice != null) parts.push(`¥${c.minPrice} 起`);
   else if (c.maxPrice != null) parts.push(`¥${c.maxPrice} 以内`);
-  parts.push(describeScope(c));
+  parts.push(describeScope(c, label));
   return parts.join(' · ');
 }
 
@@ -72,7 +75,7 @@ export function demandFormFrom(initial: DemandConditions, userCampus: Campus): D
   return {
     keyword: initial.keyword ?? '', category: (initial.category as Category) ?? '',
     minPrice: initial.minPrice != null ? String(initial.minPrice) : '', maxPrice: initial.maxPrice != null ? String(initial.maxPrice) : '',
-    geoScope: initial.geoScope ?? 'SCHOOL', campusId: (initial.campusId as Campus) ?? userCampus, buildingId: initial.buildingId ?? null,
+    geoScope: initial.geoScope ?? 'SCHOOL', campusId: initial.campusId ?? userCampus, buildingId: initial.buildingId ?? null,
   };
 }
 /**
@@ -119,4 +122,3 @@ export const textbookSubscribedText = (r: Pick<DemandSubscribeResult, 'outcome'>
 export const circleSubscribedText = (r: Pick<DemandSubscribeResult, 'outcome'>) => r.outcome === 'EXISTING' ? '已有相同的圈子订阅' : '已订阅这个圈子的新商品，可在「需求匹配」里查看';
 
 export const DEMAND_CATEGORIES = CATEGORIES;
-export const DEMAND_CAMPUSES = CAMPUSES;

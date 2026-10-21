@@ -13,8 +13,8 @@ const DemoStaffSwitch = import.meta.env.VITE_API_MODE === "mock" ? lazy(() => im
 import { useAuth } from "../../context/AuthContext";
 import { useMarket } from "../../context/MarketContext";
 import { useNotify } from "../../context/NotificationContext";
-import { CAMPUSES } from "../../types";
 import type { Campus } from "../../types";
+import { useSchools } from "../../hooks/useSchools";
 import { formatDate, isValidPhone, isValidStudentId } from "../../utils/format";
 import BuildingSelect from "../../components/BuildingSelect";
 import { ApiError, toUserMessage } from '../../api/errors';
@@ -43,7 +43,10 @@ export default function ProfileInfoPage() {
   // 保存失败时服务端的原话（例如昵称被内容安全拦截）显示在保存按钮旁
   const [saveError, setSaveError] = useState<string | null>(null);
   const [nickname, setNickname] = useState(currentUser?.nickname ?? "");
-  const [campus, setCampus] = useState<Campus>(currentUser?.campus ?? "东校区");
+  const [campus, setCampus] = useState<Campus>(currentUser?.campus ?? "");
+  // 只能在本校校区之间切换：选项来自 /v1/schools 里本人学校的校区
+  const { campusChoicesFor } = useSchools();
+  const campusOptions = campusChoicesFor(currentUser?.campus);
   const [contact, setContact] = useState(currentUser?.contact ?? "");
   // 头像：旧演示数据里的外部头像按「不使用头像」处理；只有与当前保存的值不同时才提交
   const [avatar, setAvatar] = useState(normalizeAvatarValue(currentUser?.avatar));
@@ -264,9 +267,9 @@ export default function ProfileInfoPage() {
             onChange={(e) => setCampus(e.target.value as Campus)}
             fullWidth
           >
-            {CAMPUSES.map((c) => (
-              <MenuItem key={c} value={c}>
-                {c}
+            {campusOptions.map((c) => (
+              <MenuItem key={c.id} value={c.id}>
+                {c.name}
               </MenuItem>
             ))}
           </TextField>

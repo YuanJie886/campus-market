@@ -57,6 +57,13 @@ campus-market:
   # 设为 true 后才允许自由文字（照常做内容安全检查）。商品留言不受影响。见 docs/messaging.md
   messages:
     free-text-enabled: ${MESSAGES_FREE_TEXT_ENABLED:false}
+  # 学校数据包（docs/school-data.md）：启动时把启用的学校 / 校区 / 楼栋导入数据库。
+  # packs：逗号分隔的学校 id，例如 aust；默认空 = 不导入。文件先找 packs-dir/<id>.json，再找 classpath:schools/<id>.json。
+  # demo-school-enabled：V1 演示学校 'pilot'（东/西/南/北校区）是否对新用户可见；生产环境设为 false。
+  schools:
+    packs: ${SCHOOL_PACKS:}
+    packs-dir: ${SCHOOL_PACKS_DIR:}
+    demo-school-enabled: ${DEMO_SCHOOL_ENABLED:true}
   wechat:
     app-id: ${WECHAT_APP_ID:}
     app-secret: ${WECHAT_APP_SECRET:}

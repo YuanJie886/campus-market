@@ -519,7 +519,44 @@ export function templatesForRole(templates: readonly MessageTemplate[], role: 'B
   return templates.filter((t) => t.role === role || t.role === 'ANY');
 }
 
+/* ------------------------------ 学校与校区（GET /v1/schools） ------------------------------ */
+
+/**
+ * 校区：id 是请求里提交的值（注册、资料、商品、订阅、圈子都提交 id），name 只用于展示。
+ * 新学校的校区 id 是带命名空间的稳定标识（例如 aust-huainan），不再等于显示名称；
+ * 演示学校（pilot）的校区 id 恰好等于名称（东校区 等）。hasBuildings=false 表示这个校区还没有启用的楼栋。
+ */
+export interface CampusInfo { id: string; name: string; hasBuildings: boolean }
+/** GET /v1/schools（无需登录）只返回可见、启用的学校与校区；生产环境里演示学校不可见 */
+export interface School { id: string; name: string; shortName: string; campuses: CampusInfo[] }
+
+/** 服务端返回的学校列表逐项校验：缺 id 的学校 / 校区丢弃，名称缺失时回落到 id，hasBuildings 只认明确的 false */
+export function normalizeSchools(raw: unknown): School[] {
+  if (!Array.isArray(raw)) return [];
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const schools: School[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const s = item as Record<string, unknown>;
+    const id = text(s.id);
+    if (!id) continue;
+    const campuses: CampusInfo[] = [];
+    for (const c of Array.isArray(s.campuses) ? s.campuses : []) {
+      if (!c || typeof c !== 'object') continue;
+      const campus = c as Record<string, unknown>;
+      const campusId = text(campus.id);
+      if (!campusId) continue;
+      campuses.push({ id: campusId, name: text(campus.name) || campusId, hasBuildings: campus.hasBuildings !== false });
+    }
+    const name = text(s.name) || id;
+    schools.push({ id, name, shortName: text(s.shortName) || name, campuses });
+  }
+  return schools;
+}
+
 export interface CampusMarketApi {
+  /** 可见的学校与校区（GET /v1/schools，无需登录） */
+  getSchools(): Promise<School[]>;
   /** 客户端配置（图片张数、大小、类型与是否允许外部图片）；旧后端 404 时返回默认值 */
   getClientConfig(): Promise<ClientConfig>;
   /** 本人对该商品的申请，尚未申请时为 null */

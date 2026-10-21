@@ -2,7 +2,7 @@ import type { CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePa
 import type { User, Product, Favorite, Comment, Conversation, ChatMessage, ProductStatus } from '../types';
 import { HttpTransport } from './httpTransport';
 import { ApiError } from './errors';
-import { normalizeClientConfig } from './contracts';
+import { normalizeClientConfig, normalizeSchools } from './contracts';
 import { authTokenStore } from '../utils/authTokenStore';
 export class RestCampusMarketApi implements CampusMarketApi {
   constructor(private readonly transport: HttpTransport) {}
@@ -28,6 +28,10 @@ export class RestCampusMarketApi implements CampusMarketApi {
   withdrawContactRequest(id: string) { return this.transport.post<ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/withdraw`) }
   revokeContactRequest(id: string) { return this.transport.post<ContactRequest>(`/v1/contact-requests/${encodeURIComponent(id)}/revoke`) }
   getUser(id: string): Promise<import('../types').PublicUser> { return this.transport.get(`/v1/users/${encodeURIComponent(id)}`) }
+  /** GET /v1/schools（无需登录）：可见的学校与校区；响应逐项校验后再交给界面 */
+  async getSchools(): Promise<import('./contracts').School[]> {
+    return normalizeSchools(await this.transport.get<unknown>('/v1/schools'));
+  }
   listBuildings(campus: import('../types').Campus, zone?: string): Promise<import('../types').Building[]> {
     const params = new URLSearchParams({ campus });
     if (zone) params.set('zone', zone);

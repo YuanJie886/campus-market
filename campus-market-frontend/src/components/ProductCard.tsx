@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { useMarket } from '../context/MarketContext';
 import { useNotify } from '../context/NotificationContext';
 import ImageWithFallback from './ImageWithFallback';
+import { useSchools } from '../hooks/useSchools';
 import { toUserMessage } from '../api/errors';
 
 interface ProductCardProps {
@@ -57,6 +58,7 @@ export default function ProductCard({ product, contactStatus = null }: ProductCa
   const { isFavorite, setFavorite } = useMarket();
   const { success, info, error } = useNotify();
   const [busy, setBusy] = useState(false);
+  const { campusLabel } = useSchools();
 
   const favorited = isFavorite(currentUser?.id, product.id);
   const soldOut = product.status !== '在售';
@@ -64,9 +66,11 @@ export default function ProductCard({ product, contactStatus = null }: ProductCa
   const badge = contactStatus ? CONTACT_BADGE[contactStatus] : undefined;
   // 有取货楼栋时显示「校区 · 楼栋」（与小程序一致），没有就只显示校区。这里是<b>商品的取货楼栋</b>，来自商品记录本身，
   // 不读取卖家的个人资料——卖家的宿舍楼永远不出现在任何公共位置。
+  // 校区显示名称来自 /v1/schools（新学校的校区 id 不是名称），未知时回落到原值
+  const campusName = campusLabel(product.campus);
   const place = product.buildingName
-    ? `${product.campus} · ${product.buildingName}`
-    : product.campus;
+    ? `${campusName} · ${product.buildingName}`
+    : campusName;
 
   const handleFavorite = async (event: ReactMouseEvent) => {
     event.preventDefault();

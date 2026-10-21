@@ -5,10 +5,11 @@ import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
 import { BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS } from '../../api/contracts';
-import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus, type Category, type Condition, type ProductInput } from '../../types';
+import { CATEGORIES, CONDITIONS, type Campus, type Category, type Condition, type ProductInput } from '../../types';
 import { IMAGE_PRESETS } from '../../utils/externalDemoImages';
 import { averagePerItem } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
+import { useSchools } from '../../hooks/useSchools';
 import ImageUploader from '../ImageUploader';
 import ErrorSummary, { type ErrorSummaryItem } from '../trust/ErrorSummary';
 import BundleEditor, { emptyBundleRow, itemsFromRows, type BundleRow } from './BundleEditor';
@@ -35,6 +36,9 @@ export default function BundleProductForm({ initial, onSubmit, onCancel, submitE
   const [category, setCategory] = useState('');
   const [condition, setCondition] = useState('');
   const [campus, setCampus] = useState<Campus>(initial.campus);
+  // 校区选项：本人学校的校区（initial.campus 是本人校区）
+  const { campusChoicesFor } = useSchools();
+  const campusOptions = campusChoicesFor(initial.campus);
   const [buildingId, setBuildingId] = useState<string | null>(initial.buildingId);
   const [contact, setContact] = useState(initial.contact);
   const [images, setImages] = useState<string[]>([]);
@@ -103,7 +107,7 @@ export default function BundleProductForm({ initial, onSubmit, onCancel, submitE
         </TextField>
       </div>
       <TextField select label="校区" value={campus} onChange={(e) => { setCampus(e.target.value as Campus); setBuildingId(null) }} size="small">
-        {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+        {campusOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
       </TextField>
       <BuildingSelect campus={campus} value={buildingId} onChange={setBuildingId} emptyLabel="不指定楼栋" zoneLabel="取货园区" buildingLabel="取货楼栋" />
       <ImageUploader value={images} onChange={setImages} label="商品图片" inputId="bundle-images-upload"

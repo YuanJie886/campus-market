@@ -1,15 +1,16 @@
 import Taro from '@tarojs/taro';
-import { Button, Input, Picker, Switch, Text, Textarea, View } from '@tarojs/components';
+import { Button, Input, Switch, Text, Textarea, View } from '@tarojs/components';
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { imagesForSubmit, photosError, type PhotoSlot } from '../../images';
-import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus, type ProductVisibility } from '../../model';
+import { CATEGORIES, CONDITIONS, type Campus, type ProductVisibility } from '../../model';
 import { CONTACT_PUBLIC_HELP } from '../../contacts';
 import { averagePerItem, BUNDLE_NOTICE, bundleFormProblems, bundleInput, categoryOptionLabel, emptyBundleRow, rowTotals, type BundleRow } from '../../supply';
 import { buildingHelp } from '../../listing';
 import { notify, useMarket } from '../../state';
 import { PhotoField } from '../../widgets/PhotoField';
 import { BuildingPicker } from '../../widgets/BuildingPicker';
+import { CampusPicker } from '../../widgets/CampusPicker';
 import { VisibilityPicker } from '../../widgets/VisibilityPicker';
 import { BundleRowsEditor } from '../../widgets/BundleRowsEditor';
 
@@ -20,13 +21,13 @@ import { BundleRowsEditor } from '../../widgets/BundleRowsEditor';
 export function BundlePublish() {
   const { user } = useMarket();
   const [title, setTitle] = useState(''), [description, setDescription] = useState(''), [price, setPrice] = useState('');
-  const [category, setCategory] = useState(''), [condition, setCondition] = useState(''), [campus, setCampus] = useState<Campus>(user?.campus ?? '东校区');
+  const [category, setCategory] = useState(''), [condition, setCondition] = useState(''), [campus, setCampus] = useState<Campus>(user?.campus ?? '');
   const [buildingId, setBuildingId] = useState<string | null>(user?.dormBuildingId ?? null), [buildingLabel, setBuildingLabel] = useState<string | null>(null);
   const [contact, setContact] = useState(user?.contact ?? ''), [contactPublic, setContactPublic] = useState(false);
   const [photos, setPhotos] = useState<PhotoSlot[]>([]), [rows, setRows] = useState<BundleRow[]>(() => [emptyBundleRow(), emptyBundleRow()]);
   const [visibility, setVisibility] = useState<ProductVisibility>('PUBLIC'), [circleIds, setCircleIds] = useState<string[]>([]);
   const [problems, setProblems] = useState<string[]>([]), [submitError, setSubmitError] = useState(''), [busy, setBusy] = useState(false);
-  useEffect(() => { setCampus(user?.campus ?? '东校区'); setContact(user?.contact ?? ''); setBuildingId(user?.dormBuildingId ?? null); }, [user?.id]);
+  useEffect(() => { setCampus(user?.campus ?? ''); setContact(user?.contact ?? ''); setBuildingId(user?.dormBuildingId ?? null); }, [user?.id]);
   const uploading = photos.some((p) => p.status === 'uploading');
   const average = /^\d+(\.\d{1,2})?$/.test(price.trim()) ? averagePerItem(Number(price), rowTotals(rows).quantity) : null;
 
@@ -65,9 +66,7 @@ export function BundlePublish() {
       <Text className='field-label'>整体成色</Text>
       <View className='choice-grid'>{CONDITIONS.map((c) => <Text key={c} className={`choice ${condition === c ? 'active' : ''}`} onClick={() => setCondition(c)}>{c}</Text>)}</View>
       <Text className='field-label'>校区</Text>
-      <Picker range={[...CAMPUSES]} value={CAMPUSES.indexOf(campus)} onChange={(e) => { setCampus(CAMPUSES[Number(e.detail.value)] as Campus); setBuildingId(null); }}>
-        <View className='picker'><Text className='picker-value'>{campus}</Text><View className='i-chevron' /></View>
-      </Picker>
+      <CampusPicker value={campus} onChange={(next) => { setCampus(next); setBuildingId(null); }} />
       <Text className='field-label'>取货楼栋（选填）</Text>
       <BuildingPicker campus={campus} value={buildingId} onChange={setBuildingId} emptyLabel='不指定楼栋' zoneLabel='取货园区' buildingLabel='取货楼栋' onLabel={setBuildingLabel} />
       <Text className='field-help'>{buildingHelp(buildingId ? buildingLabel : null)}</Text>

@@ -68,13 +68,16 @@ describe('小程序演示业务', () => {
     await expect(api.status(created.id, '在售')).rejects.toThrow('自己的');
     const restored = new MockApi(storage); expect((await restored.detail(created.id)).status).toBe('已售出');
   });
-  it('关键词、价格、分类和分页一起作用，价格非法或跨校发布被拒绝', async () => {
+  // REWRITTEN：原来用写死的「南校区」代表他校；学校改由演示学校目录决定后，南校区属于 pilot，他校校区是 demo-b-main，未知校区一律「校区无效」
+  it('关键词、价格、分类和分页一起作用，价格非法、跨校或无效校区发布被拒绝', async () => {
     const { api } = setup(); await api.login('buyer001', 'demo12345');
     const page = await api.list({ page: 1, pageSize: 1, sort: 'priceAsc', category: '数码电子', minPrice: 0, maxPrice: 100 });
     expect(page.total).toBe(1); expect(page.items[0].price).toBe(80);
     expect((await api.list({ page: 1, pageSize: 12, sort: 'latest', keyword: '高等数学' })).items).toHaveLength(1);
     expect(validateProduct({ ...product, price: Number.NaN })).toContain('价格');
-    await expect(api.publish({ ...product, campus: '南校区' })).rejects.toThrow('本校');
+    await expect(api.publish({ ...product, campus: 'demo-b-main' })).rejects.toThrow('本校');
+    await expect(api.publish({ ...product, campus: '不存在的校区' })).rejects.toMatchObject({ code: 400, message: '校区无效' });
+    expect((await api.publish({ ...product, campus: '南校区' })).campus).toBe('南校区');
     await expect(api.publish({ ...product, images: [] })).rejects.toThrow('图片');
   });
 });

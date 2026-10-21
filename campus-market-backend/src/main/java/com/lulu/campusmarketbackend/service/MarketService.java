@@ -122,9 +122,12 @@ public class MarketService {
     /**
      * 列出某校区的可选楼栋。公共参考数据，未登录也能读——
      * 发布页和筛选器在登录前就需要它，而它不含任何住户信息。
+     * 不存在的校区 400；停用的校区、停用或被隐藏（演示学校关闭）的学校的校区返回空列表。
      */
     public List<Map<String, Object>> buildings(String campus, String zone) {
-        return buildings.list(schools.requireCampus(campus), trim(zone));
+        String id = schools.requireExistingCampus(campus);
+        if (!schools.isListedCampus(id)) return List.of();
+        return buildings.list(id, trim(zone));
     }
 
     /**
@@ -183,9 +186,10 @@ public class MarketService {
         }
         // 头像：空串 / preset:1..12 / 本人上传的图片（签名地址还原成 upload:<id>）/ 外部地址（仅在开关打开时），见 AvatarService
         if (body.containsKey("avatar")) update.set("avatar", avatars.validate(uid, AuthService.optional(body, "avatar", 2048)));
-        // 6.1A：只能在本校校区之间切换；换到他校校区等于绕过学校隔离，与不存在的校区同为 400
-        String ownSchool = body.containsKey("campus") ? schools.schoolOf(id) : null;
-        if (body.containsKey("campus")) update.set("campus", schools.requireCampusInSchool(body.get("campus"), ownSchool));
+        // 6.1A：只能在本校校区之间切换；换到他校校区等于绕过学校隔离，与不存在的校区同为 400。
+        // 学校数据包：只能换到在用校区；演示学校被隐藏后不能再换校区（提交当前校区不算修改）
+        String newCampus = body.containsKey("campus") ? schools.requireProfileCampus(body.get("campus"), id) : null;
+        if (body.containsKey("campus")) update.set("campus", newCampus);
         if (body.containsKey("contact")) update.set("contact", AuthService.optional(body, "contact", 100));
         if (body.containsKey("dormBuildingId")) {
             Object raw = body.get("dormBuildingId");
@@ -195,9 +199,7 @@ public class MarketService {
             } else {
                 // 同时改 campus 时按<b>新</b>校区校验，否则按库中现值。
                 // 反过来（按旧校区校验）会让「搬到西校区并选西校区楼栋」这一步必然失败。
-                String campus = body.containsKey("campus")
-                        ? schools.requireCampusInSchool(body.get("campus"), ownSchool)
-                        : users.selectCampus(uid);
+                String campus = body.containsKey("campus") ? newCampus : users.selectCampus(uid);
                 update.set("dorm_building_id", buildings.requireSelectable(String.valueOf(raw), campus));
             }
         }
@@ -208,7 +210,7 @@ public class MarketService {
     public Map<String, Object> products(Map<String, String> query, String uid) {
         String category = trim(query.get("category")); if (!category.isEmpty() && !CATEGORIES.contains(category)) throw ApiException.badRequest("分类无效");
         SchoolScope.rejectSchoolOverride(query);
-        String campus = trim(query.get("campus")); if (!campus.isEmpty()) schools.requireCampusInSchool(campus, schools.schoolOf(uid));
+        String campus = trim(query.get("campus")); if (!campus.isEmpty()) schools.requireKnownCampusInSchool(campus, schools.schoolOf(uid));
         String condition = trim(query.get("condition")); if (!condition.isEmpty() && !CONDITIONS.contains(condition)) throw ApiException.badRequest("成色无效");
         String keyword = trim(query.get("keyword")); BigDecimal min = decimalQuery(query.get("minPrice"), "minPrice"), max = decimalQuery(query.get("maxPrice"), "maxPrice");
         String order = switch (query.getOrDefault("sort", "latest")) { case "latest" -> "created_at DESC"; case "priceAsc" -> "price ASC"; case "priceDesc" -> "price DESC"; case "views" -> "views DESC"; default -> throw ApiException.badRequest("排序方式无效"); };

@@ -12,6 +12,8 @@ import {
 interface SwitchProps {
   value: MarketScope;
   onChange: (next: MarketScope) => void;
+  /** 可选的范围（默认全部三项）。本人校区还没有楼栋时首页不提供「本楼」 */
+  scopes?: readonly { key: MarketScope; label: string }[];
 }
 
 /**
@@ -20,19 +22,19 @@ interface SwitchProps {
  * <p>用原生单选框实现单选组：读屏念出「商品范围，单选组，本楼，1/3」；Tab 进入当前项，
  * 方向键在三项之间移动并立即切换——这是单选组的标准键盘模型，不需要自己维护 roving tabindex。
  */
-export function ScopeSwitch({ value, onChange }: SwitchProps) {
+export function ScopeSwitch({ value, onChange, scopes = MARKET_SCOPES }: SwitchProps) {
   // 原生单选框的方向键行为在各浏览器一致；这里只补上 Home / End
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Home' && event.key !== 'End') return;
     event.preventDefault();
-    const target = event.key === 'Home' ? MARKET_SCOPES[0] : MARKET_SCOPES[MARKET_SCOPES.length - 1];
+    const target = event.key === 'Home' ? scopes[0] : scopes[scopes.length - 1];
     onChange(target.key);
     event.currentTarget.querySelector<HTMLInputElement>(`input[value="${target.key}"]`)?.focus();
   };
 
   return (
     <div className="cm-scope" role="radiogroup" aria-label="商品范围" onKeyDown={onKeyDown}>
-      {MARKET_SCOPES.map((scope) => (
+      {scopes.map((scope) => (
         <label key={scope.key} className="cm-scope-option">
           <input
             type="radio"
@@ -84,10 +86,10 @@ export function ScopeNotice({ feed }: NoticeProps) {
 }
 
 /** 首页范围条：分段控件 + 提示。保留默认导出，方便单独渲染与测试。 */
-export default function BuildingScopeBar({ value, onChange, feed }: SwitchProps & NoticeProps) {
+export default function BuildingScopeBar({ value, onChange, feed, scopes }: SwitchProps & NoticeProps) {
   return (
     <div className="cm-scope-bar">
-      <ScopeSwitch value={value} onChange={onChange} />
+      <ScopeSwitch value={value} onChange={onChange} scopes={scopes} />
       <ScopeNotice feed={feed} />
     </div>
   );

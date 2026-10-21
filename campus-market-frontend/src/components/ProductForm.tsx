@@ -6,7 +6,8 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import ContactPublicField from "./ContactPublicField";
 import type { Campus, Category, Condition, ProductInput } from "../types";
-import { CAMPUSES, CATEGORIES, CONDITIONS } from "../types";
+import { CATEGORIES, CONDITIONS } from "../types";
+import { useSchools } from "../hooks/useSchools";
 import {
   CATEGORY_EMOJI,
   CATEGORY_GRADIENT,
@@ -54,7 +55,8 @@ export const emptyProductForm: ProductFormValue = {
   originalPrice: "",
   category: "数码电子",
   condition: "几乎全新",
-  campus: "东校区",
+  // 没有写死的默认校区：调用方传入本人校区（PublishPage / 编辑时的商品校区）
+  campus: "",
   buildingId: null,
   contact: "",
   contactPublic: false,
@@ -131,6 +133,10 @@ export default function ProductForm({
   });
   const [errors, setErrors] = useState<FieldErrors>({});
   const initialCategory = useRef(value.category);
+  // 校区选项：只列初始校区（本人校区 / 商品当前校区）所在学校的校区
+  const { campusChoicesFor } = useSchools();
+  const initialCampus = useRef(value.campus);
+  const campusOptions = campusChoicesFor(initialCampus.current);
   // 模块 4：卖家主动确认的教材版本。切离教材分类时清空，不带到其他分类
   const [linkedTextbook, setLinkedTextbook] = useState<LinkedTextbook | null>(() =>
     initialTextbook ? { editionId: initialTextbook.editionId, label: describeLinked(initialTextbook) } : null,
@@ -272,6 +278,7 @@ export default function ProductForm({
   const [buildingNames, setBuildingNames] = useState<Record<string, string>>({});
   useEffect(() => {
     let active = true;
+    if (!value.campus) return () => { active = false };
     getApiClient()
       .listBuildings(value.campus)
       .then((list) => {
@@ -436,9 +443,9 @@ export default function ProductForm({
           onChange={(e) => patch({ campus: e.target.value as Campus })}
           fullWidth
         >
-          {CAMPUSES.map((c) => (
-            <MenuItem key={c} value={c}>
-              {c}
+          {campusOptions.map((c) => (
+            <MenuItem key={c.id} value={c.id}>
+              {c.name}
             </MenuItem>
           ))}
         </TextField>

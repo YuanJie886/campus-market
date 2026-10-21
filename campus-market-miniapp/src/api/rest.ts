@@ -6,6 +6,7 @@ import type { MarketApi, Product, ProductInput, ProductPage, Query, User, Contac
 import { CONTACT_STATUSES, normalizeClientConfig } from '../model';
 import { ApiError, Transport } from './transport';
 import { imageRefFromUrl, parseUploadedImage, resolveImageUrl } from '../images';
+import { parseSchools } from '../schools';
 
 const INVALID = '服务响应异常，请稍后重试';
 const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -128,6 +129,8 @@ export class RestApi implements MarketApi {
     return this.transport.request<User>('/v1/auth/me', 'PATCH', body);
   }
   async buildings(campus: Campus) { return list(await this.transport.request<unknown>(`/v1/buildings?campus=${encodeURIComponent(campus)}`)) as Building[]; }
+  /** GET /v1/schools（公开）：格式不对视为响应异常。 */
+  async schools() { try { return parseSchools(await this.transport.request<unknown>('/v1/schools')); } catch (e) { if (e instanceof ApiError) throw e; throw new ApiError(INVALID, -1); } }
   // ---------- 可信治理（用户侧）：请求体只带白名单字段 ----------
   report(input: ReportInput) {
     const body: Record<string, unknown> = { targetType: input.targetType, targetId: input.targetId, reasonCode: input.reasonCode };

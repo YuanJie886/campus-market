@@ -17,14 +17,19 @@ const sampleReadAudit = [
     { id: 'ra-3', actorId: 'auditor-1', actorNickname: '周审计', resource: 'role-requests', recordId: null, resultCount: 3, withQuery: false, requestId: 'req-role-requests', createdAt: T0 - 120_000 },
     { id: 'ra-4', actorId: 'auditor-1', actorNickname: '周审计', resource: 'read-audit', recordId: null, resultCount: 4, withQuery: false, requestId: 'req-read-audit', createdAt: T0 - 180_000 },
 ];
+/** GET /v1/schools（公开接口）：只列出可见学校；演示学校 pilot（校区编号与名称相同，如「东校区」）在生产环境被隐藏。 */
+const sampleSchools = [
+    { id: 'aust', name: '安徽理工大学', shortName: '安理', campuses: [{ id: 'aust-huainan', name: '淮南校区', hasBuildings: true }, { id: 'aust-hefei', name: '合肥校区', hasBuildings: false }] },
+    { id: 'hfut', name: '合肥工业大学', shortName: '合工大', campuses: [{ id: 'hfut-tunxi', name: '屯溪路校区', hasBuildings: true }] },
+];
 const sampleOrder = {
     id: '674aad03-c000-4150-b075-42a38b1bcc61', productId: '9405904a-97d5-4e51-8e6b-2bd8b143b190',
-    productTitle: '宜家台灯 · 宿舍阅读灯', productCategory: '生活用品', productCampus: '主校区', productCondition: '几乎全新', productListingKind: 'SINGLE', productStatus: '在售',
+    productTitle: '宜家台灯 · 宿舍阅读灯', productCategory: '生活用品', productCampus: 'aust-huainan', productCondition: '几乎全新', productListingKind: 'SINGLE', productStatus: '在售',
     productDescription: '暖光护眼台灯，使用一个学期，功能完好。附带原装电源线，适合宿舍阅读。', productImages: [],
     productCurrentPrice: 99, price: 88, priceSnapshot: 88, currency: 'CNY', categorySnapshot: '生活用品', conditionSnapshot: '几乎全新', listingKindSnapshot: 'SINGLE',
-    buyerId: 'buyer-1', buyerNickname: '明月', buyerAccount: '20260021', buyerCampus: '主校区',
-    sellerId: 'seller-1', sellerNickname: '清风', sellerAccount: '20250016', sellerCampus: '主校区',
-    status: 'EXPIRED', meetingPointId: 'main-library', meetingPointName: '图书馆东门', meetingCampus: '主校区',
+    buyerId: 'buyer-1', buyerNickname: '明月', buyerAccount: '20260021', buyerCampus: 'aust-hefei',
+    sellerId: 'seller-1', sellerNickname: '清风', sellerAccount: '20250016', sellerCampus: 'aust-huainan',
+    status: 'EXPIRED', meetingPointId: 'main-library', meetingPointName: '图书馆东门', meetingCampus: 'aust-huainan',
     meetingAt: Date.parse('2026-10-09T06:00:00Z'), meetingEndsAt: Date.parse('2026-10-09T06:30:00Z'), meetingRevision: 1,
     createdAt: Date.parse('2026-10-08T02:00:00Z'), updatedAt: Date.parse('2026-10-08T03:00:00Z'), expiresAt: Date.parse('2026-10-09T02:00:00Z'),
     events: [
@@ -38,12 +43,14 @@ const sampleOrder = {
 };
 const sampleProduct = {
     id: 'p-1', title: '九成新 Kindle Paperwhite', description: '宿舍阅读用 Kindle，屏幕完好，附赠保护套和充电线。',
-    category: '数码电子', condition: '几乎全新', listingKind: 'SINGLE', price: 280, status: '在售', campus: '主校区',
+    category: '数码电子', condition: '几乎全新', listingKind: 'SINGLE', price: 280, status: '在售', campus: 'aust-huainan',
     sellerId: 'seller-1', sellerNickname: '清风', sellerAccount: '20250016', moderationHidden: false,
     images: [], version: 'product-v1', views: 128, visibility: 'PUBLIC', createdAt: Date.parse('2026-10-08T02:20:00Z'), history: [] as Record<string, unknown>[],
 };
-async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: string; role?: string } = {}) {
+async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: string; role?: string; schoolId?: string } = {}, options: { schoolsAvailable?: boolean } = {}) {
     let authenticated = false;
+    /** 学校目录是否可用；不可用时返回 503（测试可在中途切换）。 */
+    let schoolsAvailable = options.schoolsAvailable ?? true;
     let product = { ...sampleProduct, history: [...sampleProduct.history] };
     const roleRequests: Record<string, unknown>[] = sampleRoleRequests();
     /** 复核请求的处理：路径与原始请求体（没有请求体时为 null）。 */
@@ -52,18 +59,23 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
     /** 签发重置码：路径与原始请求体。 */
     const resets: { path: string; body: string | null }[] = [];
     // 阶段 3：已注销账号（匿名化后的资料，deleted=true）
-    const deletedUser = { id: 'gone-1', nickname: '已注销用户', account: 'deleted-gone-1', campus: '主校区', role: null, active: false, deleted: true, createdAt: '2026-09-01T08:00:00Z' };
+    const deletedUser = { id: 'gone-1', nickname: '已注销用户', account: 'deleted-gone-1', campus: 'aust-huainan', role: null, active: false, deleted: true, createdAt: '2026-09-01T08:00:00Z' };
     const queries: URL[] = [];
     const requests: { method: string; path: string }[] = [];
-    let user = { id: 'staff-1', nickname: '林小雨', account: '20260018', campus: '主校区', role: 'MODERATOR', active: true, createdAt: '2026-10-01T08:00:00Z' };
+    let user = { id: 'staff-1', nickname: '林小雨', account: '20260018', campus: 'aust-hefei', role: 'MODERATOR', active: true, createdAt: '2026-10-01T08:00:00Z' };
     await page.route('**/v1/**', async route => {
         const url = new URL(route.request().url()); const path = url.pathname;
         queries.push(url); requests.push({ method: route.request().method(), path });
+        // 公开接口，不需要登录
+        if (path === '/v1/schools') {
+            await route.fulfill(schoolsAvailable ? { json: { code: 0, data: sampleSchools } } : { status: 503, json: { code: 503, message: '服务暂不可用' } });
+            return;
+        }
         if (path === '/v1/auth/login') authenticated = true;
         if (!authenticated) { await route.fulfill({ status: 401, json: { code: 401, message: '请登录' } }); return; }
         let data: unknown;
         if (path.startsWith('/v1/auth/')) data = { accessToken: 'ui-test-only', expiresAtIso: '2099-01-01' };
-        else if (path === '/v1/admin/me') data = { id: me.id ?? 'admin-1', fullName: '陈予安', schoolId: 'school-1', role: me.role ?? (permissions.includes('users:write') ? 'SCHOOL_ADMIN' : 'AUDITOR'), permissions };
+        else if (path === '/v1/admin/me') data = { id: me.id ?? 'admin-1', fullName: '陈予安', schoolId: me.schoolId ?? 'aust', role: me.role ?? (permissions.includes('users:write') ? 'SCHOOL_ADMIN' : 'AUDITOR'), permissions };
         else if (path.endsWith('/staff')) {
             const payload = route.request().postDataJSON(); writes.push(payload);
             if (payload.role === 'SCHOOL_ADMIN' || user.role === 'SCHOOL_ADMIN') {
@@ -104,8 +116,8 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
         else if (path === '/v1/admin/products/p-1') data = product;
         else if (path === '/v1/admin/products') data = { items: [
             product,
-            { id: 'p-2', title: '高等数学教材 · 同济第八版', category: '书籍教材', price: 25, status: '已售出', campus: '主校区', moderationHidden: false, createdAt: '2026-10-08T01:30:00Z' },
-            { id: 'p-3', title: '宜家台灯，毕业低价转让', category: '生活用品', price: 45, status: '在售', campus: '主校区', moderationHidden: false, createdAt: '2026-10-07T11:40:00Z' },
+            { id: 'p-2', title: '高等数学教材 · 同济第八版', category: '书籍教材', price: 25, status: '已售出', campus: 'aust-hefei', moderationHidden: false, createdAt: '2026-10-08T01:30:00Z' },
+            { id: 'p-3', title: '宜家台灯，毕业低价转让', category: '生活用品', price: 45, status: '在售', campus: '东校区', moderationHidden: false, createdAt: '2026-10-07T11:40:00Z' },
         ], total: 432 };
         else if (path === '/v1/admin/cases') data = { items: [
             { id: 'c-1', targetType: 'PRODUCT', target: { label: '商品描述与实物不符' }, status: 'OPEN', reportCount: 3, createdAt: '2026-10-08T02:00:00Z' },
@@ -128,7 +140,7 @@ async function mockAdmin(page: Page, permissions = adminPermissions, me: { id?: 
     await page.getByLabel(/^密码/).fill('ui-test-password');
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await expect(page.getByRole('heading', { name: '校园集市运营工作台' })).toBeVisible();
-    return { writes, queries, requests, decisions, resets };
+    return { writes, queries, requests, decisions, resets, setSchoolsAvailable: (value: boolean) => { schoolsAvailable = value; } };
 }
 const LEGACY_NOTICE = '平台已停用站内交易，现在只展示商品与联系方式。这里是停用前产生的历史订单，已在平台停用站内交易时统一关闭，仅供只读查看，不能新建、编辑或删除。';
 /** 页面上不应出现的写入入口：新建、编辑、删除、保存、批量选择。 */
@@ -268,7 +280,7 @@ test('历史订单只读：菜单与标题改名、列表和详情显示说明�
     await expect(page.getByText(sampleOrder.productDescription)).toBeVisible();
     await expect(page.getByRole('heading', { name: '交易双方', exact: true })).toBeVisible();
     await expect(page.getByText('图书馆东门')).toBeVisible();
-    await expect(page.getByText('当前售价：¥99.00 · 主校区')).toBeVisible();
+    await expect(page.getByText('当前售价：¥99.00 · 淮南校区')).toBeVisible();
     await expect(page.getByText('¥88.00', { exact: true })).toHaveCount(2);
     await expect(page.getByText('接受改约', { exact: true })).toBeVisible();
     await expect(page.getByText('待面交 → 已过期', { exact: true })).toBeVisible();
@@ -752,4 +764,100 @@ test('阶段 3：只读审计员看不到签发重置码', async ({ page }) => {
     await page.goto('/admin/users/staff-1/show');
     await expect(page.getByText('林小雨').first()).toBeVisible();
     await expect(page.getByRole('button', { name: '签发重置码' })).toHaveCount(0);
+});
+
+// ───────────── 校区数据驱动：GET /v1/schools ─────────────
+
+const schoolRequests = (requests: { method: string; path: string }[]) => requests.filter(request => request.path === '/v1/schools').length;
+
+test('校区：商品、历史订单、用户与权限页显示校区名称，隐藏学校显示原始编号，站内跳转只请求一次 /v1/schools', async ({ page }) => {
+    await page.setViewportSize({ width: 1540, height: 1080 });
+    const { requests } = await mockAdmin(page);
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await expect(page.getByRole('row').filter({ hasText: sampleProduct.title }).getByText('淮南校区', { exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: '高等数学教材' }).getByText('合肥校区', { exact: true })).toBeVisible();
+    // 隐藏的演示学校 pilot：目录里没有，显示原始编号
+    await expect(page.getByRole('row').filter({ hasText: '宜家台灯，毕业低价转让' }).getByText('东校区', { exact: true })).toBeVisible();
+    await expect(page.getByText(/aust-(huainan|hefei)/)).toHaveCount(0);
+    await page.getByRole('row').filter({ hasText: sampleProduct.title }).getByRole('link', { name: '管理详情' }).click();
+    await expect(page.getByText('数码电子 · 几乎全新 · 淮南校区', { exact: true })).toBeVisible();
+    await expect(page.getByText('校区：淮南校区', { exact: true })).toBeVisible();
+    await page.getByRole('menuitem', { name: '历史订单（只读）' }).click();
+    await expect(page.getByText('生活用品 · 淮南校区', { exact: true })).toBeVisible();
+    await page.getByText(sampleOrder.productTitle, { exact: true }).click();
+    await expect(page.getByText('当前售价：¥99.00 · 淮南校区')).toBeVisible();
+    const buyer = page.locator('.order-party-detail').filter({ hasText: '明月' });
+    await expect(buyer.locator('.order-info').filter({ hasText: '所在校区' })).toContainText('合肥校区');
+    const seller = page.locator('.order-party-detail').filter({ hasText: '清风' });
+    await expect(seller.locator('.order-info').filter({ hasText: '所在校区' })).toContainText('淮南校区');
+    await expect(page.locator('.order-info').filter({ hasText: '面交校区' })).toContainText('淮南校区');
+    await expect(page.getByText(/aust-(huainan|hefei)/)).toHaveCount(0);
+    await page.getByRole('menuitem', { name: '用户与工作人员' }).click();
+    await expect(page.getByRole('row').filter({ hasText: '林小雨' }).getByText('合肥校区', { exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'deleted-gone-1' }).getByText('淮南校区', { exact: true })).toBeVisible();
+    await page.getByRole('row').filter({ hasText: '林小雨' }).getByText('林小雨').click();
+    await expect(page).toHaveURL(/\/users\/staff-1\/show$/);
+    await expect(page.getByText('合肥校区', { exact: true })).toBeVisible();
+    await page.getByRole('link', { name: '配置权限' }).click();
+    await expect(page.getByText('20260018 · 合肥校区', { exact: true })).toBeVisible();
+    await expect(page.getByText(/aust-(huainan|hefei)/)).toHaveCount(0);
+    expect(schoolRequests(requests)).toBe(1);
+});
+
+test('校区筛选：下拉只列本校校区名称，选择后按校区编号筛选', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1540, height: 1080 });
+    const { queries } = await mockAdmin(page);
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await expect(page.getByRole('textbox', { name: /所在校区/ })).toHaveCount(0);
+    await page.getByRole('combobox', { name: '所在校区' }).click();
+    await expect(page.getByRole('option').filter({ hasText: /\S/ })).toHaveText(['淮南校区', '合肥校区']);
+    await page.getByRole('option', { name: '合肥校区' }).click();
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.get('campus')).toBe('aust-hefei');
+    await expect(page.getByRole('combobox', { name: '所在校区' })).toHaveText('合肥校区');
+    expect(JSON.parse(new URL(page.url()).searchParams.get('filter') ?? '{}')).toMatchObject({ campus: 'aust-hefei' });
+    await page.screenshot({ path: testInfo.outputPath('product-campus-filter.png'), fullPage: true });
+    // 刷新后筛选仍显示名称、仍按编号查询
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: '所在校区' })).toHaveText('合肥校区');
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.get('campus')).toBe('aust-hefei');
+    await page.getByRole('button', { name: '清除筛选' }).click();
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.has('campus')).toBe(false);
+});
+
+test('校区筛选：工作人员的学校不在目录中（隐藏的 pilot）时列出所有可见校区，并带学校简称区分', async ({ page }) => {
+    const { queries } = await mockAdmin(page, adminPermissions, { schoolId: 'pilot' });
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await page.getByRole('combobox', { name: '所在校区' }).click();
+    await expect(page.getByRole('option').filter({ hasText: /\S/ })).toHaveText(['安理 · 淮南校区', '安理 · 合肥校区', '合工大 · 屯溪路校区']);
+    await page.getByRole('option', { name: '合工大 · 屯溪路校区' }).click();
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.get('campus')).toBe('hfut-tunxi');
+});
+
+test('学校目录读取失败：显示原始编号，筛选回落为自由输入的校区编号；失败不缓存，进入下一页重新读取后显示名称', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const { queries, requests, setSchoolsAvailable } = await mockAdmin(page, adminPermissions, {}, { schoolsAvailable: false });
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await expect(page.getByRole('row').filter({ hasText: sampleProduct.title }).getByText('aust-huainan', { exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: '高等数学教材' }).getByText('aust-hefei', { exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: '所在校区' })).toHaveCount(0);
+    const campusText = page.getByRole('textbox', { name: '所在校区（校区编号）' });
+    await expect(campusText).toBeVisible();
+    await campusText.fill('aust-hefei');
+    await expect.poll(() => queries.filter(url => url.pathname === '/v1/admin/products').at(-1)?.searchParams.get('campus')).toBe('aust-hefei');
+    const failedAttempts = schoolRequests(requests);
+    expect(failedAttempts).toBeGreaterThanOrEqual(1);
+    // 后端恢复：失败没有被缓存，打开详情页时重新读取并显示名称
+    setSchoolsAvailable(true);
+    await page.getByRole('row').filter({ hasText: sampleProduct.title }).getByRole('link', { name: '管理详情' }).click();
+    await expect(page.getByText('校区：淮南校区', { exact: true })).toBeVisible();
+    expect(schoolRequests(requests)).toBe(failedAttempts + 1);
+    // 成功后缓存：回到列表显示名称与下拉，不再请求
+    await page.getByRole('menuitem', { name: '商品目录' }).click();
+    await expect(page.getByRole('combobox', { name: '所在校区' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: sampleProduct.title }).getByText('淮南校区', { exact: true })).toBeVisible();
+    await page.getByRole('menuitem', { name: '用户与工作人员' }).click();
+    await expect(page.getByRole('row').filter({ hasText: '林小雨' }).getByText('合肥校区', { exact: true })).toBeVisible();
+    expect(schoolRequests(requests)).toBe(failedAttempts + 1);
+    expect(errors).toEqual([]);
 });

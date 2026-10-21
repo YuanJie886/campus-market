@@ -43,6 +43,7 @@ docker compose up -d
 ```
 数据库将在 `127.0.0.1:5432` 启动就绪，自动创建 `campus_market` 数据库。这个编排**只供本机开发**；
 部署请用 `campus-market-frontend/deploy/docker-compose.yml`，见 [docs/local-deployment.md](docs/local-deployment.md)。
+学校、校区与楼栋来自学校数据包（首个试点：安徽理工大学淮南校区、合肥校区），新增学校的做法见 [docs/school-data.md](docs/school-data.md)；私信规则见 [docs/messaging.md](docs/messaging.md)。
 
 ### 2. 启动 Spring Boot 后端服务
 进入后端目录并启动：

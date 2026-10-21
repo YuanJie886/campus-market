@@ -100,7 +100,7 @@ public class AuthService {
     @Transactional
     public Map<String, Object> register(Map<String, Object> body, HttpServletResponse response) {
         JsonFieldPolicy.rejectUnknown(body, REGISTER_FIELDS);
-        String account = field(body, "account", 64), password = string(body, "password", 8, 72), nickname = string(body, "nickname", 1, 40), campus = schools.requireCampus(body.get("campus")), contact = optional(body, "contact", 100);
+        String account = field(body, "account", 64), password = string(body, "password", 8, 72), nickname = string(body, "nickname", 1, 40), campus = schools.requireRegistrableCampus(body.get("campus")), contact = optional(body, "contact", 100);
         // 基础校验通过后才计数，避免格式垃圾把限流表撑大
         rateLimit.consume(RateLimitService.Scope.AUTH_REGISTER, RateLimitService.normalizeAccount(account));
         safety.checkAnonymous(nickname);

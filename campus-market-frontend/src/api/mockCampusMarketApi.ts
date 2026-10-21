@@ -2,7 +2,7 @@ import type { CampusMarketApi, AuthSession, LoginInput, RegisterInput, ProfilePa
 import type { User, Product, Favorite, Comment, Conversation, ChatMessage, ProductStatus } from '../types';
 import { ApiError } from './errors';
 import { loadState, saveState } from '../utils/storage';
-import { MOCK_SCHEMA_VERSION, PILOT_CAMPUS_SCHOOLS, closeLegacyTrade, freshCatalog, migrateMockDatabase, type MockAssistInvite, type MockContactRequest, type MockDatabase, type MockDemandMatch, type MockDemandSubscription, type MockDisclosure, type MockListingBatch, type MockListingDraft, type MockTextbookSuggestion } from './mockMigrations';
+import { MOCK_SCHEMA_VERSION, MOCK_SCHOOL_NAMES, PILOT_CAMPUS_SCHOOLS, closeLegacyTrade, freshCatalog, migrateMockDatabase, type MockAssistInvite, type MockContactRequest, type MockDatabase, type MockDemandMatch, type MockDemandSubscription, type MockDisclosure, type MockListingBatch, type MockListingDraft, type MockTextbookSuggestion } from './mockMigrations';
 import { ASSISTANT_FIELDS, parseBundleItems, randomToken, sanitizePayload, sha256Hex, validateListing, type ValidationContext } from './mock/supplyRules';
 import { BATCH_MAX_ITEMS, CIRCLE_MEMBER_LIMIT, CONTACT_REQUEST_HOURLY_LIMIT, CONTACT_REQUEST_PAGE_MAX, CONTACT_REQUEST_STATUSES, MODERATION_DECISION_REASONS, MODERATION_REPORT_REASONS, MODERATION_REPORT_TARGETS, RESTRICTION_MAX_HOURS } from './contracts';
 import type { AssistEvent, AssistInvite, AssistInviteCreated, AssistInviteRedeemed, BundleItem, ListingBatch, ListingBatchSummary, ListingDraft, ListingKind, ListingPayload, ListingValidation, PublishBatchResult } from './contracts';
@@ -21,7 +21,7 @@ import { FREE_TEXT_DISABLED, MOCK_MESSAGE_TEMPLATES, TEMPLATE_NOT_FOUND, TEMPLAT
 import { bytesToDataUrl, imageSize, readBytes, sniffImage } from './mock/imageRules';
 import { AVATAR_EXTERNAL_NOT_ALLOWED, AVATAR_INVALID, isPresetAvatar } from '../utils/avatar';
 import { IMAGE_PRESETS } from '../utils/externalDemoImages';
-import { ACCOUNT_DELETION_CONFIRMATION, DEFAULT_CLIENT_CONFIG, normalizeClientConfig, type ClientConfig, type MessageTemplateList, type SendMessageInput, IMAGE_MAX_BYTES, IMAGE_TOO_LARGE, PASSWORD_MAX, PASSWORD_MIN, PASSWORD_RESET_FAILURE, UPLOAD_REF_PREFIX, type AccountDeletionResult, type PasswordChangeResult, type PasswordResetInput, type UploadedImage } from './contracts';
+import { ACCOUNT_DELETION_CONFIRMATION, DEFAULT_CLIENT_CONFIG, normalizeClientConfig, normalizeSchools, type ClientConfig, type School, type MessageTemplateList, type SendMessageInput, IMAGE_MAX_BYTES, IMAGE_TOO_LARGE, PASSWORD_MAX, PASSWORD_MIN, PASSWORD_RESET_FAILURE, UPLOAD_REF_PREFIX, type AccountDeletionResult, type PasswordChangeResult, type PasswordResetInput, type UploadedImage } from './contracts';
 
 /** 与后端 RestrictionGuard 的到期时间格式相同：「M 月 d 日 HH:mm」（Asia/Shanghai） */
 function formatRestrictionEnd(epochMs: number): string {
@@ -408,6 +408,28 @@ export class MockCampusMarketApi implements CampusMarketApi {
     this.images[id] = { ownerId: user.id, dataUrl, status: 'ACTIVE', ...size };
     this.persistImages();
     return { id, ref: `${UPLOAD_REF_PREFIX}${id}`, url: dataUrl, ...size };
+  }
+
+  /**
+   * GET /v1/schools 的离线版本：与 REST 同一个形状。学校与校区来自 campusSchools 的登记（演示数据只有试点学校的四个校区），
+   * hasBuildings 按是否还有启用的楼栋计算（与后端相同）。无需登录。
+   */
+  async getSchools(): Promise<School[]> {
+    const bySchool = new Map<string, string[]>();
+    for (const [campus, school] of Object.entries(this.db.campusSchools ?? {})) {
+      if (!bySchool.has(school)) bySchool.set(school, []);
+      bySchool.get(school)!.push(campus);
+    }
+    return normalizeSchools([...bySchool.entries()].map(([id, campuses]) => ({
+      id,
+      name: MOCK_SCHOOL_NAMES[id]?.name ?? id,
+      shortName: MOCK_SCHOOL_NAMES[id]?.shortName ?? id,
+      campuses: campuses.map((campus) => ({
+        id: campus,
+        name: campus,
+        hasBuildings: this.db.buildings.some((building) => building.active && building.campusId === campus),
+      })),
+    })));
   }
 
   /** GET /v1/config 的离线版本：演示需要示例图，因此允许外部图片；张数、大小与类型与后端默认值相同 */

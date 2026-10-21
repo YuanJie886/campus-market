@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import { LoginGate, PageTitle, PrivacyPopup } from '../../components';
 import { imagesForSubmit, photoLimits, photosError, slotsFromImages, type PhotoSlot } from '../../images';
-import { CAMPUSES, CATEGORIES, CONDITIONS, validateProduct, type Campus, type InspectionTemplate, type ProductInput, type ProductVisibility } from '../../model';
+import { CATEGORIES, CONDITIONS, validateProduct, type InspectionTemplate, type ProductInput, type ProductVisibility } from '../../model';
 import { takeEditingId, takePresetTextbook } from '../../navigation';
 import { CONTACT_PUBLIC_HELP } from '../../contacts';
 import { buildingHelp, listingInput, TEXTBOOK_CATEGORY, type ListingOriginal } from '../../listing';
@@ -14,11 +14,12 @@ import { SUPPLY_PAGES } from '../../menu';
 import { notify, notifyError, useClientConfig, useMarket, useUnread } from '../../state';
 import { PhotoField } from '../../widgets/PhotoField';
 import { BuildingPicker } from '../../widgets/BuildingPicker';
+import { CampusPicker } from '../../widgets/CampusPicker';
 import { VisibilityPicker } from '../../widgets/VisibilityPicker';
 import { TextbookIsbnField, type LinkedTextbook } from '../../widgets/TextbookIsbnField';
 import { BundlePublish } from './BundlePublish';
 
-const BLANK: ProductInput = { title: '', description: '', price: 0, category: '生活用品', condition: '几乎全新', campus: '东校区', images: [], contact: '', contactPublic: false };
+const BLANK: ProductInput = { title: '', description: '', price: 0, category: '生活用品', condition: '几乎全新', campus: '', images: [], contact: '', contactPublic: false };
 const STATES = ['未测试', '正常', '存在问题', '不适用'];
 const CODES = ['NOT_TESTED', 'NORMAL', 'DEFECT', 'NOT_APPLICABLE'] as const;
 const STEP_TITLES = ['添加照片', '描述你的闲置', '说明情况并留下联系方式'];
@@ -46,7 +47,7 @@ export default function PublishPage() {
 
   const patch = (part: Partial<ProductInput>) => setForm((prev) => ({ ...prev, ...part }));
   const clear = () => {
-    setForm({ ...BLANK, campus: user?.campus ?? '东校区', contact: user?.contact ?? '', images: [] }); setPhotos([]); setEditId(''); setOriginal(null); setPrice(''); setOriginalPrice(''); setDeclarations({}); setStep(1);
+    setForm({ ...BLANK, campus: user?.campus ?? '', contact: user?.contact ?? '', images: [] }); setPhotos([]); setEditId(''); setOriginal(null); setPrice(''); setOriginalPrice(''); setDeclarations({}); setStep(1);
     setBuildingId(user?.dormBuildingId ?? null); setVisibility('PUBLIC'); setCircleIds([]); setTextbook(null); setPresetEdition(null); setSubmitError('');
   };
   useEffect(clear, [user?.id]);
@@ -157,9 +158,7 @@ export default function PublishPage() {
             </View>
 
             <Text className='field-label'>交易地点</Text>
-            <Picker range={[...CAMPUSES]} value={CAMPUSES.indexOf(form.campus)} onChange={(e) => patch({ campus: CAMPUSES[Number(e.detail.value)] as Campus })}>
-              <View className='picker'><Text className='picker-value'>{form.campus}</Text><View className='i-chevron' /></View>
-            </Picker>
+            <CampusPicker value={form.campus} onChange={(campus) => patch({ campus })} />
             <Text className='field-label'>取货楼栋（选填）</Text>
             <BuildingPicker campus={form.campus} value={buildingId} onChange={setBuildingId} emptyLabel='不指定楼栋' zoneLabel='取货园区' buildingLabel='取货楼栋' onLabel={setBuildingLabel} />
             <Text className='field-help'>{buildingHelp(buildingId ? buildingLabel : null)}</Text>

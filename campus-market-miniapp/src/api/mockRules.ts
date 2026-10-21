@@ -4,7 +4,7 @@
  * REST 构建里不引用这个文件（界面不得用这里的函数重新计算分数或校验结果）。
  */
 import { ApiError } from './transport';
-import { BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS, CATEGORIES, CONDITIONS, type BundleItem, type BuildingScope, type Campus, type ListingKind, type ListingPayload, type ListingValidation, type Term, type TextbookUsage } from '../model';
+import { BUNDLE_MAX_ITEMS, BUNDLE_MIN_ITEMS, CATEGORIES, CONDITIONS, type BundleItem, type BuildingScope, type Campus, type School, type ListingKind, type ListingPayload, type ListingValidation, type Term, type TextbookUsage } from '../model';
 
 const bad = (message: string) => new ApiError(message, 400);
 
@@ -193,7 +193,19 @@ export interface DemoCourse { id: string; school: string; courseCode: string; na
 export interface DemoOffering { id: string; courseId: string; school: string; academicYear: string; term: Term; instructorName: string | null; campusId: Campus | null }
 export interface DemoEdition { id: string; school: string; isbn: string | null; title: string; subtitle: string | null; authors: string[]; publisher: string; editionLabel: string; publishedYear: number | null; workKey: string | null }
 export interface DemoCourseTextbook { offeringId: string; editionId: string; usageType: TextbookUsage }
-const A = 'demo-school-a';
+// ---------------- 演示学校（与 GET /v1/schools 同形） ----------------
+/**
+ * 演示学校：pilot（东 / 西 / 南 / 北校区，校区 id 就是名称，均有演示楼栋，与后端 V1 预置的 pilot 一致）；
+ * 另一所演示学校只用于演示跨校隔离与注册时选择学校，它的校区 id 带命名空间、还没有楼栋。
+ */
+export const DEMO_SCHOOLS: School[] = [
+  { id: 'pilot', name: '演示学校', shortName: '演示学校', campuses: ['东校区', '西校区', '南校区', '北校区'].map((c) => ({ id: c, name: c, hasBuildings: true })) },
+  { id: 'demo-school-b', name: '演示学校（二）', shortName: '演示二校', campuses: [{ id: 'demo-b-main', name: '主校区', hasBuildings: false }] },
+];
+/** 校区所属的演示学校；未知校区返回 null。 */
+export const demoSchoolOf = (campus: string | null | undefined): string | null => DEMO_SCHOOLS.find((s) => s.campuses.some((c) => c.id === campus))?.id ?? null;
+export const INVALID_CAMPUS = '校区无效';
+const A = 'pilot';
 export const DEMO_COURSES: DemoCourse[] = [
   { id: 'demo-calculus-1', school: A, courseCode: 'DEMO-MA101', name: '演示课程·微积分（一）', department: '演示数学学院' },
   { id: 'demo-linear-algebra', school: A, courseCode: 'DEMO-MA102', name: '演示课程·线性代数', department: '演示数学学院' },

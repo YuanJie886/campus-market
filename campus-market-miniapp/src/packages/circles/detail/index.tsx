@@ -64,7 +64,7 @@ export default function CircleDetailPage() {
           {member.myRole !== 'OWNER' && <Button className='danger-button small' disabled={busy} onClick={() => void leave()}>退出圈子</Button>}
         </View>}
         {member && member.myRole === 'OWNER' && !archived ? <Text className='field-help'>{OWNER_LEAVE_TEXT}</Text> : null}
-        {member && !archived && subscribing && <DemandForm title='订阅圈子新商品' submitLabel='订阅' initial={empty} userCampus={user?.campus ?? '东校区'} busy={busy} errorMessage={subscribeError}
+        {member && !archived && subscribing && <DemandForm title='订阅圈子新商品' submitLabel='订阅' initial={empty} userCampus={user?.campus ?? ''} busy={busy} errorMessage={subscribeError}
           onCancel={() => setSubscribing(false)} onSubmit={(c) => void subscribe(c)} circleScope={{ name: circle.name }} />}
         {member?.myRole !== 'OWNER' && <View className='report-area'>
           <Text className='report-link' onClick={() => setReporting(!reporting)}>{reporting ? '收起' : '举报这个圈子'}</Text>

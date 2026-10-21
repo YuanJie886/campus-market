@@ -1,9 +1,11 @@
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
-import type { ClientConfig, UnreadCount, User } from './model';
+import type { Campus, ClientConfig, School, SchoolCampus, UnreadCount, User } from './model';
 import { api, bindSessionExpiry } from './api';
 import { CountStore, UnreadStore, ValueStore } from './unread';
 import { Poller } from './polling';
+import { SCHOOLS_LOAD_FAILED, SchoolsStore, type SchoolCatalog } from './schools';
+import { ApiError } from './api/transport';
 /** 联系申请未读数：页面显示时刷新，自定义 tabBar 订阅后在「通知」上显示角标。 */
 export const unread = new UnreadStore(() => api.unreadCount());
 /** 私信未读数（GET /v1/messages/unread）：与联系申请未读数一起显示在「通知」角标上。 */
@@ -12,13 +14,30 @@ export const messageUnread = new CountStore(() => api.messageUnread());
 export const demandUnread = new CountStore(() => api.demandUnread());
 /** GET /v1/config：读取前为 null（此时不显示任何外部头像，照片张数按默认 9 张）。 */
 export const clientConfig = new ValueStore<ClientConfig | null>(() => api.clientConfig(), null);
+/**
+ * 学校与校区目录：整个小程序只有这一个来源（GET /v1/schools），首次需要时读取一次并缓存；读取失败不缓存，下次使用时重试。
+ * 下面几个函数读的是当前快照：组件里请用 useSchools() 订阅，目录读到后会重新渲染。
+ */
+export const schools = new SchoolsStore(() => api.schools());
+/** 校区显示名称（例如 aust-huainan → 淮南校区）；目录里没有时原样显示 id。 */
+export const campusLabel = (id: Campus | null | undefined) => schools.current.campusLabel(id);
+export const schoolOfCampus = (id: Campus | null | undefined): School | null => schools.current.schoolOfCampus(id);
+export const campusesOfSchool = (schoolId: string | null | undefined): SchoolCampus[] => schools.current.campusesOfSchool(schoolId);
+export const hasBuildings = (id: Campus | null | undefined) => schools.current.hasBuildings(id);
+/** 订阅学校目录（首次调用时触发读取）：catalog 是当前快照；error 是读取失败的提示，retry 重新读取。 */
+export function useSchools(): { catalog: SchoolCatalog; error: string; retry: () => void } {
+  const [catalog, setCatalog] = useState(schools.current), [error, setError] = useState('');
+  const retry = () => { setError(''); schools.load().then(setCatalog, (e) => setError(e instanceof ApiError && e.message ? e.message : SCHOOLS_LOAD_FAILED)); };
+  useEffect(() => { const off = schools.subscribe(setCatalog); if (!schools.current.loaded) retry(); else setCatalog(schools.current); return off; }, []);
+  return { catalog, error, retry };
+}
 interface State { user: User | null; ready: boolean; setUser: (user: User | null) => void; favorites: string[]; loadFavorites: () => Promise<void>; toggleFavorite: (id: string) => Promise<void> }
 const Context = createContext<State | null>(null);
 export function MarketProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<User | null>(null), [ready, setReady] = useState(false), [favorites, setFavorites] = useState<string[]>([]);
   const identity = useRef(user?.id); identity.current = user?.id;
   const loadFavorites = async () => { const uid = user?.id, values = await api.favorites(); if (uid === identity.current) setFavorites(values); };
-  useEffect(() => { api.restore().then(setUser).catch(notifyError).finally(() => setReady(true)); void clientConfig.refresh(); }, []);
+  useEffect(() => { api.restore().then(setUser).catch(notifyError).finally(() => setReady(true)); void clientConfig.refresh(); void schools.load().catch(() => undefined); }, []);
   useEffect(() => bindSessionExpiry(() => setUser(null)), []);
   useEffect(() => { setFavorites([]); if (user) void loadFavorites().catch(notifyError); }, [user?.id]);
   useEffect(() => { if (user) { void unread.refresh(); void messageUnread.refresh(); void demandUnread.refresh(); } else { unread.clear(); messageUnread.clear(); demandUnread.clear(); } }, [user?.id]);

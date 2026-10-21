@@ -178,7 +178,9 @@ describe('2.4 收件箱', () => {
 
   it('11. 未登录访问 /demands 跳转登录', async () => {
     renderApp('/demands');
-    expect(await screen.findByRole('button', { name: '一键体验账号' }, { timeout: 15_000 })).toBeTruthy();
+    // REWRITTEN：原先找「一键体验账号」按钮，它只在 VITE_API_MODE=mock 时出现，只靠本机 .env 才通过；改为任何模式都有的登录表单
+    expect(await screen.findByLabelText(/学号 \/ 手机号/, undefined, { timeout: 15_000 })).toBeTruthy();
+    expect(screen.getByLabelText(/^密码/)).toBeTruthy();
   });
 
   it('12. 从匹配进入详情页不会自动发起联系申请，也不弹出任何预约框；必须由用户点击「我想要」', async () => {

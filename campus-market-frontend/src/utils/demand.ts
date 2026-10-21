@@ -69,20 +69,24 @@ export interface DescribableConditions {
   circle?: { id: string; name: string | null } | null;
 }
 
-/** 地理范围的明确说明：不只写「本楼」，而是写清是哪一栋楼、哪个园区。 */
-export function describeScope(c: DescribableConditions): string {
+/** 校区 id → 显示名称（界面传入 useSchools().campusLabel；不传时原样显示 id） */
+export type CampusLabeler = (campusId: string | null | undefined) => string;
+const rawCampus: CampusLabeler = (id) => id ?? '';
+
+/** 地理范围的明确说明：不只写「本楼」，而是写清是哪一栋楼、哪个园区、哪个校区（校区写名称，不写 id）。 */
+export function describeScope(c: DescribableConditions, campusLabel: CampusLabeler = rawCampus): string {
   // 模块 6：圈子订阅的范围就是这个圈子，写出具体圈子名称
   if (c.circle) return `圈子：${c.circle.name ?? '已不可见的圈子'}`;
   switch (c.geoScope ?? 'SCHOOL') {
     case 'BUILDING': return `${SCOPE_LABEL.BUILDING}：${c.zone ?? ''}${c.buildingName ?? ''}`;
-    case 'ZONE': return `${SCOPE_LABEL.ZONE}：${c.campusId ?? ''}${c.zone ?? ''}`;
-    case 'CAMPUS': return `${SCOPE_LABEL.CAMPUS}：${c.campusId ?? ''}`;
+    case 'ZONE': return `${SCOPE_LABEL.ZONE}：${c.campusId ? campusLabel(c.campusId) : ''}${c.zone ?? ''}`;
+    case 'CAMPUS': return `${SCOPE_LABEL.CAMPUS}：${c.campusId ? campusLabel(c.campusId) : ''}`;
     default: return SCOPE_LABEL.SCHOOL;
   }
 }
 
 /** 一行文字描述订阅条件，用于收件箱与订阅管理。 */
-export function describeConditions(c: DescribableConditions): string {
+export function describeConditions(c: DescribableConditions, campusLabel?: CampusLabeler): string {
   const parts: string[] = [];
   // 精确版本订阅：写出具体版本，而不是只写「教材书籍」
   if (c.textbook) parts.push(`教材《${c.textbook.title}》${c.textbook.editionLabel}${c.textbook.isbn ? `（ISBN ${c.textbook.isbn}）` : ''}`);
@@ -91,7 +95,7 @@ export function describeConditions(c: DescribableConditions): string {
   if (c.minPrice != null && c.maxPrice != null) parts.push(`¥${c.minPrice}–¥${c.maxPrice}`);
   else if (c.minPrice != null) parts.push(`¥${c.minPrice} 起`);
   else if (c.maxPrice != null) parts.push(`¥${c.maxPrice} 以内`);
-  parts.push(describeScope(c));
+  parts.push(describeScope(c, campusLabel));
   return parts.join(' · ');
 }
 

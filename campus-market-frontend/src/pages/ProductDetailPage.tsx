@@ -38,12 +38,14 @@ import type { ProductDisclosure, ContactRequest } from '../api/contracts';
 import SellerDeclarationCard from '../components/trust/SellerDeclarationCard';
 import { averagePerItem } from '../utils/supply';
 import ReportDialog from '../components/governance/ReportDialog';
+import { useSchools } from '../hooks/useSchools';
 
 /** 商品详情页：图片、信息、卖家、联系申请/收藏/留言、留言板 */
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { currentUser, getUser } = useAuth();
+  const { campusLabel } = useSchools();
   const {
     getProduct,
     loadProduct,
@@ -396,8 +398,8 @@ export default function ProductDetailPage() {
                 label={
                   // 取货楼栋来自商品本身，不是卖家资料；没有楼栋就只显示校区
                   product.buildingName
-                    ? `${product.campus} · ${product.buildingZone ?? ''}${product.buildingName}`
-                    : product.campus
+                    ? `${campusLabel(product.campus)} · ${product.buildingZone ?? ''}${product.buildingName}`
+                    : campusLabel(product.campus)
                 }
                 size="small"
                 variant="outlined"
@@ -467,7 +469,7 @@ export default function ProductDetailPage() {
                   {seller?.nickname ?? "未知用户"}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {seller?.campus ?? "—"} · 注册于{" "}
+                  {seller?.campus ? campusLabel(seller.campus) : "—"} · 注册于{" "}
                   {seller ? formatRelativeTime(seller.createdAt) : "—"}
                 </p>
               </div>

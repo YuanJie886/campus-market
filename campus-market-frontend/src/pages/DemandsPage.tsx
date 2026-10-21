@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDemandUnreadCount } from '../context/DemandUnreadContext';
 import { useNotify } from '../context/NotificationContext';
 import DemandSubscribeDialog from '../components/demand/DemandSubscribeDialog';
+import { useSchools } from '../hooks/useSchools';
 import { describeConditions, reasonLabel, subscribeResultText, tierLabel } from '../utils/demand';
 import { formatPrice, formatRelativeTime } from '../utils/format';
 
@@ -56,6 +57,7 @@ export default function DemandsPage() {
 
 function MatchInbox() {
   const { refresh: refreshUnread } = useDemandUnreadCount();
+  const { campusLabel } = useSchools();
   const { error } = useNotify();
   const [items, setItems] = useState<DemandMatch[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -131,7 +133,7 @@ function MatchInbox() {
               </div>
               <p className="text-lg font-bold text-brand-600">{formatPrice(m.product.price)}</p>
               <p className="text-xs text-slate-500">
-                命中订阅：{describeConditions(m.subscription)} · {formatRelativeTime(m.createdAt)}
+                命中订阅：{describeConditions(m.subscription, campusLabel)} · {formatRelativeTime(m.createdAt)}
               </p>
               <p className="text-xs text-slate-600">
                 匹配理由：{m.reasonCodes.map((code) => reasonLabel(code)).join('、')}
@@ -167,6 +169,7 @@ function MatchInbox() {
 
 function SubscriptionManager() {
   const { currentUser } = useAuth();
+  const { campusLabel } = useSchools();
   const { refresh: refreshUnread } = useDemandUnreadCount();
   const { error, success } = useNotify();
   const [items, setItems] = useState<DemandSubscription[] | null>(null);
@@ -252,14 +255,14 @@ function SubscriptionManager() {
               {items.map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-4">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800">{describeConditions(s)}</p>
+                    <p className="text-sm font-medium text-slate-800">{describeConditions(s, campusLabel)}</p>
                     <p className="text-xs text-slate-500">已匹配 {s.matchCount} 件{s.active ? '' : ' · 已停用'}</p>
                   </div>
                   <div className="flex items-center gap-1">
                     <Switch
                       checked={s.active}
                       onChange={() => void toggle(s)}
-                      inputProps={{ 'aria-label': `${s.active ? '停用' : '启用'}订阅：${describeConditions(s)}` }}
+                      inputProps={{ 'aria-label': `${s.active ? '停用' : '启用'}订阅：${describeConditions(s, campusLabel)}` }}
                     />
                     <Button size="small" onClick={() => { setEditError(null); setEditing(s) }}>修改</Button>
                     <Button size="small" color="inherit" onClick={() => void remove(s)}>删除</Button>
@@ -273,7 +276,7 @@ function SubscriptionManager() {
         title={editing === 'new' ? '订阅一个需求' : '修改订阅条件'}
         submitLabel={editing === 'new' ? '确认订阅' : '保存'}
         initial={editing && editing !== 'new' ? editing : EMPTY_CONDITIONS}
-        userCampus={currentUser?.campus ?? '东校区'}
+        userCampus={currentUser?.campus ?? ''}
         busy={saving}
         errorMessage={editError}
         onCancel={closeForm}

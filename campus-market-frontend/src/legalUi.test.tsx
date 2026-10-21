@@ -30,12 +30,18 @@ function renderApp(path: string) {
 }
 const CONSENT = /^已阅读并同意\s*《用户协议》\s*《隐私政策》$/;
 const type = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+/** REWRITTEN：新用户没有默认校区，必须从 /v1/schools 的校区里选择（离线演示只有一所学校，不显示学校选择） */
 async function fillRegister(account: string) {
   await screen.findByRole('heading', { name: '注册新账号' }, { timeout: 5000 });
   type(/学号 \/ 手机号/, account);
   type(/^昵称/, '新同学');
   type(/^密码/, 'test-password');
   type(/^确认密码/, 'test-password');
+  const campus = await screen.findByRole('combobox', { name: /所在校区/ });
+  await waitFor(() => expect(campus.getAttribute('aria-disabled')).not.toBe('true'));
+  fireEvent.mouseDown(campus);
+  fireEvent.click(await screen.findByRole('option', { name: '东校区' }));
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 }
 /** 页面正文包含文档的每一节标题与每一段（逐字） */
 function expectWholeDocument(scope: HTMLElement, doc: LegalDocument) {
@@ -79,7 +85,7 @@ describe('公开页 /terms、/privacy', () => {
 });
 
 describe('注册：必须勾选同意《用户协议》《隐私政策》', () => {
-  it('未勾选：不发出注册请求，勾选框旁出现可访问的错误（role=alert、aria-invalid、aria-describedby）并获得焦点；axe 通过', async () => {
+  it('未勾选：不发出注册请求，勾选框旁出现可访问的错误（role=alert、aria-invalid、aria-describedby）并获得焦点；axe 通过（REWRITTEN：先选择校区）', async () => {
     const register = vi.spyOn(api, 'register');
     const { container } = renderApp('/register');
     await fillRegister(`newbie${Date.now().toString(36)}`);
@@ -97,7 +103,7 @@ describe('注册：必须勾选同意《用户协议》《隐私政策》', () =
     expect(await axeViolations(container)).toEqual([]);
   });
 
-  it('勾选后错误消失，注册成功并登录（请求体不变）', async () => {
+  it('勾选后错误消失，注册成功并登录（请求体不变；REWRITTEN：校区由用户选择，提交的是校区 id）', async () => {
     const register = vi.spyOn(api, 'register');
     renderApp('/register');
     const account = `newbie${Date.now().toString(36)}`;

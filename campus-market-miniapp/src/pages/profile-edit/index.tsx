@@ -3,7 +3,8 @@ import { Button, Input, Picker, Text, View } from '@tarojs/components';
 import { useEffect, useRef, useState } from 'react';
 import { api, isDemo } from '../../api';
 import { LoginGate, PageTitle, PrivacyPopup } from '../../components';
-import { CAMPUSES, type Building, type Campus } from '../../model';
+import type { Building } from '../../model';
+import { buildingPickerState } from '../../schools';
 import { DORM_HELP, DORM_SCOPE_HELP, NICKNAME_MAX, buildingsIn, keepBuilding, profileError, profileInput, zonesOf, type ProfileForm } from '../../profile';
 import { AVATAR_PRESETS } from '../../avatar';
 import { photoLimits, IMAGE_TOO_LARGE } from '../../images';
@@ -11,6 +12,7 @@ import { isPrivacyDenied, PRIVACY_REQUIRED_MESSAGE } from '../../privacy';
 import { requirePrivacy } from '../../privacyGuard';
 import { notify, useClientConfig, useMarket } from '../../state';
 import { Avatar } from '../../widgets/Avatar';
+import { CampusPicker } from '../../widgets/CampusPicker';
 import { uploadPhoto } from '../../widgets/PhotoField';
 
 /**
@@ -19,9 +21,9 @@ import { uploadPhoto } from '../../widgets/PhotoField';
  */
 export default function ProfileEditPage() {
   const { user, setUser } = useMarket();
-  const [form, setForm] = useState<ProfileForm>({ nickname: '', campus: '东校区', contact: '', avatar: '', dormBuildingId: null });
+  const [form, setForm] = useState<ProfileForm>({ nickname: '', campus: user?.campus ?? '', contact: '', avatar: '', dormBuildingId: null });
   const [original, setOriginal] = useState(''), [originalAvatar, setOriginalAvatar] = useState(''), [preview, setPreview] = useState(''), [uploading, setUploading] = useState(false), [buildings, setBuildings] = useState<Building[]>([]), [zone, setZone] = useState('');
-  const [buildingError, setBuildingError] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [ready, setReady] = useState(false);
+  const [buildingsLoaded, setBuildingsLoaded] = useState(false), [buildingError, setBuildingError] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [ready, setReady] = useState(false);
   const identity = useRef(user?.id); identity.current = user?.id;
 
   // 打开时读取本人完整资料（含头像与宿舍楼）；读取失败时用登录时的资料
@@ -38,10 +40,10 @@ export default function ProfileEditPage() {
   // 校区一变就重新读取楼栋；原来的宿舍楼不属于新校区时清空
   useEffect(() => {
     if (!ready) return;
-    let active = true; setBuildingError('');
+    let active = true; setBuildingError(''); setBuildingsLoaded(false);
     api.buildings(form.campus).then((list) => {
       if (!active) return;
-      setBuildings(list); setZone('');
+      setBuildings(list); setZone(''); setBuildingsLoaded(true);
       setForm((f) => ({ ...f, dormBuildingId: keepBuilding(list, f.dormBuildingId) }));
     }).catch((e) => { if (active) { setBuildings([]); setBuildingError(e instanceof Error ? e.message : '楼栋读取失败'); } });
     return () => { active = false; };
@@ -51,6 +53,8 @@ export default function ProfileEditPage() {
   const selected = buildings.find((b) => b.id === form.dormBuildingId) ?? null;
   const activeZone = zone || selected?.zone || '';
   const zones = zonesOf(buildings), visible = buildingsIn(buildings, activeZone);
+  // 本校区还没有启用的楼栋：不显示宿舍楼选择，说明「本校楼栋信息还在录入中」
+  const dormState = buildingPickerState(buildings);
 
   const { maxBytes } = photoLimits(useClientConfig());
   /** 上传一张头像：选图前先确认隐私授权；上传得到的引用（upload:<id>）在保存时提交，预览用本机文件。 */
@@ -104,14 +108,12 @@ export default function ProfileEditPage() {
         <Text className='field-label'>学号 / 手机号（不可修改）</Text>
         <Input className='field-input' value={user?.account ?? ''} disabled />
         <Text className='field-label'>所在校区</Text>
-        <Picker range={[...CAMPUSES]} value={Math.max(0, CAMPUSES.indexOf(form.campus))} onChange={(e) => set({ campus: CAMPUSES[Number(e.detail.value)] as Campus })}>
-          <View className='picker'><Text className='picker-value'>{form.campus}</Text><View className='i-chevron' /></View>
-        </Picker>
+        <CampusPicker value={form.campus} onChange={(campus) => set({ campus })} />
         <Text className='field-label'>联系方式</Text>
         <Input className='field-input' value={form.contact} maxlength={100} onInput={(e) => set({ contact: e.detail.value })} />
         <Text className='field-help'>手机号或学号，仅交易对方可见；留空时使用账号</Text>
         <Text className='field-label'>宿舍楼（选填）</Text>
-        {buildingError ? <Text className='error-text'>{buildingError}</Text> : <>
+        {buildingError ? <Text className='error-text'>{buildingError}</Text> : buildingsLoaded && dormState.pending ? <Text className='field-help'>{dormState.text}</Text> : <>
           <Picker range={['不填写', ...zones]} value={activeZone ? zones.indexOf(activeZone) + 1 : 0} onChange={(e) => { const i = Number(e.detail.value); setZone(i ? zones[i - 1] : ''); if (!i) set({ dormBuildingId: null }); else if (selected && selected.zone !== zones[i - 1]) set({ dormBuildingId: null }); }}>
             <View className='picker'><Text className='picker-value'>{activeZone || '宿舍园区：不填写'}</Text><View className='i-chevron' /></View>
           </Picker>

@@ -8,7 +8,7 @@ import { requirePrivacy } from '../../privacyGuard';
 import { money, timeAgo, type ContactRequest, type Product, type User } from '../../model';
 import { CONFIRM, contactCta } from '../../contacts';
 import { editProduct } from '../../navigation';
-import { notify, notifyError, unread, useMarket } from '../../state';
+import { notify, notifyError, unread, useMarket, useSchools } from '../../state';
 import { CommentBoard } from '../../widgets/CommentBoard';
 import { ReportSheet } from '../../widgets/ReportSheet';
 import { Avatar } from '../../widgets/Avatar';
@@ -20,7 +20,7 @@ const DECLARATIONS: Record<string, string> = { NORMAL: '正常', DEFECT: '存在
 const TONE: Record<string, string> = { NORMAL: 'ok', DEFECT: 'warn', NOT_TESTED: 'mute', NOT_APPLICABLE: 'mute' };
 
 export default function DetailPage() {
-  const { user, favorites, toggleFavorite } = useMarket(), router = useRouter();
+  const { user, favorites, toggleFavorite } = useMarket(), { catalog } = useSchools(), router = useRouter();
   const id = router.params.id ?? '';
   const [product, setProduct] = useState<Product | null>(null), [seller, setSeller] = useState<User | null>(null), [request, setRequest] = useState<ContactRequest | null>(null);
   const [loading, setLoading] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false), [reporting, setReporting] = useState(false), [commentsKey, setCommentsKey] = useState(0);
@@ -90,7 +90,7 @@ export default function DetailPage() {
         <View className='detail-tags'>
           <Text className='detail-tag brand'>{product.condition}</Text>
           <Text className='detail-tag'>{product.category}</Text>
-          <Text className='detail-tag'>{product.campus}{product.buildingName ? ` · ${product.buildingName}` : ''}</Text>
+          <Text className='detail-tag'>{catalog.locationLabel(product.campus, product.buildingName)}</Text>
         </View>
         <Text className='detail-meta'>{timeAgo(product.createdAt)}发布 · {product.views} 次浏览</Text>
       </View>
@@ -98,7 +98,7 @@ export default function DetailPage() {
       <View className='detail-section'>
         <View className='seller-card'>
           <Avatar value={seller?.avatar} userId={product.sellerId} nickname={seller?.nickname} />
-          <View><Text className='seller-name'>{seller?.nickname || '本校同学'}</Text><Text className='seller-meta'>{seller?.campus} · 同校商品</Text></View>
+          <View><Text className='seller-name'>{seller?.nickname || '本校同学'}</Text><Text className='seller-meta'>{catalog.campusLabel(seller?.campus)} · 同校商品</Text></View>
           <Button className='text-button' openType='share'>分享</Button>
         </View>
       </View>

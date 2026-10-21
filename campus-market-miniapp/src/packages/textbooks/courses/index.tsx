@@ -3,16 +3,18 @@ import { Button, Input, Picker, Text, View } from '@tarojs/components';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../api';
 import { Empty, LoginGate, PageTitle } from '../../../components';
-import { CAMPUSES, type Campus, type CoursePage, type Term } from '../../../model';
+import type { Campus, CoursePage, Term } from '../../../model';
 import { COURSES_INTRO, DEMO_CATALOG_NOTE, TERM_OPTIONS, termLabel } from '../../../catalog';
 import { TEXTBOOK_PAGES } from '../../../menu';
-import { useMarket } from '../../../state';
+import { useMarket, useSchools } from '../../../state';
 
 const PAGE_SIZE = 20;
 
 /** 课程教材入口：按课程名 / 课程代码搜索本校课程目录（学校由服务端从登录用户推导），不读取任何个人选课信息。 */
 export default function CoursesPage() {
-  const { user } = useMarket();
+  const { user } = useMarket(), { catalog } = useSchools();
+  // 校区筛选只列本人所在学校的校区（显示名称，查询提交 id）
+  const campuses = catalog.campusOptions(user?.campus);
   const [draft, setDraft] = useState(''), [q, setQ] = useState(''), [term, setTerm] = useState<Term | ''>(''), [campus, setCampus] = useState<Campus | ''>(''), [page, setPage] = useState(1);
   const [result, setResult] = useState<CoursePage | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const sequence = useRef(0);
@@ -39,8 +41,8 @@ export default function CoursesPage() {
         <Picker range={['全部学期', ...TERM_OPTIONS.map(termLabel)]} value={term ? TERM_OPTIONS.indexOf(term) + 1 : 0} onChange={(e) => { const i = Number(e.detail.value); setTerm(i ? TERM_OPTIONS[i - 1] : ''); setPage(1); }}>
           <View className='picker'><Text className='picker-value'>{term ? termLabel(term) : '全部学期'}</Text><View className='i-chevron' /></View>
         </Picker>
-        <Picker range={['全部校区', ...CAMPUSES]} value={campus ? CAMPUSES.indexOf(campus) + 1 : 0} onChange={(e) => { const i = Number(e.detail.value); setCampus(i ? CAMPUSES[i - 1] : ''); setPage(1); }}>
-          <View className='picker'><Text className='picker-value'>{campus || '全部校区'}</Text><View className='i-chevron' /></View>
+        <Picker range={['全部校区', ...campuses.map((c) => c.name)]} value={campus ? campuses.findIndex((c) => c.id === campus) + 1 : 0} onChange={(e) => { const i = Number(e.detail.value); setCampus(i ? campuses[i - 1].id : ''); setPage(1); }}>
+          <View className='picker'><Text className='picker-value'>{campus ? catalog.campusLabel(campus) : '全部校区'}</Text><View className='i-chevron' /></View>
         </Picker>
       </View>
       <Text className='muted'>{loading ? '正在搜索…' : result ? `共 ${result.total} 门课程` : ''}</Text>

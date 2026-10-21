@@ -51,6 +51,9 @@ services:
       ALLOW_EXTERNAL_IMAGES: ${ALLOW_EXTERNAL_IMAGES:-false}
       # 私信：默认只能发送预设快捷消息（没有人工审核前不开放文字私信），见 docs/messaging.md
       MESSAGES_FREE_TEXT_ENABLED: ${MESSAGES_FREE_TEXT_ENABLED:-false}
+      # 学校数据包（docs/school-data.md）：生产启用安徽理工大学，隐藏迁移里的演示学校；新增学校时追加 id，或把数据文件放进 SCHOOL_PACKS_DIR
+      SCHOOL_PACKS: ${SCHOOL_PACKS:-aust}
+      DEMO_SCHOOL_ENABLED: ${DEMO_SCHOOL_ENABLED:-false}
     volumes:
       - uploaded_images:/data/images
     depends_on:

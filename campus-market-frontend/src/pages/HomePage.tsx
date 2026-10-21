@@ -9,6 +9,7 @@ import { ScopeNotice, ScopeSwitch } from '../components/BuildingScopeBar';
 import DemandEmptyStateCta from '../components/demand/DemandEmptyStateCta';
 import EmptyState from '../components/EmptyState';
 import { useBuildingFeed } from '../hooks/useBuildingFeed';
+import { useCampusHasBuildings, useSchools } from '../hooks/useSchools';
 import { getApiClient } from '../api/client';
 import { CONTACT_REQUEST_PAGE_MAX, type ContactRequestStatus } from '../api/contracts';
 import { useMarket } from '../context/MarketContext';
@@ -19,7 +20,9 @@ import {
   EMPTY_DESCRIPTION,
   EMPTY_TITLE,
   MARKET_SCOPES,
+  availableScopes,
   demandPrefillFor,
+  effectiveScope,
   feedQueryFrom,
   readStoredScope,
   storeScope,
@@ -190,6 +193,10 @@ function MarketHome() {
   const [searchParams] = useSearchParams();
   const { products, loading } = useMarket();
   const { currentUser } = useAuth();
+  const { campusLabel, campusChoicesFor } = useSchools();
+  // 本人校区还没有楼栋时不提供「本楼」（本校区 / 全校照常）
+  const buildingsAvailable = useCampusHasBuildings(currentUser?.campus);
+  const scopes = availableScopes(buildingsAvailable);
 
   const keywordParam = searchParams.get('keyword') ?? '';
   const [filter, setFilter] = useState<FilterState>({ ...DEFAULT_FILTER, keyword: keywordParam });
@@ -201,7 +208,8 @@ function MarketHome() {
   }, [keywordParam]);
 
   // ---- 范围：本楼 / 本校区 / 全校（默认全校 = 原来的普通浏览） ----
-  const [scope, setScopeState] = useState<MarketScope>(readStoredScope);
+  const [storedScope, setScopeState] = useState<MarketScope>(readStoredScope);
+  const scope = effectiveScope(storedScope, scopes);
   const setScope = (next: MarketScope) => {
     setScopeState(next);
     storeScope(next);
@@ -228,7 +236,7 @@ function MarketHome() {
   const isEmpty = !listLoading && !action && !loadError && displayed.length === 0;
 
   const demandPrefill = useMemo(
-    () => demandPrefillFor(filter, scope, currentUser?.campus ?? '东校区'),
+    () => demandPrefillFor(filter, scope, currentUser?.campus ?? ''),
     [filter, scope, currentUser?.campus],
   );
 
@@ -269,7 +277,7 @@ function MarketHome() {
         <div className="cm-home-title">
           <h1>校园集市</h1>
           <p>
-            {currentUser?.campus ?? '本校'}
+            {currentUser?.campus ? campusLabel(currentUser.campus) : '本校'}
             {!loading && <> · 本校在售 {onSaleCount} 件</>}
           </p>
         </div>
@@ -297,7 +305,8 @@ function MarketHome() {
         value={filter}
         onChange={setFilter}
         hideCampus={scopeFeed}
-        leading={<ScopeSwitch value={scope} onChange={setScope} />}
+        campusOptions={campusChoicesFor(currentUser?.campus)}
+        leading={<ScopeSwitch value={scope} onChange={setScope} scopes={scopes} />}
       />
 
       {scopeFeed && <ScopeNotice feed={feed} />}

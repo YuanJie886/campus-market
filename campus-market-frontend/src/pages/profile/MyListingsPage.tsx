@@ -18,6 +18,7 @@ import ImageWithFallback from "../../components/ImageWithFallback";
 import ProductForm from "../../components/ProductForm";
 import type { ProductFormValue } from "../../components/ProductForm";
 import { useAuth } from "../../context/AuthContext";
+import { useSchools } from "../../hooks/useSchools";
 import { useMarket } from "../../context/MarketContext";
 import { useNotify } from "../../context/NotificationContext";
 import {
@@ -49,6 +50,7 @@ const STATUS_COLOR: Record<ProductStatus, "success" | "default" | "warning"> = {
 export default function MyListingsPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { campusLabel } = useSchools();
   const {
     getSellerProducts,
     updateProduct,
@@ -247,7 +249,7 @@ export default function MyListingsPage() {
                   >
                     {product.condition}
                   </span>
-                  <span>{product.campus}</span>
+                  <span>{campusLabel(product.campus)}</span>
                   <span>· {product.views} 浏览</span>
                   <span>· {formatRelativeTime(product.createdAt)}</span>
                 </div>

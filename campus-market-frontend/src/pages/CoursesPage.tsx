@@ -7,7 +7,9 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../api/client';
 import { toUserMessage } from '../api/errors';
 import type { CoursePage, Term } from '../api/contracts';
-import { CAMPUSES, type Campus } from '../types';
+import type { Campus } from '../types';
+import { useOptionalAuth } from '../context/AuthContext';
+import { useSchools } from '../hooks/useSchools';
 import { DEMO_CATALOG_NOTE, TERM_OPTIONS, termLabel } from '../utils/catalog';
 
 const PAGE_SIZE = 20;
@@ -26,6 +28,10 @@ export default function CoursesPage() {
   const [result, setResult] = useState<CoursePage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // 校区筛选只列本人学校的校区
+  const userCampus = useOptionalAuth()?.currentUser?.campus ?? null;
+  const { campusChoicesFor } = useSchools();
+  const campusOptions = campusChoicesFor(userCampus);
 
   useEffect(() => {
     let active = true;
@@ -71,7 +77,7 @@ export default function CoursesPage() {
         </TextField>
         <TextField size="small" select label="校区" value={campus} onChange={(e) => update({ campus: e.target.value })} sx={{ minWidth: 120 }}>
           <MenuItem value="">全部校区</MenuItem>
-          {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          {campusOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
         </TextField>
         <Button type="submit" variant="contained">搜索</Button>
       </form>

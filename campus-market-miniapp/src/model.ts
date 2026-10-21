@@ -2,10 +2,13 @@ import type { UploadedImage } from './images';
 import { MAX_IMAGES } from './images';
 export type { UploadedImage };
 export const CATEGORIES = ['数码电子', '教材书籍', '生活用品', '服饰鞋包', '运动户外', '其他'] as const;
-export const CAMPUSES = ['东校区', '西校区', '南校区', '北校区'] as const;
 export const CONDITIONS = ['全新', '几乎全新', '轻微使用痕迹', '明显使用痕迹'] as const;
 export type Category = typeof CATEGORIES[number];
-export type Campus = typeof CAMPUSES[number];
+/** 校区 id（来自 GET /v1/schools）；新学校的 id 带命名空间（例如 aust-huainan），显示时一律用 campusLabel 换成名称。 */
+export type Campus = string;
+/** GET /v1/schools：可见、启用的学校与校区。 */
+export interface SchoolCampus { id: Campus; name: string; hasBuildings: boolean }
+export interface School { id: string; name: string; shortName: string; campuses: SchoolCampus[] }
 export type Condition = typeof CONDITIONS[number];
 export type ProductStatus = '在售' | '已售出' | '已下架';
 export type Sort = 'latest' | 'priceAsc' | 'priceDesc' | 'views';
@@ -153,6 +156,8 @@ export interface MarketApi {
   me(): Promise<User>;
   updateProfile(input: ProfileInput): Promise<User>;
   buildings(campus: Campus): Promise<Building[]>;
+  /** GET /v1/schools（无需登录）：可见、启用的学校与校区。 */
+  schools(): Promise<School[]>;
   /** POST /v1/moderation-reports：商品 / 用户 / 留言 / 私信。 */
   report(input: ReportInput): Promise<MyReport>;
   myReports(): Promise<MyReport[]>;
@@ -405,7 +410,7 @@ export function validateProduct(input: ProductInput, maxImages = MAX_IMAGES): st
   if (!input.description.trim() || input.description.trim().length > 4000) return '请填写 1–4000 字的商品描述';
   if (!Number.isFinite(input.price) || input.price <= 0) return '请输入大于 0 的价格';
   if (input.originalPrice !== undefined && (!Number.isFinite(input.originalPrice) || input.originalPrice < 0)) return '原价必须为非负数';
-  if (!CATEGORIES.includes(input.category) || !CONDITIONS.includes(input.condition) || !CAMPUSES.includes(input.campus)) return '请选择有效的分类、成色和校区';
+  if (!CATEGORIES.includes(input.category) || !CONDITIONS.includes(input.condition) || typeof input.campus !== 'string' || !input.campus.trim()) return '请选择有效的分类、成色和校区';
   if (input.images.length < 1 || input.images.length > maxImages || input.images.some((image) => !image)) return `请选择 1–${maxImages} 张商品图片`;
   // 签名地址 1 小时就过期，后端也不接受：必须提交 upload:<id> 引用
   if (input.images.some((image) => image.startsWith('/v1/'))) return '图片地址无效，请重新上传';

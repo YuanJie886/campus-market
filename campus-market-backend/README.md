@@ -192,6 +192,9 @@ npm run dev
 | `JWT_SECRET` | 无，必填 | 至少 32 字节的强随机 JWT 签名密钥；本地可配置在后端私有 `.env`，生产环境通过环境变量注入 |
 | `SECURE_COOKIES` | `false`（`deploy/docker-compose.yml` 中**无默认值，必须显式设置**） | 刷新 Cookie 的 `Secure` 标记。若 `WEB_ORIGIN` 是 `https://` 而此处为 `false`，应用会**拒绝启动**——该组合意味着七天有效的长期凭据将在明文连接上发送，只可能是配置遗漏 |
 | `DATABASE_POOL_SIZE` | `10` | HikariCP 连接池最大连接数 |
+| `SCHOOL_PACKS` | 空 | 启动时导入的学校数据包 id，逗号分隔（例如 `aust`）。格式与流程见 `../docs/school-data.md` |
+| `SCHOOL_PACKS_DIR` | 空 | 额外的数据包目录（挂载 `<id>.json`），优先于内置的 `classpath:schools/<id>.json` |
+| `DEMO_SCHOOL_ENABLED` | `true` | V1 演示学校（东/西/南/北校区）是否对新用户可见；**生产环境设为 `false`** |
 
 ---
 
@@ -206,6 +209,7 @@ npm run dev
 - `POST /v1/auth/logout` - 退出登录并清除 Cookie
 - `GET /v1/auth/me` - 获取当前登录用户的详细身份信息与学子认证状态
 - `PATCH /v1/auth/me` - 更新个人昵称、头像、联系方式、所属校区或宿舍楼（`dormBuildingId`，仅本人可见，传 `null` 清空）。头像只接受 `""`、`preset:1`…`preset:12`（客户端本地绘制）、本人上传的图片（`upload:<id>` 或平台签名地址）与外部开关打开时的 `http(s)` 地址，见 `../docs/images-and-content-safety.md` §4
+- `GET /v1/schools` - 公开的学校与校区列表（无需登录）：`[{id,name,shortName,campuses:[{id,name,hasBuildings}]}]`，注册与资料页据此选择校区，见 `../docs/school-data.md`
 - `GET /v1/users/{id}` - 获取指定用户的公开资料（不含任何信用分）
 - `GET /v1/users/{id}/trade-summary` - 公共交易履历：只有完成次数、加入时间、评价数与平均分（评价少于 3 条不给平均分）
 

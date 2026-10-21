@@ -30,12 +30,16 @@ export async function runLoad({ origin, users = 20, productsPerUser = 3, concurr
     return { status: res.status, json, ms };
   }
 
-  // ---- 准备数据：测试用户各上传一张图片，发布若干商品
+  // ---- 准备数据：校区取自 /v1/schools（第一所可见学校的第一个校区），不写死任何学校
+  const schools = await call('GET', '/v1/schools');
+  const campus = schools.json?.data?.[0]?.campuses?.[0]?.id;
+  if (!campus) throw new Error('站点没有可注册的校区（GET /v1/schools 为空）');
+  // 测试用户各上传一张图片，发布若干商品
   log(`准备：${users} 个测试用户 × ${productsPerUser} 件商品`);
   const people = [];
   for (let i = 0; i < users; i += 1) {
     const r = await call('POST', '/v1/auth/register', { body: { account: `load${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`,
-      nickname: `压测用户${i + 1}`, campus: '东校区', contact: '13800000000' } });
+      nickname: `压测用户${i + 1}`, campus, contact: '13800000000' } });
     if (r.status !== 200) throw new Error(`注册测试用户失败：${r.status}`);
     people.push({ token: r.json.data.accessToken, products: [] });
   }
@@ -47,7 +51,7 @@ export async function runLoad({ origin, users = 20, productsPerUser = 3, concurr
     if (up.status !== 200) throw new Error(`上传测试图片失败：${up.status}`);
     for (let j = 0; j < productsPerUser; j += 1) {
       const p = await call('POST', '/v1/products', { token: person.token, body: { title: `压测商品 ${productIds.length + 1}`, description: '冒烟压测用的测试商品，请忽略',
-        price: 10 + j, category: '其他', condition: '几乎全新', campus: '东校区', images: [up.json.data.ref], contact: '13800000000' } });
+        price: 10 + j, category: '其他', condition: '几乎全新', campus, images: [up.json.data.ref], contact: '13800000000' } });
       if (p.status !== 200) throw new Error(`发布测试商品失败：${p.status}`);
       productIds.push(p.json.data.id);
       person.products.push(p.json.data.id);

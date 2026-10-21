@@ -7,14 +7,16 @@ import Checkbox from "@mui/material/Checkbox";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import { useAuth } from "../context/AuthContext";
 import { useNotify } from "../context/NotificationContext";
-import { CAMPUSES } from "../types";
-import type { Campus } from "../types";
+import { useSchools } from "../hooks/useSchools";
 import { toUserMessage } from '../api/errors';
 import { clearPendingInvite } from '../utils/pendingInvite';
 import { LegalDialog, LegalLinks, type LegalKind } from '../legal/LegalDocumentView';
 
 /** 未勾选同意时的提示（显示在勾选框下方，并由 role=alert 播报） */
 export const CONSENT_REQUIRED = "请先阅读并勾选同意《用户协议》和《隐私政策》";
+/** 学校 / 校区没有选择时的提示（显示在对应选择框下方） */
+export const SCHOOL_REQUIRED = "请选择学校";
+export const CAMPUS_REQUIRED = "请选择所在校区";
 
 /** 注册页 */
 export default function RegisterPage() {
@@ -30,7 +32,17 @@ export default function RegisterPage() {
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [campus, setCampus] = useState<Campus>("东校区");
+  // 学校与校区来自 GET /v1/schools：新用户没有默认校区，必须主动选择；只有一所学校时不显示学校选择
+  const { schools, loading: schoolsLoading, error: schoolsError, reload: reloadSchools } = useSchools();
+  const [schoolChoice, setSchoolChoice] = useState("");
+  const [campus, setCampus] = useState("");
+  const [schoolError, setSchoolError] = useState(false);
+  const [campusError, setCampusError] = useState(false);
+  const singleSchool = schools.length === 1;
+  const schoolId = singleSchool ? schools[0].id : schoolChoice;
+  const campusOptions = schools.find((s) => s.id === schoolId)?.campuses ?? [];
+  const schoolRef = useRef<HTMLInputElement>(null);
+  const campusRef = useRef<HTMLInputElement>(null);
   const [contact, setContact] = useState("");
   // 必须由用户主动勾选：不预选，未勾选时不发出注册请求
   const [agreed, setAgreed] = useState(false);
@@ -42,6 +54,16 @@ export default function RegisterPage() {
 
   const handleRegister = async () => {
     if (busy) return;
+    if (!schoolId) {
+      setSchoolError(true);
+      schoolRef.current?.focus();
+      return;
+    }
+    if (!campus || !campusOptions.some((c) => c.id === campus)) {
+      setCampusError(true);
+      campusRef.current?.focus();
+      return;
+    }
     if (!agreed) {
       setConsentError(true);
       consentRef.current?.focus();
@@ -123,19 +145,66 @@ export default function RegisterPage() {
             fullWidth
             required
           />
-          <TextField
-            select
-            label="所在校区"
-            value={campus}
-            onChange={(e) => setCampus(e.target.value as Campus)}
-            fullWidth
-          >
-            {CAMPUSES.map((c) => (
-              <MenuItem key={c} value={c}>
-                {c}
-              </MenuItem>
-            ))}
-          </TextField>
+          {schoolsError ? (
+            <div role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p>学校列表加载失败：{schoolsError}</p>
+              <Button size="small" onClick={reloadSchools} sx={{ mt: 0.5 }}>重新加载</Button>
+            </div>
+          ) : !schoolsLoading && schools.length === 0 ? (
+            <p role="alert" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              暂时没有开放注册的学校，请稍后再来。
+            </p>
+          ) : (
+            <>
+              {!singleSchool && (
+                <TextField
+                  select
+                  label="学校"
+                  value={schoolChoice}
+                  onChange={(e) => {
+                    setSchoolChoice(e.target.value);
+                    // 换学校后原来的校区一定不属于新学校：清空，让用户重新选择
+                    setCampus("");
+                    setSchoolError(false);
+                  }}
+                  fullWidth
+                  required
+                  disabled={schoolsLoading}
+                  error={schoolError}
+                  helperText={schoolError ? SCHOOL_REQUIRED : schoolsLoading ? "正在加载学校列表…" : undefined}
+                  inputRef={schoolRef}
+                >
+                  {schools.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {s.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+              <TextField
+                select
+                label="所在校区"
+                value={campus}
+                onChange={(e) => { setCampus(e.target.value); setCampusError(false); }}
+                fullWidth
+                required
+                disabled={schoolsLoading || !schoolId}
+                error={campusError}
+                helperText={
+                  campusError ? CAMPUS_REQUIRED
+                    : singleSchool ? `${schools[0].name} · 注册后可在个人资料里改为本校其他校区`
+                    : !schoolId ? "请先选择学校" : undefined
+                }
+                inputRef={campusRef}
+              >
+                {campusOptions.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </>
+          )}
           <TextField
             label="联系方式"
             value={contact}

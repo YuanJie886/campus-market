@@ -33,6 +33,7 @@ import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import { getApiClient } from "../api/client";
+import { useSchools } from "../hooks/useSchools";
 import { useDemandUnreadCount } from "../context/DemandUnreadContext";
 import { contactUnreadLabel, useContactUnreadCounts } from "../context/ContactUnreadContext";
 
@@ -40,6 +41,7 @@ import { contactUnreadLabel, useContactUnreadCounts } from "../context/ContactUn
 export default function Navbar() {
   const navigate = useNavigate();
   const { currentUser, isAuthenticated, logout } = useAuth();
+  const { campusLabel } = useSchools();
   const { getUnreadCount } = useMarket();
   const { success, error } = useNotify();
   const { count: demandUnread } = useDemandUnreadCount();
@@ -308,7 +310,7 @@ export default function Navbar() {
                   <p className="text-sm font-semibold text-slate-800">
                     {currentUser.nickname}
                   </p>
-                  <p className="text-xs text-slate-400">{currentUser.campus}</p>
+                  <p className="text-xs text-slate-400">{campusLabel(currentUser.campus)}</p>
                 </div>
                 <Divider />
                 <MenuItem onClick={() => go("/profile")}>

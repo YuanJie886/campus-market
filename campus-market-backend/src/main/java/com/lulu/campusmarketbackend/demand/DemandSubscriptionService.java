@@ -294,6 +294,10 @@ public class DemandSubscriptionService {
                 if (!school.equals(demands.selectCampusSchool(campus))) {
                     throw ApiException.badRequest("校区不属于你所在的学校");
                 }
+                // 学校数据包：显式选择的校区必须在用；未指定时沿用本人资料里的校区（老用户不受校区停用影响）
+                if (requestedCampus != null && !Boolean.TRUE.equals(demands.selectCampusActive(campus))) {
+                    throw ApiException.badRequest("校区无效");
+                }
                 yield new Conditions(keyword, normalized, category, min, max, scope, campus, null, null, textbookEditionId, null);
             }
             default -> {

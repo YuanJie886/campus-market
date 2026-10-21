@@ -22,6 +22,7 @@ import { ProductsList, ProductShow } from './Products';
 import { RoleRequestsList, RoleRequestShow } from './RoleRequests';
 import { ReadAuditList } from './ReadAudit';
 import { PasswordResetAction } from './PasswordReset';
+import { CampusField } from './CampusUi';
 import { PageHeading, IdentifierField, RoleField, StatusField, ActionCodeField, ReasonCodeField, ScopeField, ROLES, statusNames, targetNames, resourceNames, decisionActionChoices, decisionReasonChoices } from './adminUi';
 
 const readActions = <TopToolbar><ListButton /><EditButton /></TopToolbar>;
@@ -29,7 +30,7 @@ const search = [<TextInput key="q" source="q" label="搜索" alwaysOn />];
 const defaultSort = { field: 'createdAt', order: 'DESC' as const };
 export function UsersList() { return <><PageHeading title="用户与工作人员" description="查看本校校园账号，管理工作人员角色与访问权限。" eyebrow="PEOPLE / 用户管理" /><List actions={<ListActions />} perPage={25} filters={search} sort={defaultSort}><ListSummary /><DatagridConfigurable bulkActionButtons={false} rowClick="show">
     <TextField source="nickname" label="昵称" /><TextField source="account" label="账号" sortable={false} />
-    <TextField source="campus" label="校区" sortable={false} /><RoleField source="role" label="后台角色" sortable={false} />
+    <CampusField source="campus" label="校区" sortable={false} /><RoleField source="role" label="后台角色" sortable={false} />
     <BooleanField source="active" label="后台权限启用" sortable={false} /><AccountStateField source="deleted" label="账户状态" sortable={false} />
     <DateField locales="zh-CN" source="createdAt" label="注册时间" showTime />
     <StaffConfigButton label="配置权限" />
@@ -46,7 +47,7 @@ function StaffConfigButton({ label }: { label?: string }) {
 const userActions = <TopToolbar><ListButton /><StaffConfigButton label="配置权限" /><PasswordResetAction /></TopToolbar>;
 export function UserShow() { return <><PageHeading title="用户详情" description="查看校园账号信息与当前后台访问权限。" /><Show actions={userActions}><SimpleShowLayout className="record-details">
     <TextField source="id" label="用户编号" /><TextField source="nickname" label="昵称" /><AccountStateField label="账户状态" /><TextField source="account" label="账号" />
-    <TextField source="campus" label="校区" /><RoleField source="role" label="后台角色" /><BooleanField source="active" label="后台权限启用" />
+    <CampusField source="campus" label="校区" /><RoleField source="role" label="后台角色" /><BooleanField source="active" label="后台权限启用" />
     <DateField locales="zh-CN" source="createdAt" label="注册时间" showTime />
 </SimpleShowLayout></Show></>; }
 const caseStatuses = ['OPEN', 'UNDER_REVIEW', 'RESOLVED', 'DISMISSED', 'APPEALED'].map(id => ({ id, name: statusNames[id] ?? id }));

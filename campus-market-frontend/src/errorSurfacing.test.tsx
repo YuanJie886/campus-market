@@ -85,7 +85,7 @@ describe('0.9C 错误提示接入各业务入口', () => {
   });
 
   // REWRITTEN：注册前必须勾选同意《用户协议》《隐私政策》，否则不会发出注册请求
-  it('2. 注册失败：提示带服务端错误编号（REWRITTEN：先勾选同意协议）', async () => {
+  it('2. 注册失败：提示带服务端错误编号（REWRITTEN：先勾选同意协议；REWRITTEN：先选择校区）', async () => {
     setApiClient(apiThatFails('register', new ApiError({
       code: 409, message: '该账号已注册', requestId: 'rid-reg-002', httpStatus: 409,
     })));
@@ -93,8 +93,13 @@ describe('0.9C 错误提示接入各业务入口', () => {
     renderAt('/register');
     await waitFor(() => expect(document.querySelectorAll('input').length).toBeGreaterThan(0));
     document.querySelectorAll('input').forEach((input) => {
-      if (input.type !== 'checkbox') fireEvent.change(input, { target: { value: 'test-password-2026' } });
+      if (input.type !== 'checkbox' && !input.classList.contains('MuiSelect-nativeInput')) fireEvent.change(input, { target: { value: 'test-password-2026' } });
     });
+    // REWRITTEN：新用户没有默认校区，先从 /v1/schools 的校区里选择
+    const campus = await screen.findByRole('combobox', { name: /所在校区/ });
+    await waitFor(() => expect(campus.getAttribute('aria-disabled')).not.toBe('true'));
+    fireEvent.mouseDown(campus);
+    fireEvent.click(await screen.findByRole('option', { name: '东校区' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /^已阅读并同意\s*《用户协议》\s*《隐私政策》$/ }));
     clickByText('注册并登录');
 

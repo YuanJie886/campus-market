@@ -664,6 +664,12 @@ function migrateV8ToV9(db: MockDatabase): number {
   return 0;
 }
 
+/**
+ * 离线演示里学校的展示信息（GET /v1/schools 的离线版本用）。演示学校 pilot 的校区 id 等于名称（东校区 等）；
+ * 校区归属仍以 MockDatabase.campusSchools 为准，这里只补名称。
+ */
+export const MOCK_SCHOOL_NAMES: Readonly<Record<string, { name: string; shortName: string }>> = { pilot: { name: '演示学校', shortName: '演示' } };
+
 /** 试点学校的四个校区（与后端 V1 的 campuses 种子一致） */
 export const PILOT_CAMPUS_SCHOOLS: Readonly<Record<string, string>> = { 东校区: 'pilot', 西校区: 'pilot', 南校区: 'pilot', 北校区: 'pilot' };
 

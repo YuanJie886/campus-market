@@ -123,7 +123,7 @@ export default function DemandEmptyStateCta({ prefill, showCta }: Props) {
         title="订阅这个需求"
         submitLabel="确认订阅"
         initial={initial}
-        userCampus={currentUser?.campus ?? '东校区'}
+        userCampus={currentUser?.campus ?? ''}
         busy={busy}
         errorMessage={errorMessage}
         onCancel={() => setOpen(false)}

@@ -118,6 +118,22 @@ class GovernanceConcurrencyIT {
     }
 
     @Test
+    @DisplayName("8b. 所有者先归档、工作人员后提交归档（竞态里 CI 上出现过的顺序）：工作人员 200，动作记录为未生效，归档事件只有所有者一条")
+    void ownerArchivesFirstThenStaffArchiveIsRecordedAsNotEffective() throws Exception {
+        User senior = staff("SENIOR_MODERATOR");
+        User owner = api.register(), member = api.register();
+        String circle = api.createCircle(owner, "先归档后处理", "PRIVATE");
+        api.join(owner, circle, member);
+        String caseId = report(member, "CIRCLE", circle, "SPAM");
+        api.ok(api.post(owner, "/v1/circles/" + circle + "/archive", Map.of()));
+        assertThat(status(decide(senior, caseId, "ARCHIVE_CIRCLE", "POLICY_VIOLATION", null))).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT status FROM moderation_cases WHERE id=?::uuid", String.class, caseId)).isEqualTo("RESOLVED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_actions WHERE case_id=?::uuid AND NOT effective", Long.class, caseId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM circle_events WHERE circle_id=?::uuid AND event_code='CIRCLE_ARCHIVED'", Long.class, circle)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT actor_user_id::text FROM circle_events WHERE circle_id=?::uuid AND event_code='CIRCLE_ARCHIVED'", String.class, circle)).isEqualTo(owner.id());
+    }
+
+    @Test
     @DisplayName("9. 两名工作人员同时处理一个案件：恰好一个结果、一条动作、一条限制；另一人 409")
     void twoStaffOneCase() throws Exception {
         User a = staff("MODERATOR"), b = staff("MODERATOR");

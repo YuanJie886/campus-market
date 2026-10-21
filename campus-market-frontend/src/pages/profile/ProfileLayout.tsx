@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useMarket } from '../../context/MarketContext';
 import { LegalLinks } from '../../legal/LegalDocumentView';
 import { contactUnreadLabel, useContactUnreadCounts } from '../../context/ContactUnreadContext';
+import { useSchools } from '../../hooks/useSchools';
 
 const CONTACT_TAB = '/profile/contact-requests';
 
@@ -25,6 +26,7 @@ const TAB_ROUTES: { label: string; path: string }[] = [
 export default function ProfileLayout() {
   const location = useLocation();
   const { currentUser } = useAuth();
+  const { campusLabel } = useSchools();
   const { getSellerProducts, getFavoriteProducts } =
     useMarket();
   const { counts: contactUnread } = useContactUnreadCounts();
@@ -69,7 +71,7 @@ export default function ProfileLayout() {
               {currentUser.nickname}
             </h1>
             <p className="mt-0.5 text-xs text-white/85 md:text-sm">
-              {currentUser.campus} · 账号 {currentUser.account}
+              {campusLabel(currentUser.campus)} · 账号 {currentUser.account}
             </p>
           </div>
         </div>

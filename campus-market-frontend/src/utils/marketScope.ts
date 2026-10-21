@@ -18,6 +18,19 @@ export const MARKET_SCOPES: readonly { key: MarketScope; label: string }[] = [
 ];
 export const DEFAULT_MARKET_SCOPE: MarketScope = 'SCHOOL';
 
+/**
+ * 本人校区还没有启用的楼栋时（buildingsAvailable === false）不提供「本楼」；未知（null）时照常提供，
+ * 不因为还没加载完就把选项藏起来。
+ */
+export function availableScopes(buildingsAvailable: boolean | null): readonly { key: MarketScope; label: string }[] {
+  return buildingsAvailable === false ? MARKET_SCOPES.filter((s) => s.key !== 'BUILDING') : MARKET_SCOPES;
+}
+
+/** 所选范围不可用（例如会话里记着「本楼」，但本校区没有楼栋）时回到默认范围 */
+export function effectiveScope(scope: MarketScope, scopes: readonly { key: MarketScope }[]): MarketScope {
+  return scopes.some((s) => s.key === scope) ? scope : DEFAULT_MARKET_SCOPE;
+}
+
 export const LOGIN_NEEDED = '登录后才能知道你住哪栋楼。我们不会自动定位，也不会替你猜。';
 export const DORM_NEEDED = '还没有填写宿舍楼。填写后即可只看本楼的闲置；只需要楼栋，不需要房间号。';
 export const NOTHING_ANYWHERE = '全校都没有符合条件的商品。试着放宽筛选，或发布一条求购。';

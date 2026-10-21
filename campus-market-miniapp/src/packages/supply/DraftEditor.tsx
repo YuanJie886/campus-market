@@ -2,10 +2,11 @@ import { Button, Input, Picker, Switch, Text, Textarea, View } from '@tarojs/com
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { imagesForSubmit, photoLimits, photosError, slotsFromImages, type PhotoSlot } from '../../images';
-import { clientConfig } from '../../state';
-import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus, type Category, type InspectionTemplate, type ListingDraft, type ListingValidation } from '../../model';
+import { clientConfig, useMarket } from '../../state';
+import { CATEGORIES, CONDITIONS, type Category, type InspectionTemplate, type ListingDraft, type ListingValidation } from '../../model';
 import { CONTACT_PUBLIC_HELP } from '../../contacts';
 import { VALIDATION_LABEL, categoryOptionLabel, conflictText, draftFormFrom, draftPayload, missingText, versionConflict, type DraftForm } from '../../supply';
+import { CampusPicker } from '../../widgets/CampusPicker';
 import { BuildingPicker } from '../../widgets/BuildingPicker';
 import { BundleRowsEditor } from '../../widgets/BundleRowsEditor';
 import { PhotoField } from '../../widgets/PhotoField';
@@ -22,7 +23,9 @@ const CODES = ['NOT_TESTED', 'NORMAL', 'DEFECT', 'NOT_APPLICABLE'];
 export function DraftEditor({ draft, assistant = false, validation, label, onSaved, onReload }: {
   draft: ListingDraft; assistant?: boolean; validation?: ListingValidation; label: string; onSaved: (draft: ListingDraft) => void; onReload: () => void;
 }) {
-  const [form, setForm] = useState<DraftForm>(() => draftFormFrom(draft.payload));
+  const { user } = useMarket();
+  // 所有者的草稿还没有校区时，表单默认本人校区（保存时才提交）
+  const [form, setForm] = useState<DraftForm>(() => { const f = draftFormFrom(draft.payload); return !assistant && !f.campus && user?.campus ? { ...f, campus: user.campus } : f; });
   const [photos, setPhotos] = useState<PhotoSlot[]>(() => slotsFromImages(draft.payload.images ?? [], (url) => api.imageRef(url), photoLimits(clientConfig.current).max));
   const [template, setTemplate] = useState<InspectionTemplate | null>(null), [templateReady, setTemplateReady] = useState(true);
   const [saving, setSaving] = useState(false), [status, setStatus] = useState(''), [error, setError] = useState(''), [conflict, setConflict] = useState<number | null>(null);
@@ -50,7 +53,7 @@ export function DraftEditor({ draft, assistant = false, validation, label, onSav
     } finally { setSaving(false); }
   };
   const problem = validation && validation.code !== 'VALID' ? validation : null;
-  const campus = (CAMPUSES as readonly string[]).includes(form.campus) ? form.campus as Campus : null;
+  const campus = form.campus.trim() ? form.campus : null;
   const uploading = photos.some((p) => p.status === 'uploading');
   return <View className='form-card'>
     <Text className='section-title'>{label}{bundle ? '（整套打包）' : ''}</Text>
@@ -68,9 +71,7 @@ export function DraftEditor({ draft, assistant = false, validation, label, onSav
       <Text className='field-label'>{bundle ? '整体成色' : '成色'}</Text>
       <View className='choice-grid'>{CONDITIONS.map((c) => <Text key={c} className={`choice ${form.condition === c ? 'active' : ''}`} onClick={() => patch({ condition: c })}>{c}</Text>)}</View>
       <Text className='field-label'>校区</Text>
-      <Picker range={[...CAMPUSES]} value={Math.max(0, CAMPUSES.indexOf(form.campus as Campus))} onChange={(e) => patch({ campus: CAMPUSES[Number(e.detail.value)], buildingId: null })}>
-        <View className='picker'><Text className='picker-value'>{form.campus || '请选择校区'}</Text><View className='i-chevron' /></View>
-      </Picker>
+      <CampusPicker value={form.campus} onChange={(next) => patch({ campus: next, buildingId: null })} />
     </>}
     <Text className='field-label'>{assistant ? '取货楼栋建议' : '取货楼栋'}</Text>
     {campus ? <BuildingPicker campus={campus} value={form.buildingId} onChange={(buildingId) => patch({ buildingId })} emptyLabel='不指定楼栋' zoneLabel='取货园区' buildingLabel={assistant ? '取货楼栋建议' : '取货楼栋'} />

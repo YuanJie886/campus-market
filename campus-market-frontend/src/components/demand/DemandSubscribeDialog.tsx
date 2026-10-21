@@ -6,7 +6,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
-import { CAMPUSES, CATEGORIES, type Campus, type Category } from '../../types';
+import { CATEGORIES, type Campus, type Category } from '../../types';
+import { useSchools } from '../../hooks/useSchools';
 import type { DemandConditions } from '../../api/contracts';
 import { SCOPE_FALLBACK_ORDER, SCOPE_LABEL, type BuildingScope } from '../../utils/geo';
 import { MAX_KEYWORD_LENGTH } from '../../utils/demand';
@@ -46,6 +47,9 @@ export default function DemandSubscribeDialog({
   const [buildingId, setBuildingId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const errorId = useId();
+  // 校区范围只能选本人学校的校区
+  const { campusChoicesFor } = useSchools();
+  const campusOptions = campusChoicesFor(userCampus);
 
   // 每次打开都按 initial 重置，避免上一次的输入残留
   useEffect(() => {
@@ -145,7 +149,7 @@ export default function DemandSubscribeDialog({
         {!circleScope && geoScope === 'CAMPUS' && (
           <TextField select fullWidth label="校区" value={campusId}
             onChange={(e) => setCampusId(e.target.value as Campus)}>
-            {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            {campusOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
           </TextField>
         )}
         {!circleScope && (geoScope === 'BUILDING' || geoScope === 'ZONE') && (

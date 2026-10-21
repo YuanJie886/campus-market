@@ -6,14 +6,14 @@ import { Empty, LoginGate, PageTitle } from '../../../components';
 import type { CourseDetail, TextbookEdition } from '../../../model';
 import { DEMO_CATALOG_NOTE, offeringLabel, usageLabel } from '../../../catalog';
 import { TEXTBOOK_PAGES } from '../../../menu';
-import { useMarket } from '../../../state';
+import { useMarket, useSchools } from '../../../state';
 import { EditionSummary } from '../EditionSummary';
 import { SuggestionForm } from '../SuggestionForm';
 import { TextbookSubscribe } from '../TextbookSubscribe';
 
 /** 课程详情：各学期的指定教材版本（只有已验证的关系），每本附本校在售数量；有货直达该版本，无货可以订阅。 */
 export default function CourseDetailPage() {
-  const { user } = useMarket(), id = useRouter().params.id ?? '';
+  const { user } = useMarket(), { catalog } = useSchools(), id = useRouter().params.id ?? '';
   const [course, setCourse] = useState<CourseDetail | null>(null), [error, setError] = useState(''), [status, setStatus] = useState('');
   const [subscribeFor, setSubscribeFor] = useState<TextbookEdition | null>(null), [suggesting, setSuggesting] = useState(false);
   const load = async () => { if (!user) return; try { setCourse(await api.course(id)); setError(''); } catch (e) { setError(e instanceof Error ? e.message : '加载失败'); } };
@@ -27,7 +27,7 @@ export default function CourseDetailPage() {
         {status ? <Text className='notice sheet-line'>{status}</Text> : null}
         {!course.offerings.length ? <Text className='muted'>这门课暂时没有开课记录。</Text> : null}
         {course.offerings.map((o) => <View key={o.id} className='form-card'>
-          <Text className='section-title'>{offeringLabel(o)}{o.campusId ? ` · ${o.campusId}` : ''}</Text>
+          <Text className='section-title'>{offeringLabel(o)}{o.campusId ? ` · ${catalog.campusLabel(o.campusId)}` : ''}</Text>
           {!o.textbooks.length ? <Text className='muted'>本学期还没有已验证的教材信息。</Text> : o.textbooks.map(({ usageType, edition }) => <View key={edition.id} className='req-card'>
             <Text className={`status-pill ${usageType === 'REQUIRED' ? 'ok' : 'mute'}`}>{usageLabel(usageType)}</Text>
             <Text className='req-sub'>本校在售 {edition.onSaleCount} 件</Text>

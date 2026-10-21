@@ -20,6 +20,16 @@ test('#13 界面注册 → 刷新后登录恢复（刷新 Cookie：HttpOnly + Sa
   await page.getByLabel('昵称').fill('界面注册');
   await page.getByLabel(/^密码/).fill(password);
   await page.getByLabel('确认密码').fill(password);
+  // REWRITTEN：校区不再有写死的默认值，必须从 /v1/schools 里选择。E2E 后端可见演示学校（可能还有其他用例登记的第二所学校）：
+  // 有多所学校时先选演示学校（不是 E2E 湖畔学校的那一所），再选「东校区」
+  await expect(page.getByText('正在加载学校列表…')).toHaveCount(0);
+  const school = page.getByRole('combobox', { name: /^学校/ });
+  if (await school.count()) {
+    await school.click();
+    await page.getByRole('option').filter({ hasNotText: 'E2E' }).first().click();
+  }
+  await page.getByRole('combobox', { name: /^所在校区/ }).click();
+  await page.getByRole('option', { name: '东校区' }).click();
   // 注册前必须勾选同意《用户协议》《隐私政策》（未勾选时不会发出注册请求）
   await page.getByRole('checkbox', { name: /^已阅读并同意\s*《用户协议》\s*《隐私政策》$/ }).check();
   await page.getByRole('button', { name: '注册并登录' }).click();

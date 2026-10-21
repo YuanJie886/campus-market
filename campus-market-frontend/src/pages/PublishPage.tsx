@@ -67,7 +67,7 @@ export default function PublishPage() {
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-card md:p-6">
         {kind === "BUNDLE" ? (
           <BundleProductForm
-            initial={{ contact: currentUser?.contact ?? "", campus: currentUser?.campus ?? "东校区", buildingId: currentUser?.dormBuildingId ?? null }}
+            initial={{ contact: currentUser?.contact ?? "", campus: currentUser?.campus ?? "", buildingId: currentUser?.dormBuildingId ?? null }}
             onSubmit={handleSubmit}
             onCancel={() => navigate(-1)}
             submitError={submitError}
@@ -76,7 +76,7 @@ export default function PublishPage() {
         <ProductForm
           initial={{
             contact: currentUser?.contact ?? "",
-            campus: currentUser?.campus ?? "东校区",
+            campus: currentUser?.campus ?? "",
             // 预填本人宿舍楼只是省一步操作：表单下方会明确写出将公开哪一栋楼，
             // 用户随时可以改成别的楼或「不指定楼栋」
             buildingId: currentUser?.dormBuildingId ?? null,

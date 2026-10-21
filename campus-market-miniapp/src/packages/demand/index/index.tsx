@@ -6,7 +6,7 @@ import { Empty, ErrorState, LoginGate, PageTitle } from '../../../components';
 import { money, timeAgo, type DemandConditions, type DemandMatch, type DemandSubscription } from '../../../model';
 import { DELETED_DONE, DEMANDS_INTRO, INVALID_LABEL, NO_MATCHES, NO_SUBSCRIPTIONS, describeConditions, reasonLabel, subscribeResultText, tierLabel } from '../../../demand';
 import { DEMAND_PAGES } from '../../../menu';
-import { demandUnread, notify, notifyError, useMarket } from '../../../state';
+import { demandUnread, notify, notifyError, useMarket, useSchools } from '../../../state';
 import { DemandForm } from '../../../widgets/DemandForm';
 
 type Tab = 'matches' | 'subscriptions';
@@ -17,7 +17,7 @@ const openProduct = (id: string) => void Taro.navigateTo({ url: `/pages/detail/i
  * 未读数显示在「通知」角标上；打开、标记已读、忽略后立即更新。
  */
 export default function DemandsPage() {
-  const { user } = useMarket(), router = useRouter();
+  const { user } = useMarket(), { catalog } = useSchools(), router = useRouter();
   const [tab, setTab] = useState<Tab>(router.params.tab === 'subscriptions' ? 'subscriptions' : 'matches');
   const [matches, setMatches] = useState<DemandMatch[] | null>(null), [subs, setSubs] = useState<DemandSubscription[] | null>(null), [error, setError] = useState('');
   const [editing, setEditing] = useState<DemandSubscription | 'new' | null>(null), [formError, setFormError] = useState(''), [busy, setBusy] = useState(false);
@@ -67,7 +67,7 @@ export default function DemandsPage() {
               <Text className='status-pill ok'>{tierLabel(m.tier)}</Text>
             </View>
             <Text className='price'><Text className='currency'>¥</Text>{money(m.product.price)}</Text>
-            <Text className='req-sub'>命中订阅：{describeConditions(m.subscription)} · {timeAgo(m.createdAt)}</Text>
+            <Text className='req-sub'>命中订阅：{describeConditions(m.subscription, (id) => catalog.campusLabel(id))} · {timeAgo(m.createdAt)}</Text>
             <Text className='req-sub'>匹配理由：{m.reasonCodes.map(reasonLabel).join('、')}</Text>
             {!m.valid && m.invalidReason ? <Text className='gov-note warn'>{INVALID_LABEL[m.invalidReason]}</Text> : null}
             <View className='button-row wrap'>
@@ -78,11 +78,11 @@ export default function DemandsPage() {
             </View>
           </View>)
       ) : <>
-        {editing ? <DemandForm title={editing === 'new' ? '订阅一个需求' : '修改订阅条件'} submitLabel={editing === 'new' ? '确认订阅' : '保存'} initial={initial} userCampus={user?.campus ?? '东校区'} busy={busy}
+        {editing ? <DemandForm title={editing === 'new' ? '订阅一个需求' : '修改订阅条件'} submitLabel={editing === 'new' ? '确认订阅' : '保存'} initial={initial} userCampus={user?.campus ?? ''} busy={busy}
           errorMessage={formError} onCancel={() => setEditing(null)} onSubmit={(c) => void save(c)} circleScope={editing !== 'new' && editing.circle ? { name: editing.circle.name } : null} />
           : <Button className='primary small' onClick={() => { setFormError(''); setEditing('new'); }}>新建订阅</Button>}
         {subs === null ? <Empty title='加载中…' /> : !subs.length ? <Empty title={NO_SUBSCRIPTIONS} /> : subs.map((s) => <View key={s.id} className='req-card'>
-          <Text className='req-name'>{describeConditions(s)}</Text>
+          <Text className='req-name'>{describeConditions(s, (id) => catalog.campusLabel(id))}</Text>
           <Text className='req-sub'>已匹配 {s.matchCount} 件{s.active ? '' : ' · 已停用'}</Text>
           <View className='switch-row'>
             <Text className='muted'>{s.active ? '启用中' : '已停用'}</Text>

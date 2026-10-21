@@ -67,8 +67,10 @@ async function api(method, path, body, token, headers = {}) {
   let json = null; try { json = JSON.parse(text) } catch { /* html */ }
   return { status: res.status, json, text, headers: res.headers };
 }
+// 生产编排默认启用安徽理工大学数据包并隐藏演示学校：演练按真实配置，用淮南校区注册
+const DRILL_CAMPUS = 'aust-huainan';
 async function register(label) {
-  const r = await api('POST', '/v1/auth/register', { account: `d${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`, nickname: label, campus: '东校区', contact: '13800000000' });
+  const r = await api('POST', '/v1/auth/register', { account: `d${randomBytes(6).toString('hex')}`, password: `pw-${randomBytes(9).toString('base64url')}`, nickname: label, campus: DRILL_CAMPUS, contact: '13800000000' });
   if (r.status !== 200) throw new Error(`注册失败 ${r.status}`);
   return { id: r.json.data.user.id, token: r.json.data.accessToken, cookie: r.headers.get('set-cookie') ?? '' };
 }
@@ -137,6 +139,10 @@ try {
     record(`安全响应头：${path} 带 CSP（禁止被嵌入、脚本只允许同源）、X-Frame-Options、nosniff，且不暴露 nginx 版本`, ok,
       `status=${r.status} server=${r.headers.get('server')} csp=${csp.length > 0}`);
   }
+  // 学校数据包：生产默认只展示安徽理工大学（淮南校区、合肥校区），迁移里的演示学校被隐藏
+  const schools = await api('GET', '/v1/schools');
+  const shown = (schools.json?.data ?? []).map((sc) => `${sc.id}:${(sc.campuses ?? []).map((c) => c.id).join('+')}`).join(',');
+  record('学校数据包：只展示安徽理工大学的淮南、合肥两个校区，演示学校不出现', schools.status === 200 && shown === 'aust:aust-huainan+aust-hefei', shown || `status=${schools.status}`);
   const notFound = await api('GET', '/v1/no-such-endpoint');
   record('/v1 由 nginx 代理到 API（未知路径得到 API 的 JSON 404，而不是 SPA 页面或 500）', notFound.status === 404 && notFound.json?.code === 404, `status=${notFound.status}`);
   const wrongMethod = await api('DELETE', '/v1/health');
@@ -203,16 +209,16 @@ try {
     `upload=${uploadRes.status} read=${imageBefore}`);
 
   const external = await api('POST', '/v1/products', { title: `演练外部图片 ${PROJECT}`, description: '外部图片链接应被拒绝', price: 1, category: '其他', condition: '几乎全新',
-    campus: '东校区', images: ['https://example.invalid/a.png'], contact: '13800000000' }, seller.token);
+    campus: DRILL_CAMPUS, images: ['https://example.invalid/a.png'], contact: '13800000000' }, seller.token);
   record('生产默认配置：新商品不能使用外部图片链接（400），只能用本平台上传的图片', external.status === 400, `status=${external.status} ${external.json?.message ?? ''}`);
   const buyer = await register('drill-buyer');
   const product = await api('POST', '/v1/products', { title: `演练哨兵商品 ${PROJECT}`, description: '备份恢复哨兵', price: 42, category: '其他', condition: '几乎全新',
-    campus: '东校区', images: [uploaded?.data?.ref], contact: '13800000000' }, seller.token);
+    campus: DRILL_CAMPUS, images: [uploaded?.data?.ref], contact: '13800000000' }, seller.token);
   const request = await api('POST', `/v1/products/${product.json.data.id}/contact-request`, {}, buyer.token);
   const approved = await api('POST', `/v1/contact-requests/${request.json?.data?.id}/decision`, { status: 'APPROVED' }, seller.token);
   const circle = await api('POST', '/v1/circles', { type: 'CLUB', name: `演练圈${Date.now().toString(36).slice(-4)}`, description: '哨兵', visibility: 'PRIVATE' }, seller.token);
   const staff = await register('drill-staff');
-  psql(`INSERT INTO staff_members(user_id, school_id, role) VALUES ('${staff.id}', 'pilot', 'SENIOR_MODERATOR')`);
+  psql(`INSERT INTO staff_members(user_id, school_id, role) VALUES ('${staff.id}', 'aust', 'SENIOR_MODERATOR')`);
   await api('POST', '/v1/moderation-reports', { targetType: 'USER', targetId: seller.id, reasonCode: 'SPAM' }, buyer.token);
   const caseId = psql(`SELECT id FROM moderation_cases WHERE target_id = '${seller.id}'`);
   const decided = await api('POST', `/v1/moderation/cases/${caseId}/decision`, { action: 'RESTRICT_PUBLISHING', reasonCode: 'POLICY_VIOLATION', durationHours: 24 }, staff.token);

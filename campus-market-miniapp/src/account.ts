@@ -4,6 +4,7 @@
  */
 import type { Campus, MarketApi } from './model';
 import { ApiError } from './api/transport';
+import { REGISTRATION_CAMPUS_REQUIRED } from './schools';
 
 /** 与后端 AuthService.string(…, 8, 72) 一致：后端先去掉首尾空白再计长度。 */
 export const PASSWORD_MIN = 8;
@@ -114,6 +115,8 @@ export interface RegistrationInput { account: string; password: string; nickname
 /** 注册表单检查；没有勾选同意时不能注册。 */
 export function registrationError(input: RegistrationInput, agreed: boolean): string | null {
   if (!input.account.trim() || !input.password || !input.nickname.trim() || input.password.length < PASSWORD_MIN) return '请填写账号、密码和注册资料';
+  // 校区来自 GET /v1/schools：先选学校再选校区，提交校区 id
+  if (!input.campus) return REGISTRATION_CAMPUS_REQUIRED;
   if (!agreed) return AGREEMENT_REQUIRED_MESSAGE;
   return null;
 }

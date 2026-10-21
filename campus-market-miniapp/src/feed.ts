@@ -12,6 +12,10 @@ export type MarketScope = Extract<BuildingScope, 'BUILDING' | 'CAMPUS' | 'SCHOOL
 export const MARKET_SCOPES: { key: MarketScope; label: string }[] = [
   { key: 'BUILDING', label: '本楼' }, { key: 'CAMPUS', label: '本校区' }, { key: 'SCHOOL', label: '全校' },
 ];
+/** 本人校区还没有启用的楼栋时不显示「本楼」（本校区 / 全校照常）。 */
+export const marketScopes = (campusHasBuildings: boolean) => MARKET_SCOPES.filter((s) => campusHasBuildings || s.key !== 'BUILDING');
+/** 当前范围在可选范围里没有（例如楼栋目录显示本校区还没有楼栋）时回到「全校」。 */
+export const effectiveScope = (scope: MarketScope, campusHasBuildings: boolean): MarketScope => scope === 'BUILDING' && !campusHasBuildings ? 'SCHOOL' : scope;
 export const LOGIN_NEEDED = '登录后才能知道你住哪栋楼。我们不会自动定位，也不会替你猜。';
 export const DORM_NEEDED = '还没有填写宿舍楼。填写后即可只看本楼的闲置；只需要楼栋，不需要房间号。';
 export const NOTHING_ANYWHERE = '全校都没有符合条件的商品。试着放宽筛选，或发布一条求购。';

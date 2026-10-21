@@ -2,11 +2,11 @@ import Taro, { useDidShow, usePullDownRefresh, useReachBottom } from '@tarojs/ta
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import { CAMPUSES, CATEGORIES, CATEGORY_EMOJI, CONDITIONS, type Campus, type Category, type Condition, type DemandConditions, type FeedPage, type Product, type Query, type Sort } from '../../model';
+import { CATEGORIES, CATEGORY_EMOJI, CONDITIONS, type Category, type Condition, type DemandConditions, type FeedPage, type Product, type Query, type Sort } from '../../model';
 import { ErrorState, LoginGate, ProductGrid, Empty } from '../../components';
-import { demandUnread, goLogin, notify, useMarket, useUnread } from '../../state';
+import { demandUnread, goLogin, notify, useMarket, useSchools, useUnread } from '../../state';
 import { badgeText } from '../../contacts';
-import { DORM_NEEDED, LOGIN_NEEDED, MARKET_SCOPES, feedAction, feedNotice, feedQueryFrom, usesFeed, type MarketScope } from '../../feed';
+import { DORM_NEEDED, LOGIN_NEEDED, effectiveScope, marketScopes, feedAction, feedNotice, feedQueryFrom, usesFeed, type MarketScope } from '../../feed';
 import { EMPTY_CTA, demandPrefill, subscribeResultText } from '../../demand';
 import { DEMAND_PAGES, PAGES } from '../../menu';
 import { DemandForm } from '../../widgets/DemandForm';
@@ -20,7 +20,9 @@ const SORTS: { key: SortKey; label: string }[] = [
 const isPriceSort = (sort: Sort) => sort === 'priceAsc' || sort === 'priceDesc';
 
 export default function MarketPage() {
-  const { user, ready } = useMarket();
+  const { user, ready } = useMarket(), { catalog } = useSchools();
+  // 本人校区还没有启用的楼栋时不显示「本楼」；校区筛选只列本校的校区
+  const campusHasBuildings = catalog.hasBuildings(user?.campus), scopes = marketScopes(campusHasBuildings), campuses = catalog.campusOptions(user?.campus);
   const [keyword, setKeyword] = useState(''), [category, setCategory] = useState<Category | ''>('');
   const [query, setQuery] = useState<Query>({ sort: 'latest', page: 1, pageSize: 12 });
   const [products, setProducts] = useState<Product[]>([]), [total, setTotal] = useState(0), [page, setPage] = useState(0);
@@ -30,6 +32,7 @@ export default function MarketPage() {
   const [scope, setScope] = useState<MarketScope>('SCHOOL'), [feedPage, setFeedPage] = useState<FeedPage | null>(null), [action, setAction] = useState<'login' | 'set-dorm-building' | null>(null);
   const [subscribing, setSubscribing] = useState(false), [subscribeBusy, setSubscribeBusy] = useState(false), [subscribeError, setSubscribeError] = useState('');
   const pending = badgeText(useUnread().total);
+  useEffect(() => { const next = effectiveScope(scope, campusHasBuildings); if (next !== scope) setScope(next); }, [scope, campusHasBuildings]);
   const generation = useRef(0), busy = useRef(false), identity = useRef(user?.id);
   identity.current = user?.id;
 
@@ -69,7 +72,7 @@ export default function MarketPage() {
   const sortKey: SortKey = isPriceSort(query.sort) ? 'price' : query.sort === 'views' ? 'views' : 'latest';
   const filterCount = [usesFeed(scope) ? undefined : query.campus, query.condition, query.minPrice, query.maxPrice].filter((v) => v !== undefined).length;
   const notice = feedNotice(feedPage);
-  const prefill = useMemo<DemandConditions>(() => demandPrefill({ keyword: query.keyword, category, minPrice: query.minPrice, maxPrice: query.maxPrice, campus: query.campus }, scope, user?.campus ?? '东校区'), [query, category, scope, user?.campus]);
+  const prefill = useMemo<DemandConditions>(() => demandPrefill({ keyword: query.keyword, category, minPrice: query.minPrice, maxPrice: query.maxPrice, campus: query.campus }, scope, user?.campus ?? ''), [query, category, scope, user?.campus]);
   const subscribe = async (conditions: DemandConditions) => {
     setSubscribeBusy(true); setSubscribeError('');
     try {
@@ -87,7 +90,7 @@ export default function MarketPage() {
     <View className='topbar'>
       <Text className='topbar-title'>校园集市</Text>
       <View className='topbar-right'>
-        <View className='campus-pill'><Text>{user?.campus ?? '本校'}</Text><View className='i-chevron' /></View>
+        <View className='campus-pill'><Text>{user ? catalog.campusLabel(user.campus) : '本校'}</Text><View className='i-chevron' /></View>
         <View className='bell' onClick={() => void Taro.switchTab({ url: '/pages/notifications/index' })}>
           <View className='i-bell' />
           {pending ? <Text className='badge'>{pending}</Text> : null}
@@ -108,7 +111,7 @@ export default function MarketPage() {
 
     <LoginGate returnTo='/pages/market/index'>
       <View className='segmented scope-switch'>
-        {MARKET_SCOPES.map((s) => <Text key={s.key} className={scope === s.key ? 'selected' : ''} onClick={() => setScope(s.key)}>{s.label}</Text>)}
+        {scopes.map((s) => <Text key={s.key} className={scope === s.key ? 'selected' : ''} onClick={() => setScope(s.key)}>{s.label}</Text>)}
       </View>
       {action === 'login' ? <View className='notice'><Text>{LOGIN_NEEDED}</Text><Text className='text-action' onClick={() => goLogin('/pages/market/index')}>去登录</Text></View> : null}
       {action === 'set-dorm-building' ? <View className='notice'><Text>{DORM_NEEDED}</Text><Text className='text-action' onClick={() => void Taro.navigateTo({ url: PAGES.profileEdit })}>去设置</Text></View> : null}
@@ -138,7 +141,7 @@ export default function MarketPage() {
           <Text className='filter-label'>校区</Text>
           <View className='filter-chips'>
             <Text className={`filter-chip ${!query.campus ? 'active' : ''}`} onClick={() => patchQuery({ campus: undefined })}>全部</Text>
-            {CAMPUSES.map((c) => <Text key={c} className={`filter-chip ${query.campus === c ? 'active' : ''}`} onClick={() => patchQuery({ campus: c as Campus })}>{c}</Text>)}
+            {campuses.map((c) => <Text key={c.id} className={`filter-chip ${query.campus === c.id ? 'active' : ''}`} onClick={() => patchQuery({ campus: c.id })}>{c.name}</Text>)}
           </View>
         </View>}
         <View className='filter-group'>
@@ -160,7 +163,7 @@ export default function MarketPage() {
       </View>}
 
       {hasFilter && <View className='sort-row filter-summary'>
-        <Text className='count-text'>{query.keyword ? `「${query.keyword}」` : ''}{category ? ` ${category}` : ''}{query.campus ? ` · ${query.campus}` : ''}{query.condition ? ` · ${query.condition}` : ''}</Text>
+        <Text className='count-text'>{query.keyword ? `「${query.keyword}」` : ''}{category ? ` ${category}` : ''}{query.campus ? ` · ${catalog.campusLabel(query.campus)}` : ''}{query.condition ? ` · ${query.condition}` : ''}</Text>
         <Text className='text-action' onClick={reset}>清空筛选</Text>
       </View>}
 
@@ -169,7 +172,7 @@ export default function MarketPage() {
           {!action && <Empty title='暂时没有找到合适的好物' description='换个关键词，或者放宽筛选条件试试。' action={<Button className='secondary' onClick={reset}>重置筛选</Button>} />}
           {/* 搜索空态的订阅入口：用户刚表达了一个没被满足的需求，这时问一句最自然 */}
           {!action && (subscribing
-            ? <DemandForm title='订阅这个需求' submitLabel='确认订阅' initial={prefill} userCampus={user?.campus ?? '东校区'} busy={subscribeBusy} errorMessage={subscribeError} onCancel={() => setSubscribing(false)} onSubmit={(c) => void subscribe(c)} />
+            ? <DemandForm title='订阅这个需求' submitLabel='确认订阅' initial={prefill} userCampus={user?.campus ?? ''} busy={subscribeBusy} errorMessage={subscribeError} onCancel={() => setSubscribing(false)} onSubmit={(c) => void subscribe(c)} />
             : <View className='demand-cta'><Text className='muted'>{EMPTY_CTA}</Text><Button className='primary small' onClick={() => { setSubscribeError(''); setSubscribing(true); }}>订阅这个需求</Button></View>)}
         </> : <ProductGrid products={products} />}
         {error && <View className='load-more'><Text>{error}</Text><Button className='secondary small' onClick={() => void load(false)}>重试加载</Button></View>}

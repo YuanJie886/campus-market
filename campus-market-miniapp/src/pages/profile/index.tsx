@@ -8,10 +8,10 @@ import { PRIVACY_PAGE, TERMS_PAGE } from '../../legal';
 import { MORE_ENTRIES, PAGES } from '../../menu';
 import { Avatar } from '../../widgets/Avatar';
 import { badgeText } from '../../contacts';
-import { goLogin, notify, notifyError, useDemandUnread, useMarket, useMessageUnread, useUnread } from '../../state';
+import { goLogin, notify, notifyError, useDemandUnread, useMarket, useMessageUnread, useSchools, useUnread } from '../../state';
 
 export default function ProfilePage() {
-  const { user, setUser, favorites } = useMarket();
+  const { user, setUser, favorites } = useMarket(), { catalog } = useSchools();
   const unreadCount = useUnread().total, messageCount = useMessageUnread(), demandCount = useDemandUnread();
   const [wechat, setWechat] = useState<WechatStatus | null>(null), identity = useRef(user?.id); identity.current = user?.id;
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,7 @@ export default function ProfilePage() {
         <Avatar value={user?.avatar} userId={user?.id} nickname={user?.nickname} size='large' />
         <View className='profile-info'>
           <Text className='profile-name'>{user?.nickname}</Text>
-          <Text className='subtitle'>{user?.campus} · 同校交易</Text>
+          <Text className='subtitle'>{catalog.campusLabel(user?.campus)} · 同校交易</Text>
         </View>
         <Text className='text-action' onClick={() => void Taro.navigateTo({ url: PAGES.profileEdit })}>编辑资料</Text>
       </View>

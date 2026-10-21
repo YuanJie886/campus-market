@@ -7,7 +7,9 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../../api/client';
 import { toUserMessage } from '../../api/errors';
 import type { DisclosureInput, InspectionTemplate, ListingDraft, ListingPayload, ListingValidation } from '../../api/contracts';
-import { CAMPUSES, CATEGORIES, CONDITIONS, type Campus } from '../../types';
+import { CATEGORIES, CONDITIONS } from '../../types';
+import { useOptionalAuth } from '../../context/AuthContext';
+import { useSchools } from '../../hooks/useSchools';
 import { IMAGE_PRESETS } from '../../utils/externalDemoImages';
 import { VALIDATION_LABEL, missingText, priceValue, versionConflict } from '../../utils/supply';
 import BuildingSelect from '../BuildingSelect';
@@ -69,6 +71,10 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
   const [conflict, setConflict] = useState<number | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const bundle = draft.draftType === 'BUNDLE';
+  // 校区选项：本人学校的校区（不在登录上下文里时按草稿已有的校区推断学校）
+  const ownerCampus = useOptionalAuth()?.currentUser?.campus ?? null;
+  const { campusChoicesFor, schoolOfCampus, schools } = useSchools();
+  const campusOptions = campusChoicesFor(ownerCampus || form.campus);
   const idPrefix = `item-${draft.id}`;
 
   useImperativeHandle(ref, () => ({ focusTitle: () => titleRef.current?.focus() }));
@@ -144,7 +150,8 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
   };
 
   const problem = validation && validation.code !== 'VALID' ? validation : null;
-  const campus = (CAMPUSES as string[]).includes(form.campus) ? (form.campus as Campus) : null;
+  // 只有已知的校区才去拉楼栋；学校列表不可用时不拦（由服务端校验）
+  const campus = form.campus && (schools.length === 0 || schoolOfCampus(form.campus)) ? form.campus : null;
   return (
     <section aria-labelledby={`${idPrefix}-heading`} className="space-y-3">
       <h2 id={`${idPrefix}-heading`} className="text-base font-bold text-slate-800">
@@ -185,7 +192,7 @@ const ListingItemEditor = forwardRef<ListingItemEditorHandle, Props>(function Li
 
       {!assistant && (
         <TextField select label="校区" value={form.campus} size="small" onChange={(e) => patch({ campus: e.target.value, buildingId: null })}>
-          {CAMPUSES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          {campusOptions.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
         </TextField>
       )}
       {campus ? (

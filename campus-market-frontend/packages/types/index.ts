@@ -50,9 +50,11 @@ export const CONDITIONS: Condition[] = [
   "明显使用痕迹",
 ];
 
-export type Campus = "东校区" | "西校区" | "南校区" | "北校区";
-
-export const CAMPUSES: Campus[] = ["东校区", "西校区", "南校区", "北校区"];
+/**
+ * 校区 id。校区由数据登记（GET /v1/schools），不再写死在前端：新学校的 id 是带命名空间的稳定标识
+ * （例如 aust-huainan），显示名称另由 campusLabel(id) 给出；演示学校的校区 id 恰好等于名称（东校区 等）。
+ */
+export type Campus = string;
 
 export type ProductStatus = "在售" | "已售出" | "已下架" | "预约中";
 

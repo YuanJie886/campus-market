@@ -149,7 +149,7 @@ export default function CircleDetailPage() {
           title="订阅圈子新商品"
           submitLabel="订阅"
           initial={{}}
-          userCampus={currentUser?.campus ?? '东校区'}
+          userCampus={currentUser?.campus ?? ''}
           busy={busy}
           errorMessage={subscribeError}
           onCancel={() => { setSubscribeOpen(false); window.setTimeout(() => subscribeButton.current?.focus(), 0) }}

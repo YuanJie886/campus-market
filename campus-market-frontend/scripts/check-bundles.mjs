@@ -3,7 +3,7 @@
  * 4.8B 构建产物检查：在 `npm run build:rest` 与 `npm run build:mock` 之后运行（npm run build:all 会依次执行）。
  *
  * - REST 产物（dist/）里不能出现离线 Mock：Mock 的存储键、演示种子、Mock 专用的历史交易收尾标识。
- * - Mock 产物（dist-mock/）里不能出现真实 REST 传输层：认证刷新、批量发布、协助邀请、联系申请未读 / 已读、找回密码、注销、图片上传、客户端配置、私信快捷消息等 REST 路径。
+ * - Mock 产物（dist-mock/）里不能出现真实 REST 传输层：认证刷新、批量发布、协助邀请、联系申请未读 / 已读、找回密码、注销、图片上传、客户端配置、私信快捷消息、学校列表等 REST 路径。
  * - 每个标记都必须在另一份产物里出现，证明检查不是空转（例如标记拼错了永远找不到）。
  * - 入口 chunk 不超过 chunkSizeWarningLimit（1500 kB，未调高）。
  * - REST 产物里的 http(s) 主机只能是从不请求的命名空间 / 文档链接；演示图床只以受 externalAllowed 控制的主机名常量出现一次。
@@ -26,7 +26,9 @@ const REST_ONLY = ['/v1/auth/refresh', '/v1/listing-batches', '/v1/listing-assis
   // 客户端配置（图片张数 / 大小 / 类型 / 是否允许外部图片）：REST 请求后端，Mock 直接给出离线演示的固定配置
   '/v1/config',
   // 私信快捷消息列表：REST 请求后端，Mock 直接给出离线演示的同一套模板
-  '/v1/message-templates'];
+  '/v1/message-templates',
+  // 学校与校区列表：REST 请求后端，Mock 由离线演示数据（演示学校 pilot）直接给出同一个形状
+  '/v1/schools'];
 
 function bundle(dir) {
   const assets = join(dir, 'assets');

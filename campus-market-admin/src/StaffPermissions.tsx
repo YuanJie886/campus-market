@@ -4,6 +4,7 @@ import { Alert, Avatar, Box, Button, Card, CardContent, Chip, Dialog, DialogActi
 import { Edit, SimpleForm, SelectInput, BooleanInput, TextInput, required, FormDataConsumer, useGetIdentity, useRecordContext, useSaveContext, useNotify, useRedirect, type RaRecord } from 'react-admin';
 import ShieldIcon from '@mui/icons-material/VerifiedUserOutlined';
 import InfoIcon from '@mui/icons-material/InfoOutlined';
+import { useCampusLabel } from './CampusUi';
 import { PageHeading, PENDING_ROLE_REQUEST_NOTICE, ROLES, needsSecondAdmin, roleName, staffStateText } from './adminUi';
 
 function SectionTitle({ number, title }: { number: string; title: string }) { return <Box className="section-title"><span>{number}</span><Typography variant="h6">{title}</Typography></Box>; }
@@ -25,7 +26,7 @@ function StaffForm() {
     const record = useRecordContext(); const { data: me } = useGetIdentity(); const { save, saving } = useSaveContext();
     const [draft, setDraft] = useState<Partial<RaRecord> | null>(null);
     const [pending, setPending] = useState<PendingRoleRequest | null>(null);
-    const [saveError, setSaveError] = useState(''); const notify = useNotify(); const redirect = useRedirect();
+    const [saveError, setSaveError] = useState(''); const notify = useNotify(); const redirect = useRedirect(); const campusName = useCampusLabel();
     if (!record) return null;
     if (!me) return <Alert sx={{ m: 3 }}>正在核对当前工作人员身份…</Alert>;
     if (record.id === me.id) return <Alert severity="info" sx={{ m: 3 }}>不能修改自己的后台权限，请由其他学校管理员操作。</Alert>;
@@ -46,7 +47,7 @@ function StaffForm() {
         });
     };
     return <>{pending && <PendingRoleRequestNotice request={pending} />}<SimpleForm className="admin-form" onSubmit={(values: Partial<RaRecord>) => { setSaveError(''); setDraft(values); }} defaultValues={{ note: '' }}>
-        <Box className="staff-profile"><Avatar sx={{ width: 46, height: 46, bgcolor: '#e4efe8', color: '#487c5e' }}>{record.nickname?.slice(0, 1) ?? '用'}</Avatar><Box sx={{ flex: 1 }}><Typography variant="h6">{record.nickname ?? '校园用户'}</Typography><Typography color="text.secondary" sx={{ fontSize: 12, mt: .5 }}>{record.account} · {record.campus}</Typography></Box><Chip label={record.active ? '后台权限已启用' : '后台权限未启用'} color={record.active ? 'success' : 'default'} size="small" variant="outlined" /></Box>
+        <Box className="staff-profile"><Avatar sx={{ width: 46, height: 46, bgcolor: '#e4efe8', color: '#487c5e' }}>{record.nickname?.slice(0, 1) ?? '用'}</Avatar><Box sx={{ flex: 1 }}><Typography variant="h6">{record.nickname ?? '校园用户'}</Typography><Typography color="text.secondary" sx={{ fontSize: 12, mt: .5 }}>{[record.account, campusName(record.campus)].filter(Boolean).join(' · ')}</Typography></Box><Chip label={record.active ? '后台权限已启用' : '后台权限未启用'} color={record.active ? 'success' : 'default'} size="small" variant="outlined" /></Box>
         <SectionTitle number="01" title="分配后台角色" />
         <SelectInput source="role" label="后台角色" choices={ROLES} validate={required()} helperText="选择与工作职责相符的角色" fullWidth />
         <FormDataConsumer>{({ formData }) => { const role = ROLES.find(item => item.id === formData.role); return role ? <Box className="role-preview"><Typography sx={{ fontWeight: 600, color: '#376248' }}>{role.name} · 权限范围</Typography><Typography color="text.secondary" sx={{ mt: .5 }}>{role.description}</Typography><ul>{role.capabilities.map(capability => <li key={capability}>{capability}</li>)}</ul></Box> : <Alert severity="info" sx={{ mb: 2 }}>选择角色后可预览对应的权限范围。</Alert>; }}</FormDataConsumer>

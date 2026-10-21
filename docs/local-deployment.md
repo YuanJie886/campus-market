@@ -30,6 +30,8 @@
 - `WEB_ORIGIN` 是 `https://` 而 `SECURE_COOKIES=false` 时，后端拒绝启动（长期凭据不能在明文连接上发送）。
 - 可选配置：`WECHAT_APP_ID` / `WECHAT_APP_SECRET`（两者都配置才启用微信登录与内容安全）；
   `ALLOW_EXTERNAL_IMAGES`（默认 `false`：新商品只能用本平台上传的图片，已有商品里的外部图片编辑时可以保留；只在演示环境设为 `true`）。
+- 学校数据：`SCHOOL_PACKS`（默认 `aust`，安徽理工大学）启用的学校数据包，`SCHOOL_PACKS_DIR` 可挂载额外的数据文件；`DEMO_SCHOOL_ENABLED`（默认 `false`）隐藏迁移里的演示学校。新增学校的做法见 `docs/school-data.md`。
+- 私信：`MESSAGES_FREE_TEXT_ENABLED`（默认 `false`）只允许预设快捷消息，见 `docs/messaging.md`。
 - 日志：每个容器的日志按大小轮转（5 × 10 MB）。nginx 访问日志不记录查询参数（图片签名、搜索词），并带 `rid=` 请求编号，
   与 API 日志里的 `requestId=` 是同一个值，用户反馈时按响应头 `X-Request-ID` 查两边日志。
 - 系统里**没有默认管理员**；首个平台工作人员按 `campus-market-backend/docs/staff-runbook.md` 用受控 SQL 配置，每校至少两名。

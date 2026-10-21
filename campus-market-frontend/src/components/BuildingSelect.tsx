@@ -4,6 +4,10 @@ import TextField from '@mui/material/TextField';
 import { getApiClient } from '../api/client';
 import { toUserMessage } from '../api/errors';
 import type { Building, Campus } from '../types';
+import { useSchools } from '../hooks/useSchools';
+
+/** 校区还没有启用的楼栋时，楼栋选择处显示这句（而不是一个只有「不指定」的空列表） */
+export const BUILDINGS_PENDING = '本校楼栋信息还在录入中';
 
 interface Props {
   campus: Campus;
@@ -25,6 +29,9 @@ interface Props {
  * 留着一个跨校区的旧值，只会在提交时被后端拒绝，用户还不知道错在哪。
  *
  * <p>始终提供「不指定」：无论是宿舍楼还是取货楼栋，都不是必填项。
+ *
+ * <p>校区还没有启用的楼栋（/v1/schools 的 hasBuildings=false，或 /v1/buildings 返回空列表）时不渲染空的选择框，
+ * 只显示「本校楼栋信息还在录入中」；此时值保持 null（不指定楼栋），本校区 / 全校的功能不受影响。
  */
 export default function BuildingSelect({
   campus, value, onChange,
@@ -36,16 +43,28 @@ export default function BuildingSelect({
 }: Props) {
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [zone, setZone] = useState<string>('');
+  const { hasBuildings } = useSchools();
+  const knownEmpty = !hasBuildings(campus);
 
   useEffect(() => {
     let active = true;
     setLoadError(null);
+    setLoaded(false);
+    if (knownEmpty) {
+      // 服务端已说明这个校区没有楼栋：不再请求，原选择一并清掉
+      setBuildings([]);
+      setLoaded(true);
+      if (value) onChange(null);
+      return () => { active = false };
+    }
     getApiClient()
       .listBuildings(campus)
       .then((list) => {
         if (!active) return;
         setBuildings(list);
+        setLoaded(true);
         // 校区变化后，原选择若不在新列表中就清掉，不留下一个必然被拒绝的值
         if (value && !list.some((building) => building.id === value)) onChange(null);
       })
@@ -57,7 +76,7 @@ export default function BuildingSelect({
     };
     // value/onChange 刻意不进依赖：这里只在校区变化时重新拉取列表
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campus]);
+  }, [campus, knownEmpty]);
 
   const zones = useMemo(
     () => [...new Set(buildings.map((building) => building.zone))],
@@ -68,6 +87,14 @@ export default function BuildingSelect({
   const selected = buildings.find((building) => building.id === value) ?? null;
   const activeZone = zone || selected?.zone || '';
   const visible = activeZone ? buildings.filter((b) => b.zone === activeZone) : buildings;
+
+  if (!loadError && loaded && buildings.length === 0) {
+    return (
+      <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600" data-building-empty="true">
+        {BUILDINGS_PENDING}
+      </p>
+    );
+  }
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">

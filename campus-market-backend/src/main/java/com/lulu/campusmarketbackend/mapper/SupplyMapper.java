@@ -214,6 +214,7 @@ public interface SupplyMapper {
 
     // ================= 价格参考 =================
 
-    @Select("SELECT id, school_id FROM campuses")
+    /** 在用校区与所属学校（学校数据包停用的校区不能再用于新草稿 / 发布） */
+    @Select("SELECT id, school_id FROM campuses WHERE active")
     List<Map<String, Object>> selectCampusSchools();
 }

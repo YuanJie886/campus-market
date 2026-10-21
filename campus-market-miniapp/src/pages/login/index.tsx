@@ -3,8 +3,8 @@ import { Button, Input, Picker, Text, View } from '@tarojs/components';
 import { useEffect, useState } from 'react';
 import { api, isDemo, wechatLoginCode, wechatLoginSupported } from '../../api';
 import { bindPendingWechat, pendingWechatBind, registerAccount, registrationError, wechatLoginFailure } from '../../account';
-import { CAMPUSES, type Campus } from '../../model';
-import { notify, notifyError, useMarket } from '../../state';
+import { registrationChoice } from '../../schools';
+import { notify, notifyError, useMarket, useSchools } from '../../state';
 import { AgreementCheck, LegalLinks, PageTitle, PrivacyPopup } from '../../components';
 
 const tabs = ['/pages/market/index', '/pages/publish/index', '/pages/notifications/index', '/pages/profile/index'];
@@ -16,7 +16,11 @@ export default function LoginPage() {
   const [wechatEnabled, setWechatEnabled] = useState(false), [bindPending, setBindPending] = useState(pendingWechatBind.pending);
   // 注册前必须勾选同意《用户协议》《隐私政策》；每次进入登录页都需要重新勾选
   const [agreed, setAgreed] = useState(false);
-  const [account, setAccount] = useState(''), [password, setPassword] = useState(''), [nickname, setNickname] = useState(''), [contact, setContact] = useState(''), [campus, setCampus] = useState<Campus>('东校区');
+  const [account, setAccount] = useState(''), [password, setPassword] = useState(''), [nickname, setNickname] = useState(''), [contact, setContact] = useState('');
+  // 注册：先选学校，再选校区（都来自 GET /v1/schools）；只有一所学校时不显示学校选择
+  const [schoolId, setSchoolId] = useState<string | null>(null), [campusId, setCampusId] = useState<string | null>(null);
+  const { catalog, error: schoolsError, retry: retrySchools } = useSchools();
+  const choice = registrationChoice(catalog, schoolId, campusId), campus = choice.campus?.id ?? '';
 
   const finish = async () => {
     let target = router.params.returnTo ?? '';
@@ -83,10 +87,18 @@ export default function LoginPage() {
       {register && <>
         <Text className='field-label'>昵称</Text>
         <Input className='field-input' placeholder='同学们怎么称呼你' value={nickname} onInput={(e) => setNickname(e.detail.value)} maxlength={40} />
+        {choice.showSchoolPicker ? <>
+          <Text className='field-label'>学校</Text>
+          <Picker range={choice.schools.map((s) => s.name)} value={Math.max(0, choice.schools.findIndex((s) => s.id === choice.school?.id))} onChange={(e) => { const next = choice.schools[Number(e.detail.value)]; if (next) { setSchoolId(next.id); setCampusId(null); } }}>
+            <View className='picker'><Text className='picker-value'>{choice.school?.name ?? '请选择学校'}</Text><View className='i-chevron' /></View>
+          </Picker>
+        </> : choice.school ? <Text className='field-help'>学校：{choice.school.name}</Text> : null}
         <Text className='field-label'>所在校区</Text>
-        <Picker range={[...CAMPUSES]} value={CAMPUSES.indexOf(campus)} onChange={(e) => setCampus(CAMPUSES[Number(e.detail.value)])}>
-          <View className='picker'><Text className='picker-value'>{campus}</Text><View className='i-chevron' /></View>
+        <Picker disabled={!choice.school} range={choice.campuses.map((c) => c.name)} value={Math.max(0, choice.campuses.findIndex((c) => c.id === choice.campus?.id))} onChange={(e) => { const next = choice.campuses[Number(e.detail.value)]; if (next) setCampusId(next.id); }}>
+          <View className='picker'><Text className='picker-value'>{choice.campus?.name ?? (choice.school ? '请选择校区' : '请先选择学校')}</Text><View className='i-chevron' /></View>
         </Picker>
+        {schoolsError ? <View className='notice'><Text>{schoolsError}</Text><Text className='text-action' onClick={retrySchools}>重试</Text></View>
+          : catalog.loaded && !choice.schools.length ? <Text className='error-text'>暂时没有开放注册的学校</Text> : null}
         <Text className='field-label'>联系方式 <Text className='optional'>选填</Text></Text>
         <Input className='field-input' placeholder='微信号或手机号' value={contact} onInput={(e) => setContact(e.detail.value)} maxlength={100} />
       </>}

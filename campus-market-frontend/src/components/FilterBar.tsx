@@ -5,7 +5,8 @@ import MenuItem from '@mui/material/MenuItem';
 import TuneIcon from '@mui/icons-material/Tune';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import type { FilterState, Category } from '../types';
-import { CAMPUSES, CATEGORIES, CONDITIONS, DEFAULT_FILTER, SORT_OPTIONS } from '../types';
+import { CATEGORIES, CONDITIONS, DEFAULT_FILTER, SORT_OPTIONS } from '../types';
+import type { CampusInfo } from '../api/contracts';
 import { CATEGORY_EMOJI } from '../utils/constants';
 
 interface FilterBarProps {
@@ -15,6 +16,8 @@ interface FilterBarProps {
   leading?: ReactNode;
   /** 「本楼 / 本校区」由范围决定校区，此时不提供校区筛选（与小程序一致） */
   hideCampus?: boolean;
+  /** 校区筛选的选项：只列本人学校的校区（来自 /v1/schools）；为空时不提供校区筛选 */
+  campusOptions?: readonly CampusInfo[];
 }
 
 const ALL_TABS: (Category | '全部')[] = ['全部', ...CATEGORIES];
@@ -34,7 +37,7 @@ export function activeFilterCount(value: FilterState, hideCampus = false): numbe
  * 首页工具条：范围切换 + 分类 + 「筛选与排序」在同一行（手机上分两行），
  * 分类过多时只在分类轨道内部横向滚动，页面本身不会横向滚动。
  */
-export default function FilterBar({ value, onChange, leading, hideCampus = false }: FilterBarProps) {
+export default function FilterBar({ value, onChange, leading, hideCampus = false, campusOptions = [] }: FilterBarProps) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const count = activeFilterCount(value, hideCampus);
@@ -106,7 +109,7 @@ export default function FilterBar({ value, onChange, leading, hideCampus = false
       </div>
 
       <div id={panelId} className="cm-filter-panel" hidden={!expanded}>
-        {!hideCampus && (
+        {!hideCampus && campusOptions.length > 0 && (
           <TextField
             select
             size="small"
@@ -115,8 +118,8 @@ export default function FilterBar({ value, onChange, leading, hideCampus = false
             onChange={(e) => patch({ campus: e.target.value as FilterState['campus'] })}
           >
             <MenuItem value="全部">全部校区</MenuItem>
-            {CAMPUSES.map((c) => (
-              <MenuItem key={c} value={c}>{c}</MenuItem>
+            {campusOptions.map((c) => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
             ))}
           </TextField>
         )}

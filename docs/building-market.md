@@ -28,7 +28,7 @@
 | `id` | `text` | 主键。与 `schools` / `campuses` / `meeting_points` 的主键类型一致 |
 | `campus_id` | `text` | 外键 → `campuses(id)` |
 | `zone` | `text` | 园区，非空白 |
-| `name` | `text` | 楼栋名，非空白；`(campus_id, name)` 唯一 |
+| `name` | `text` | 楼栋名，非空白；同一校区内**在用**楼栋的名称唯一（V22 起；停用楼栋的名称可以被新楼栋复用）。真实学校的楼栋由学校数据包导入，见 `docs/school-data.md` |
 | `latitude` | `double precision` | 可空，`[-90, 90]` |
 | `longitude` | `double precision` | 可空，`[-180, 180]` |
 | `active` | `boolean` | 默认 `true` |

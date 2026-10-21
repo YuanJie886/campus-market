@@ -4,7 +4,7 @@ import type { ClientConfig, FeedPage, FeedProduct, FeedQuery, BuildingScope, Cir
   ListingDraft, ListingKind, ListingPayload, ListingBatch, ListingBatchSummary, ListingValidation, PublishBatchResult, AssistInvite, AssistInviteCreated, AssistInviteRedeemed, DraftStatus, BatchStatus,
   CourseQuery, CoursePage, CourseDetail, CourseOffering, TextbookDetail, TextbookEdition, TextbookSuggestionInput, TextbookSuggestionResult, TextbookSuggestion, TextbookUsage, ProductTextbook, BundleItem,
   DemandConditions, DemandSubscribeResult, DemandSubscription, DemandMatchPage, DemandMatch, Category } from '../model';
-import { ASSISTANT_FIELDS, DEMO_COURSES, DEMO_COURSE_TEXTBOOKS, DEMO_EDITIONS, DEMO_OFFERINGS, TERM_ORDER, USAGE_ORDER, mockTier, normalizeDemandText, parseBundleItems, randomToken, sanitizePayload, scoreDemandMatch, tokenDigest, validateListing, type DemoEdition, type ValidationContext } from './mockRules';
+import { ASSISTANT_FIELDS, DEMO_SCHOOLS, INVALID_CAMPUS, demoSchoolOf, DEMO_COURSES, DEMO_COURSE_TEXTBOOKS, DEMO_EDITIONS, DEMO_OFFERINGS, TERM_ORDER, USAGE_ORDER, mockTier, normalizeDemandText, parseBundleItems, randomToken, sanitizePayload, scoreDemandMatch, tokenDigest, validateListing, type DemoEdition, type ValidationContext } from './mockRules';
 import { isbnProblem, parseIsbn } from '../catalog';
 import { AVATAR_EXTERNAL_REJECTED, AVATAR_INVALID, presetNumber } from '../avatar';
 import { FREE_TEXT_DISABLED, MESSAGE_TEMPLATES, TEMPLATE_NOT_FOUND, TEMPLATE_WRONG_ROLE } from '../messages';
@@ -81,7 +81,10 @@ const TICKET_TTL = 10 * 60 * 1000;
 export const demoOpenid = (code: string) => `demo-openid-${code}`;
 const randomHex = () => Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 const id = () => `demo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
-const school = (campus: Campus) => campus === '东校区' || campus === '西校区' ? 'demo-school-a' : 'demo-school-b';
+/** 校区所属学校（来自演示学校目录）；未知校区各自独立，不会与任何学校相等。 */
+const school = (campus: Campus) => demoSchoolOf(campus) ?? `unknown:${campus}`;
+/** 与后端一致：不在学校目录里的校区一律 400「校区无效」。 */
+function requireCampus(campus: unknown) { if (typeof campus !== 'string' || !demoSchoolOf(campus)) throw new ApiError(INVALID_CAMPUS, 400); }
 /**
  * 演示的内容安全：后端关键词过滤的极简镜像（只放几条明确的违禁交易词，不复制完整词表）；
  * 去掉空白与标点后比对，挡住「代 - 考」这类拆分。命中时给出与后端逐字相同的统一提示。
@@ -99,8 +102,8 @@ function restrictionEnd(epochMs: number) {
   const d = new Date(epochMs + 8 * 3600000), pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getUTCMonth() + 1} 月 ${d.getUTCDate()} 日 ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
-/** 演示楼栋（每个校区两个园区）。 */
-export const DEMO_BUILDINGS: Building[] = (['东校区', '西校区', '南校区', '北校区'] as Campus[]).flatMap((campus, c) => [
+/** 演示楼栋（演示学校 pilot 的每个有楼栋的校区两个园区）；另一所演示学校还没有楼栋。 */
+export const DEMO_BUILDINGS: Building[] = DEMO_SCHOOLS[0].campuses.filter((c) => c.hasBuildings).map((c) => c.id).flatMap((campus, c) => [
   { id: `demo-building-${c}-1`, campusId: campus, zone: '沁园', name: '1号楼' },
   { id: `demo-building-${c}-2`, campusId: campus, zone: '沁园', name: '2号楼' },
   { id: `demo-building-${c}-3`, campusId: campus, zone: '澜园', name: '5号楼' },
@@ -143,7 +146,7 @@ export function seedDatabase(): Database {
     users: [
       { id: 'demo-buyer', account: 'buyer001', password: 'demo12345', nickname: '小鹿同学', campus: '东校区', contact: 'wechat:campus-demo-buyer' },
       { id: 'demo-seller', account: 'seller001', password: 'demo12345', nickname: '小林同学', campus: '西校区', contact: 'wechat:campus-demo-seller' },
-      { id: 'other-school', account: 'school002', password: 'demo12345', nickname: '另一所学校的同学', campus: '南校区', contact: 'private-contact' },
+      { id: 'other-school', account: 'school002', password: 'demo12345', nickname: '另一所学校的同学', campus: 'demo-b-main', contact: 'private-contact' },
     ],
     products: [
       ...goods.map(([title, category, price, picture, condition], i): Product => ({
@@ -155,12 +158,27 @@ export function seedDatabase(): Database {
         sellerId: 'demo-seller', contact: 'wechat:campus-demo-seller', contactPublic: i === 2,
         status: '在售', createdAt: now - (i + 1) * 3600000, views: 12 + i * 9,
       })),
-      { id: 'other-school-product', title: '他校私有商品', category: '其他', condition: '全新', campus: '南校区', price: 10, images: ['/assets/goods/box.png'], sellerId: 'other-school', contact: 'private-contact', description: '只对本校展示', status: '在售', createdAt: now, views: 0 },
+      { id: 'other-school-product', title: '他校私有商品', category: '其他', condition: '全新', campus: 'demo-b-main', price: 10, images: ['/assets/goods/box.png'], sellerId: 'other-school', contact: 'private-contact', description: '只对本校展示', status: '在售', createdAt: now, views: 0 },
     ], favorites: {}, contacts: [],
     ...seedInteractions(now), moderationReports: [], appeals: [],
     // 演示：「高等数学教材」关联演示目录里的第 8 版（虚构教材，无 ISBN）
     productTextbooks: { 'demo-product-1': 'demo-ed-calculus-8' },
   };
+}
+/**
+ * 旧版演示缓存：学校改由演示学校目录决定（pilot = 东 / 西 / 南 / 北校区）。原来的「demo-school-a」改名为 pilot；
+ * 原来放在南校区演示跨校隔离的账号与商品移到另一所演示学校的校区，隔离演示保持不变。
+ */
+function migrateDemoSchools(db: Database) {
+  const rename = (value: string) => value === 'demo-school-a' ? 'pilot' : value;
+  for (const c of db.circles ?? []) c.school = rename(c.school);
+  for (const x of db.subscriptions ?? []) x.school = rename(x.school);
+  for (const x of db.suggestions ?? []) x.school = rename(x.school);
+  const other = db.users.find((u) => u.id === 'other-school');
+  if (other && demoSchoolOf(other.campus) === 'pilot') {
+    other.campus = 'demo-b-main'; other.dormBuildingId = null;
+    for (const p of db.products) if (p.sellerId === other.id) { p.campus = 'demo-b-main'; p.buildingId = null; }
+  }
 }
 export class MockApi implements MarketApi {
   private db: Database;
@@ -171,6 +189,7 @@ export class MockApi implements MarketApi {
     this.db = saved?.version === 1 && Array.isArray(saved.users) && Array.isArray(saved.products) && Array.isArray(saved.contacts) && saved.favorites
       ? saved as Database : seedDatabase();
     this.db.contacts = this.db.contacts.map(upgradeContact);
+    migrateDemoSchools(this.db);
     // 旧版演示缓存的商品举报（只有一句说明）：并入新的举报记录，原因记为「其他」
     if (this.db.reports?.length && !this.db.moderationReports) {
       this.db.moderationReports = this.db.reports.map((r, i) => ({ id: `legacy-report-${i}`, reporterId: r.reporterId, targetType: 'PRODUCT', targetId: r.productId, reasonCode: 'OTHER', note: r.reason, createdAt: r.createdAt }));
@@ -198,6 +217,7 @@ export class MockApi implements MarketApi {
   async login(account: string, password: string) { const user = this.db.users.find((u) => !u.deleted && u.account === account.trim() && u.password === password); if (!user) throw new Error('账号或密码错误'); this.db.userId = user.id; this.save(); return this.safeUser(user); }
   async register(input: { account: string; password: string; nickname: string; campus: Campus; contact: string }) {
     if (!/^[a-zA-Z0-9]{6,20}$/.test(input.account.trim()) || input.password.length < 8 || !input.nickname.trim()) throw new Error('请填写有效账号、昵称和至少 8 位密码');
+    requireCampus(input.campus);
     if (this.db.users.some((u) => !u.deleted && u.account === input.account.trim())) throw new Error('该账号已注册');
     const user = { ...input, account: input.account.trim(), nickname: input.nickname.trim(), id: id() };
     this.db.users.push(user); this.db.userId = user.id; this.save(); return this.safeUser(user);
@@ -238,6 +258,7 @@ export class MockApi implements MarketApi {
     for (const image of input.images) {
       if (image.startsWith('upload:') && !(isUploadRef(image) && this.uploads().some((u) => `upload:${u.id}` === image && (u.ownerId === user.id || u.ownerId === assistedBy) && u.status === 'ACTIVE'))) throw new ApiError('只能使用自己上传的图片，请重新上传', 400);
     }
+    requireCampus(input.campus);
     if (school(user.campus) !== school(input.campus)) throw new Error('只能发布本校商品');
     if (!old) this.requireUnrestricted(user.id, 'PUBLISHING');
     requireSafeText(input.title, input.description);
@@ -373,6 +394,7 @@ export class MockApi implements MarketApi {
   async updateProfile(input: ProfileInput) {
     const u = this.user(), nickname = input.nickname.trim();
     if (!nickname) throw new ApiError('昵称不能为空', 400);
+    requireCampus(input.campus);
     if (school(input.campus) !== school(u.campus)) throw new ApiError('不能通过资料修改学校', 400);
     if (input.dormBuildingId && !DEMO_BUILDINGS.some((b) => b.id === input.dormBuildingId && b.campusId === input.campus)) throw new ApiError('宿舍楼不属于所选校区', 400);
     if (nickname !== u.nickname) requireSafeText(nickname);
@@ -383,6 +405,8 @@ export class MockApi implements MarketApi {
     this.save(); return this.safeUser(u);
   }
   async buildings(campus: Campus) { this.user(); return DEMO_BUILDINGS.filter((b) => b.campusId === campus).map((b) => ({ ...b })); }
+  /** 与 GET /v1/schools 同形（公开，无需登录）。 */
+  async schools() { return DEMO_SCHOOLS.map((s) => ({ ...s, campuses: s.campuses.map((c) => ({ ...c })) })); }
 
   // ---------- 可信治理（用户侧；演示没有工作人员，举报与申诉保持待处理，并如实说明） ----------
   private requireUnrestricted(userId: string, scope: 'CONTACT' | 'PUBLISHING') {
@@ -1013,7 +1037,7 @@ export class MockApi implements MarketApi {
   private validationContext(ownerId: string): ValidationContext {
     const owner = this.db.users.find((u) => u.id === ownerId)!;
     return {
-      campusValid: (campus) => (['东校区', '西校区', '南校区', '北校区'] as string[]).includes(campus) && school(campus as Campus) === school(owner.campus),
+      campusValid: (campus) => demoSchoolOf(campus) !== null && school(campus) === school(owner.campus),
       circlesUsable: (ids, campus) => ids.every((cid) => this.circleStore().some((c) => c.id === cid && c.school === school(campus as Campus) && c.status === 'ACTIVE') && this.activeMember(cid, ownerId)),
       building: (bid) => { const b = DEMO_BUILDINGS.find((x) => x.id === bid); return b ? { campusId: b.campusId } : null; },
       editionInSchoolOf: (eid, campus) => DEMO_EDITIONS.some((e) => e.id === eid && e.school === school(campus as Campus)),
@@ -1340,6 +1364,7 @@ export class MockApi implements MarketApi {
     else if (geoScope === 'CAMPUS') {
       if (requestedBuilding) throw new ApiError('校区范围不需要指定楼栋', 400);
       campusId = requestedCampus ?? user.campus;
+      requireCampus(campusId);
       if (school(campusId as Campus) !== sch) throw new ApiError('校区不属于你所在的学校', 400);
     } else {
       const anchor = requestedBuilding ?? user.dormBuildingId ?? null;

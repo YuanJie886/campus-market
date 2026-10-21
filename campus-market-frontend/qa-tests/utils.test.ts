@@ -83,7 +83,8 @@ import { uid, safeUuid } from '../src/utils/id';
 import { CATEGORY_COVER, CATEGORY_EMOJI, CATEGORY_GRADIENT, ORDER_STATUS_COLOR, CONDITION_COLOR } from '../src/utils/constants';
 // REWRITTEN：外部示例图移到受 externalAllowed 控制的 externalDemoImages.ts（唯一允许出现演示图床主机名的文件）
 import { IMAGE_PRESETS } from '../src/utils/externalDemoImages';
-import { CATEGORIES, CONDITIONS, CAMPUSES, SORT_OPTIONS, DEFAULT_FILTER } from '../src/types';
+import { CATEGORIES, CONDITIONS, SORT_OPTIONS, DEFAULT_FILTER } from '../src/types';
+import * as domainTypes from '../src/types';
 
 /* ================= format.ts ================= */
 section('formatPrice');
@@ -204,7 +205,8 @@ ok('预置图片均为 https', IMAGE_PRESETS.every((u) => u.startsWith('https://
 // REWRITTEN：分类封面不再指向演示图床，改为本地绘制的内联 SVG
 ok('分类封面均为本地 SVG', CATEGORIES.every((c) => CATEGORY_COVER[c].startsWith('data:image/svg+xml') && !/picsum/i.test(CATEGORY_COVER[c])));
 eq('4 种成色', CONDITIONS.length, 4);
-eq('4 个校区', CAMPUSES.length, 4);
+// REWRITTEN：校区由数据登记（GET /v1/schools），前端不再有写死的校区列表
+ok('没有写死的校区常量', !('CAMPUSES' in domainTypes));
 eq('4 种排序', SORT_OPTIONS.length, 4);
 eq('订单状态色齐全', Object.keys(ORDER_STATUS_COLOR).sort(), ['已完成', '已取消', '待确认', '交易中'].sort());
 ok('成色色值齐全', CONDITIONS.every((c) => Boolean(CONDITION_COLOR[c])));

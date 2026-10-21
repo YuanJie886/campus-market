@@ -193,4 +193,8 @@ export function useAuth() {
   if (!ctx) throw new Error("缺少 AuthProvider");
   return ctx;
 }
+/** 不在 AuthProvider 里时返回 null（供也会被单独渲染的表单组件读取本人校区） */
+export function useOptionalAuth() {
+  return useContext(AuthContext);
+}
 export { DEMO_ACCOUNT, DEMO_PASSWORD };

@@ -7,6 +7,7 @@ import { getApiClient } from '../api/client';
 import { toUserMessage } from '../api/errors';
 import type { CourseDetail, TextbookEdition } from '../api/contracts';
 import { useAuth } from '../context/AuthContext';
+import { useSchools } from '../hooks/useSchools';
 import { DEMO_CATALOG_NOTE, offeringLabel, usageLabel } from '../utils/catalog';
 import TextbookEditionSummary from '../components/textbook/TextbookEditionSummary';
 import TextbookSubscribeDialog from '../components/textbook/TextbookSubscribeDialog';
@@ -19,6 +20,7 @@ import TextbookSuggestionDialog from '../components/textbook/TextbookSuggestionD
 export default function CourseDetailPage() {
   const { courseId = '' } = useParams();
   const { currentUser } = useAuth();
+  const { campusLabel } = useSchools();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [subscribeFor, setSubscribeFor] = useState<TextbookEdition | null>(null);
@@ -60,7 +62,7 @@ export default function CourseDetailPage() {
       {course.offerings.map((o) => (
         <section key={o.id} aria-labelledby={`offering-${o.id}`} className="space-y-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-card">
           <h2 id={`offering-${o.id}`} className="text-base font-bold text-slate-800">
-            {offeringLabel(o)}{o.campusId ? ` · ${o.campusId}` : ''}
+            {offeringLabel(o)}{o.campusId ? ` · ${campusLabel(o.campusId)}` : ''}
           </h2>
           {o.textbooks.length === 0 ? (
             <p className="text-sm text-slate-600">本学期还没有已验证的教材信息。</p>

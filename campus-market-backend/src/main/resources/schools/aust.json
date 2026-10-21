@@ -1,0 +1,21 @@
+{
+  "id": "aust",
+  "name": "安徽理工大学",
+  "shortName": "安理工",
+  "coordinateSystem": "GCJ-02",
+  "notes": "楼栋数据待学校核实：楼栋名称与坐标尚未取得，两个校区暂不提供楼栋列表。拿到经学校确认的数据后按 docs/school-data.md 用 CSV 生成并替换本文件。",
+  "campuses": [
+    {
+      "id": "aust-huainan",
+      "name": "淮南校区",
+      "sortOrder": 1,
+      "buildings": []
+    },
+    {
+      "id": "aust-hefei",
+      "name": "合肥校区",
+      "sortOrder": 2,
+      "buildings": []
+    }
+  ]
+}

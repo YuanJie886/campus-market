@@ -150,7 +150,14 @@ public class StaffModerationService {
             throw ApiException.conflict("案件已由其他工作人员领取");
         }
         Map<String, Object> summary = targetSummary(type, target);
-        if (!allowedActions(type, staff, summary).contains(action)) throw ApiException.badRequest("这个动作不适用于该案件");
+        // 案件处理期间所有者自己归档了圈子：工作人员的归档照常记录，标为未生效（与隐藏已隐藏的商品同理），
+        // 而不是因为「圈子已归档、列表里不再提供归档」返回 400——工作人员打开案件时这个动作是可选的
+        Map<String, Object> actionBasis = summary;
+        if ("ARCHIVE_CIRCLE".equals(action) && summary != null && Boolean.TRUE.equals(summary.get("__archived"))) {
+            actionBasis = new LinkedHashMap<>(summary);
+            actionBasis.put("__archived", false);
+        }
+        if (!allowedActions(type, staff, actionBasis).contains(action)) throw ApiException.badRequest("这个动作不适用于该案件");
 
         UUID actionId = UUID.randomUUID();
         UUID restrictionId = null;

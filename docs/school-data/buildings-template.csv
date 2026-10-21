@@ -1,0 +1,3 @@
+campus_id,zone,building_id,building_name,latitude,longitude,sort_order
+example-campus,示例园区,example-campus-1,示例楼1号（请删除本行）,32.000000,117.000000,1
+example-campus,示例园区,example-campus-2,示例楼2号（无坐标；请删除本行）,,,2

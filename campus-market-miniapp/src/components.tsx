@@ -8,7 +8,7 @@ import { imageSrc, isDemo } from './api';
 import { PRIVACY_PAGE, PRIVACY_SUMMARY, TERMS_PAGE, type LegalDocument } from './legal';
 import { PRIVACY_AGREE_BUTTON_ID } from './privacy';
 import { privacy } from './privacyGuard';
-import { goLogin, notifyError, useMarket } from './state';
+import { goLogin, notifyError, useMarket, useSchools } from './state';
 
 export function PageTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return <View className='page-title'><View><Text className='title'>{title}</Text>{subtitle && <Text className='subtitle'>{subtitle}</Text>}</View>{isDemo && <Text className='demo-tag'>演示版</Text>}</View>;
@@ -38,7 +38,7 @@ export function StatusPill({ status }: { status: ProductStatus }) {
 }
 
 export function ProductCard({ product }: { product: Product }) {
-  const { favorites, toggleFavorite } = useMarket();
+  const { favorites, toggleFavorite } = useMarket(), { catalog } = useSchools();
   const [busy, setBusy] = useState(false);
   const active = favorites.includes(product.id);
   return <View className='product-card' onClick={() => void Taro.navigateTo({ url: `/pages/detail/index?id=${encodeURIComponent(product.id)}` })}>
@@ -55,7 +55,7 @@ export function ProductCard({ product }: { product: Product }) {
       {product.textbook ? <Text className='card-tag textbook'>课程教材 · {product.textbook.editionLabel} · {product.textbook.publisher}</Text> : null}
       {product.listingKind === 'BUNDLE' && product.bundle ? <Text className='card-tag bundle'>整套转让 · 包含 {product.bundle.categoryCount} 类 / {product.bundle.totalQuantity} 件</Text> : null}
       {product.visibility === 'CIRCLE_ONLY' && product.circles?.length ? <Text className='card-tag circle'>圈子可见 · {product.circles.map((c) => c.name).join('、')}</Text> : null}
-      <View className='card-meta'><Text>{product.buildingName ? `${product.campus} · ${product.buildingName}` : product.campus}</Text><View className='meta-dot' /><Text>{distanceText(product as Partial<FeedProduct>) || timeAgo(product.createdAt)}</Text></View>
+      <View className='card-meta'><Text>{catalog.locationLabel(product.campus, product.buildingName)}</Text><View className='meta-dot' /><Text>{distanceText(product as Partial<FeedProduct>) || timeAgo(product.createdAt)}</Text></View>
     </View>
   </View>;
 }

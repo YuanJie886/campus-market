@@ -1,9 +1,10 @@
 import { Button, Input, Picker, Text, View } from '@tarojs/components';
 import { useEffect, useState } from 'react';
 import type { Campus, DemandConditions } from '../model';
-import { CAMPUSES, CATEGORIES } from '../model';
+import { CATEGORIES } from '../model';
 import { circleScopeText, demandFormFrom, demandSubmit, FORM_INTRO, FORM_RULES, MAX_KEYWORD_LENGTH, SCOPE_LABEL, SCOPE_ORDER, type DemandForm as Form } from '../demand';
 import { BuildingPicker } from './BuildingPicker';
+import { CampusPicker } from './CampusPicker';
 
 /**
  * 需求订阅表单（与 Web DemandSubscribeDialog 一致）：创建（搜索空态、圈子）与修改共用；预填只是省事，每一项都可以改。
@@ -40,9 +41,7 @@ export function DemandForm({ title, submitLabel, initial, userCampus, busy, erro
     {circleScope ? <Text className='notice sheet-line'>{circleScopeText(circleScope.name)}</Text> : <>
       <Text className='field-label'>地理范围</Text>
       <View className='choice-grid'>{SCOPE_ORDER.map((s) => <Text key={s} className={`choice ${form.geoScope === s ? 'active' : ''}`} onClick={() => patch({ geoScope: s })}>{SCOPE_LABEL[s]}</Text>)}</View>
-      {form.geoScope === 'CAMPUS' && <Picker range={[...CAMPUSES]} value={Math.max(0, CAMPUSES.indexOf(form.campusId))} onChange={(e) => patch({ campusId: CAMPUSES[Number(e.detail.value)] })}>
-        <View className='picker mt-12'><Text className='picker-value'>校区：{form.campusId}</Text><View className='i-chevron' /></View>
-      </Picker>}
+      {form.geoScope === 'CAMPUS' && <CampusPicker value={form.campusId} onChange={(campusId) => patch({ campusId })} prefix='校区：' className='picker mt-12' />}
       {(form.geoScope === 'BUILDING' || form.geoScope === 'ZONE') && <View className='mt-12'>
         <BuildingPicker campus={userCampus} value={form.buildingId} onChange={(buildingId) => patch({ buildingId })} emptyLabel='使用我的宿舍楼' buildingLabel={form.geoScope === 'ZONE' ? '以哪栋楼所在园区为准' : '楼栋'} />
         {form.geoScope === 'ZONE' ? <Text className='field-help'>园区由所选楼栋推导</Text> : null}

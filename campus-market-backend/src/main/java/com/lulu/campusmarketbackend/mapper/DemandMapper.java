@@ -26,6 +26,10 @@ public interface DemandMapper {
     @Select("SELECT school_id FROM campuses WHERE id = #{campus}")
     String selectCampusSchool(@Param("campus") String campus);
 
+    /** 学校数据包：校区是否在用（不存在为 null） */
+    @Select("SELECT active FROM campuses WHERE id = #{campus}")
+    Boolean selectCampusActive(@Param("campus") String campus);
+
     @Select("SELECT count(*) FROM demand_subscriptions WHERE user_id = #{userId} AND active")
     long countActive(@Param("userId") UUID userId);
 
