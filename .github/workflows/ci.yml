@@ -195,7 +195,7 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: campus-market-frontend/package-lock.json
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: backend-jar
           path: campus-market-backend/target
