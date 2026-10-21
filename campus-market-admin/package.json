@@ -18,7 +18,7 @@
     "ra-i18n-polyglot": "5.15.4",
     "ra-language-chinese": "^2.0.10",
     "ra-language-english": "5.15.4",
-    "react": "^18.3.1",
+    "react": "^19.3.1",
     "react-admin": "5.15.4",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.4"
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "24.19.1",
-    "@types/react": "^18.3.3",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "typescript": "^5.5.3",
